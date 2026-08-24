@@ -1,0 +1,14 @@
+# Macro file for the initialization of the kc761sim gamma-spectrometry
+# simulation in an interactive (visualization) session.
+#
+# Note: the verbosity is controlled by the --verbose option of sim.py (with
+# /tracking/verbose intentionally left at its default 0), so no /run/verbose
+# is forced here.  The visualization commands live in vis.mac; the application
+# executes this file and vis.mac with absolute paths (see interactive_mode in
+# sim.py), so this file must NOT reference vis.mac with a relative path when
+# the application is started from another working directory.
+
+/control/saveHistory
+#
+# Initialize kernel (no-op if the run manager is already initialized)
+/run/initialize
