@@ -12,7 +12,7 @@ FWHM/2.355 fraction at that line), bounded between 0 and 1, and the three must
 *decrease* with energy (resolution improves as energy rises).  The
 coefficients are recovered by solving the 3x3 linear system
 r_i E_i = a0 + a1 sqrt(E_i) + a2 E_i; they are only needed for the forward
-model and the final report (``res_to_a``), and the relative resolutions are
+model and the final report (``resol_to_a``), and the relative resolutions are
 recovered from a given a by evaluation (``a_to_res``).
 
 Convolution algorithm (normalized sliding window)
@@ -48,10 +48,10 @@ except ImportError:  # pragma: no cover
     _HAVE_NUMBA = False
 
 # Reference energies (keV) whose relative resolutions parameterize the fit.
-RES_ENERGIES = np.array([60.0, 1461.0, 2614.0])
+RESOL_ENERGIES = np.array([60.0, 1461.0, 2614.0])
 
-# Default relative resolutions r = sigma/E at RES_ENERGIES (initial fit values).
-DEFAULT_R = np.array([0.3, 0.03, 0.02])
+# Initial relative resolutions r = sigma/E at RESOL_ENERGIES (fit start values).
+INIT_R = np.array([0.3, 0.03, 0.02])
 
 # Fit bounds for the relative resolutions (dimensionless, must stay < 1).
 BOUNDS_R = [(0.0, 1.0)] * 3
@@ -123,14 +123,14 @@ def sigma_model(a: np.ndarray | list[float], e: np.ndarray | float) -> np.ndarra
 
 
 def a_to_res(a: np.ndarray | list[float],
-             energies: np.ndarray | list[float] = RES_ENERGIES) -> np.ndarray:
+             energies: np.ndarray | list[float] = RESOL_ENERGIES) -> np.ndarray:
     """Relative resolution r = sigma(E)/E at the reference energies."""
     e = np.asarray(energies, dtype=float)
     return sigma_model(a, e) / e
 
 
-def res_to_a(r: np.ndarray | list[float],
-             energies: np.ndarray | list[float] = RES_ENERGIES,
+def resol_to_a(r: np.ndarray | list[float],
+             energies: np.ndarray | list[float] = RESOL_ENERGIES,
              jacobian: bool = False) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Resolution coefficients a = [a0, a1, a2] whose relative widths at the
     reference ``energies`` equal ``r`` (linear solve on r E = sigma(E)).

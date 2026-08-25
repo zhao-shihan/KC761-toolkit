@@ -45,9 +45,9 @@ from dataclasses import dataclass
 import numpy as np
 
 from .calibration import channels_to_c, monotonicity_penalty as calib_penalty
-from .fitmodel import DEFAULT_INIT, PARAM_NAMES, FitModel
+from .fitmodel import INIT_PARAMS, PARAM_NAMES, FitModel
 from .resolution import (
-    BOUNDS_R, monotonicity_penalty as res_penalty, res_to_a,
+    BOUNDS_R, monotonicity_penalty as resol_penalty, resol_to_a,
 )
 
 
@@ -133,10 +133,10 @@ class GlobalFitModel:
 
     # -- construction helpers ---------------------------------------------
     def _build_x0(self) -> np.ndarray:
-        """Initial parameters: global-fit channels / resolutions (defaults)
-        plus the per-dataset weighted least-squares scale estimates."""
+        """Initial parameters: global-fit channels / resolutions (initial
+        values) plus the per-dataset weighted least-squares scale estimates."""
         return np.concatenate(
-            [np.asarray(DEFAULT_INIT[:7], dtype=float)] +
+            [np.asarray(INIT_PARAMS[:7], dtype=float)] +
             [np.array([m.x0[7]]) for m in self.models])
 
     def _build_bounds(self) -> list[tuple[float, float]]:
@@ -159,8 +159,9 @@ class GlobalFitModel:
 
         Used to re-bin every dataset after a first pass, so each grid matches
         the actual (global-fit) channel-to-energy density at that dataset's
-        native resolution.  The initial resolutions are kept at the defaults;
-        the per-dataset initial scales are re-estimated for the new grids.
+        native resolution.  The initial resolutions are kept at the initial
+        values; the per-dataset initial scales are re-estimated for the new
+        grids.
         """
         channels = np.asarray(channels, dtype=float)
         g = GlobalFitModel(self.specs, sys_frac=self.sys_fracs,
@@ -201,7 +202,7 @@ class GlobalFitModel:
         if c is None:
             c = channels_to_c(q[:4])
         if a is None:
-            a = res_to_a(q[4:7])
+            a = resol_to_a(q[4:7])
         d_all, err_all, m_all = [], [], []
         for m in self.models:
             d, err, m_raw = m.arrays(q[:7], c, a)
@@ -222,7 +223,7 @@ class GlobalFitModel:
         """
         q = np.asarray(q, dtype=float)
         c = channels_to_c(q[:4])
-        a = res_to_a(q[4:7])
+        a = resol_to_a(q[4:7])
         masks = (self._split_mask(mask) if mask is not None
                  else [None] * self.n_datasets)
         res = []
@@ -269,7 +270,7 @@ class GlobalFitModel:
         r = np.asarray(q[4:7], dtype=float)
         s = np.asarray(q[7:7 + self.n_datasets], dtype=float)
         c = channels_to_c(x)
-        a = res_to_a(r)
+        a = resol_to_a(r)
         p = np.concatenate([x, r, s])
 
         entries = []
@@ -306,7 +307,7 @@ class GlobalFitModel:
 
         chi2 = float(np.sum(chi2_per))
         ndof = int(np.sum(bins_per)) - (self.n_global_params + self.n_datasets)
-        pen = calib_penalty(x) + res_penalty(r)
+        pen = calib_penalty(x) + resol_penalty(r)
         return dict(
             datasets=entries,
             d=np.concatenate(d_all), err=np.concatenate(err_all),

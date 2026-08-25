@@ -35,15 +35,15 @@ from pathlib import Path
 # Allow running from any working directory.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from kc761fit.calibration import CAL_ENERGIES  # noqa: E402
+from kc761fit.calibration import CALIB_ENERGIES  # noqa: E402
 from kc761fit.fitmodel import (  # noqa: E402
-    DEFAULT_INIT, PARAM_NAMES, PARAM_NAMES_A, PARAM_NAMES_C, FitModel,
+    INIT_PARAMS, PARAM_NAMES, PARAM_NAMES_A, PARAM_NAMES_C, FitModel,
 )
 from kc761fit.fitter import run_fit, run_global_fit  # noqa: E402
 from kc761fit.globalfit import DatasetSpec, GlobalFitModel  # noqa: E402
 from kc761fit.io import load_data_spectrum, load_sim_spectrum  # noqa: E402
 from kc761fit.plot import plot_fit, plot_global_fit  # noqa: E402
-from kc761fit.resolution import RES_ENERGIES  # noqa: E402
+from kc761fit.resolution import RESOL_ENERGIES  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -113,10 +113,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "grid at the native resolution (one bin per data "
                              "channel), rebuilt from the fitted calibration "
                              "between passes (default 5)")
-    for name, init in zip(PARAM_NAMES[:7], DEFAULT_INIT[:7]):
+    for name, init in zip(PARAM_NAMES[:7], INIT_PARAMS[:7]):
         parser.add_argument(f"--{name}", type=float, default=None,
                             help=f"[global-fit] initial value of {name} "
-                                 f"(default {init:g})")
+                                 f"(initial {init:g})")
     return parser.parse_args(argv)
 
 
@@ -154,7 +154,7 @@ def _run_single(args) -> int:
               file=sys.stderr)
         return 1
 
-    x0 = list(DEFAULT_INIT)
+    x0 = list(INIT_PARAMS)
     for i, name in enumerate(PARAM_NAMES):
         v = getattr(args, name)
         if v is not None:
@@ -193,9 +193,9 @@ def _run_single(args) -> int:
         print(f"[fit] note: soft monotonicity penalty = {pen:.3g} "
               f"(chi2 above excludes it; 0 for a physically ordered fit)")
     print("[fit] fitted parameters (channels at "
-          f"{'/'.join(f'{e:g}' for e in CAL_ENERGIES)} keV, "
+          f"{'/'.join(f'{e:g}' for e in CALIB_ENERGIES)} keV, "
           f"relative resolution sigma/E at "
-          f"{'/'.join(f'{e:g}' for e in RES_ENERGIES)} keV, scale):")
+          f"{'/'.join(f'{e:g}' for e in RESOL_ENERGIES)} keV, scale):")
     for name, v, e in zip(result.names, result.params, result.errors):
         print(f"[fit]   {name:>6s} = {v: .6g} +/- {e:.3g}")
     print("[fit] derived calibration coefficients c0..c3:")
@@ -283,9 +283,9 @@ def _run_global(args) -> int:
               f"{result.bins_per_dataset[i]} bins, "
               f"scale s = {result.scales[i]:.6g} +/- {result.scale_errors[i]:.3g}")
     print("[fit] global-fit parameters (channels at "
-          f"{'/'.join(f'{e:g}' for e in CAL_ENERGIES)} keV, "
+          f"{'/'.join(f'{e:g}' for e in CALIB_ENERGIES)} keV, "
           f"relative resolution sigma/E at "
-          f"{'/'.join(f'{e:g}' for e in RES_ENERGIES)} keV):")
+          f"{'/'.join(f'{e:g}' for e in RESOL_ENERGIES)} keV):")
     for name, v, e in zip(result.names[:7], result.params[:7], result.errors[:7]):
         print(f"[fit]   {name:>6s} = {v: .6g} +/- {e:.3g}")
     print("[fit] derived calibration coefficients c0..c3:")

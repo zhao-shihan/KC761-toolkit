@@ -42,7 +42,7 @@ zero for any physically ordered point, so it does not bias the minimum; the
 only hard-degeneracy condition is insufficient data coverage.
 
 The polynomial coefficients c0..c3 and a0..a2 are derived from q
-(``channels_to_c`` / ``res_to_a``) only where the forward model needs them
+(``channels_to_c`` / ``resol_to_a``) only where the forward model needs them
 and reported alongside the fitted channels/resolutions on output.
 """
 
@@ -51,12 +51,12 @@ from __future__ import annotations
 import numpy as np
 
 from .calibration import (
-    DEFAULT_X, channels_to_c, monotonicity_penalty as calib_monotonicity_penalty,
+    INIT_X, channels_to_c, monotonicity_penalty as calib_monotonicity_penalty,
     poly3,
 )
 from .resolution import (
-    BOUNDS_R, DEFAULT_R, monotonicity_penalty as res_monotonicity_penalty,
-    res_to_a, smear,
+    BOUNDS_R, INIT_R, monotonicity_penalty as resol_monotonicity_penalty,
+    resol_to_a, smear,
 )
 
 # Order of the fitted (reported) parameters.
@@ -70,10 +70,10 @@ SCALE_INIT = 1.0
 # Scale fit bounds (dimensionless normalization).
 BOUNDS_S = [(1e-3, 1e3)]
 
-# Default initial values: channel positions of the calibration lines,
-# relative resolutions, scale.  The per-channel upper bound (0, n_bins)
-# depends on the data and is built in FitModel.__init__.
-DEFAULT_INIT = np.concatenate([DEFAULT_X, DEFAULT_R, [SCALE_INIT]])
+# Initial values: channel positions of the calibration lines, relative
+# resolutions, scale.  The per-channel upper bound (0, n_bins) depends on
+# the data and is built in FitModel.__init__.
+INIT_PARAMS = np.concatenate([INIT_X, INIT_R, [SCALE_INIT]])
 
 
 class FitModel:
@@ -117,12 +117,12 @@ class FitModel:
         n = float(data.n_bins)
         self.bounds = [(0.0, n)] * 4 + BOUNDS_R + BOUNDS_S
 
-        self.x0 = np.array(DEFAULT_INIT, dtype=float)
+        self.x0 = np.array(INIT_PARAMS, dtype=float)
         self.grid_edges = self._make_grid(width)
         self.grid_centers = 0.5 * (self.grid_edges[:-1] + self.grid_edges[1:])
 
         # Reasonable initial scale: the weighted least-squares estimate at
-        # the default calibration / resolution.
+        # the initial calibration / resolution.
         self.x0 = np.append(self.x0[:-1], self._initial_scale(self.x0[:-1]))
 
     def total_errors(self, d, err_stat) -> np.ndarray:
@@ -238,7 +238,7 @@ class FitModel:
         for the derivative-free optimizer.
         """
         c = channels_to_c(q[:4])
-        a = res_to_a(q[4:7])
+        a = resol_to_a(q[4:7])
         d, err, m_raw = self.arrays(q, c, a)
         if int(np.sum(err > 0)) < self.min_usable_bins:
             return False, None, None, None, c, a
@@ -281,7 +281,7 @@ class FitModel:
         if c is None:
             c = channels_to_c(q[:4])
         if a is None:
-            a = res_to_a(q[4:7])
+            a = resol_to_a(q[4:7])
         d, err = self.rebin_data(c)
         m_raw = self.model_counts(a)
         return d, err, m_raw
@@ -295,7 +295,7 @@ class FitModel:
         affected, so this cannot bias the result.
         """
         c = channels_to_c(p[:4])
-        a = res_to_a(p[4:7])
+        a = resol_to_a(p[4:7])
         s = float(p[7])
         return dict(
             d=np.array([]), err=np.array([]), m_raw=np.array([]),
@@ -331,7 +331,7 @@ class FitModel:
         mu = self.grid_centers[mask]
         m = s * m_raw
         chi2 = float(np.sum((d - m) ** 2 / err**2))
-        pen = calib_monotonicity_penalty(x) + res_monotonicity_penalty(r)
+        pen = calib_monotonicity_penalty(x) + resol_monotonicity_penalty(r)
         ndof = len(d) - len(PARAM_NAMES)
         return dict(
             d=d, err=err, m_raw=m_raw, m=m, s=s,

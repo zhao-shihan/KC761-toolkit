@@ -52,7 +52,7 @@ from scipy import optimize
 
 from .calibration import channels_to_c
 from .fitmodel import PARAM_NAMES
-from .resolution import res_to_a
+from .resolution import resol_to_a
 
 
 @dataclass
@@ -209,7 +209,7 @@ def _finalize(model, q, success: bool = True, message: str = "", nfev: int = 0):
 
     # Derived coefficients with propagated uncertainties (linear maps).
     c, jac_c = channels_to_c(q[:4], jacobian=True)
-    a, jac_a = res_to_a(q[4:7], jacobian=True)
+    a, jac_a = resol_to_a(q[4:7], jacobian=True)
     cov_c = jac_c @ cov[:4, :4] @ jac_c.T
     cov_a = jac_a @ cov[4:7, 4:7] @ jac_a.T
     perr_c = np.sqrt(np.clip(np.diag(cov_c), 0, None))
@@ -248,7 +248,7 @@ def _finalize_global(model, q, success: bool = True, message: str = "",
 
     # Derived coefficients with propagated uncertainties (linear maps).
     c, jac_c = channels_to_c(q[:4], jacobian=True)
-    a, jac_a = res_to_a(q[4:7], jacobian=True)
+    a, jac_a = resol_to_a(q[4:7], jacobian=True)
     cov_c = jac_c @ cov[:4, :4] @ jac_c.T
     cov_a = jac_a @ cov[4:7, 4:7] @ jac_a.T
     perr_c = np.sqrt(np.clip(np.diag(cov_c), 0, None))
