@@ -19,13 +19,16 @@ from geant4_pybind import (
     G4Random,
     G4RunManagerFactory,
     G4RunManagerType,
-    G4UImanager,
-)
-
-from . import actions, config, detector, materials, physics
+    G4UImanager)
+from . import (
+    actions,
+    config,
+    detector,
+    materials,
+    physics)
 
 #: default random seed used when --seed is not given (worker i uses seed + i + 1)
-DEFAULT_SEED = 123456789
+DEFAULT_SEED = 908136382
 
 
 def _output_stem(path: str) -> str:

@@ -16,8 +16,7 @@ from geant4_pybind import (
     G4StoppingPhysics,
     G4UImanager,
     G4VModularPhysicsList,
-    mm,
-)
+    mm)
 
 
 class PhysicsList(G4VModularPhysicsList):

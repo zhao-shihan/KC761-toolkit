@@ -28,17 +28,14 @@ from geant4_pybind import (
     cm,
     deg,
     mm,
-    twopi,
-)
-
+    twopi)
 from .config import (
     Box,
     Disk,
     SourceSpec,
     Sphere,
     Tube,
-    source_center_z,
-)
+    source_center_z)
 
 #: World half-size (cm).
 WORLD_HALF_SIZE = 15.0 * cm

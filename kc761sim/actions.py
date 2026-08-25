@@ -24,8 +24,7 @@ from geant4_pybind import (
     G4VUserPrimaryGeneratorAction,
     keV,
     s,
-    us,
-)
+    us)
 
 G4AnalysisManager = G4RootAnalysisManager
 
