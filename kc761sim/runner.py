@@ -13,6 +13,7 @@ from __future__ import annotations
 import multiprocessing
 import contextlib
 import os
+import shutil
 
 from geant4_pybind import (
     G4EmParameters,
@@ -45,6 +46,16 @@ def _output_stem(path: str) -> str:
 
 def _final_output_path(path: str) -> str:
     return _output_stem(path) + ".root"
+
+
+def _temp_work_dir(stem: str) -> str:
+    """Temporary directory that holds the per-worker ROOT files.
+
+    The directory is hidden (leading dot) and derived from the output file
+    name, e.g. ``sim_output.root`` -> ``.sim_output-kc761sim_wip``.
+    """
+    dirname, basename = os.path.split(stem)
+    return os.path.join(dirname, f".{basename}-kc761sim_wip")
 
 
 def apply_verbosity(run_manager, verbose: int) -> None:
@@ -182,6 +193,16 @@ def run_batch(
         offsets.append(running)
         running += chunk
 
+    # Each worker writes its ROOT ntuple to a hidden temporary directory
+    # (".<stem>-kc761sim_wip") under the name "<stem>-kc761sim_w<i>_wip.root";
+    # the chunks are merged into the final output only after every worker has
+    # finished, and the temporary directory is then removed.
+    work_dir = _temp_work_dir(stem)
+    if os.path.isdir(work_dir):
+        shutil.rmtree(work_dir)  # drop stale files from an earlier failed run
+    os.makedirs(work_dir)
+    base = os.path.basename(stem)
+
     worker_stems: list[str] = []
     tasks: list[multiprocessing.pool.AsyncResult] = []
     pool = multiprocessing.Pool(threads)
@@ -189,7 +210,8 @@ def run_batch(
         for i, (chunk, offset) in enumerate(zip(chunks, offsets)):
             if chunk <= 0:
                 continue
-            worker_stems.append(f"{stem}_w{i}")
+            worker_stems.append(
+                os.path.join(work_dir, f"{base}-kc761sim_w{i}_wip"))
             tasks.append(
                 pool.apply_async(
                     run_simulation,
@@ -214,6 +236,4 @@ def run_batch(
     try:
         merge_root_files(final_path, worker_paths)
     finally:
-        for path in worker_paths:
-            if os.path.exists(path):
-                os.remove(path)
+        shutil.rmtree(work_dir, ignore_errors=True)

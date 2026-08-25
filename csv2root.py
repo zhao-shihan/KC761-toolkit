@@ -15,10 +15,13 @@ Examples:
 from __future__ import annotations
 
 import argparse
-import shutil
-import subprocess
 import sys
 from pathlib import Path
+
+# Allow running from any working directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from kc761util.frontend import add_root_option, run_macro  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -33,10 +36,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "-o", "--output", type=Path, default=None,
         help="output ROOT file (default: input filename with suffix replaced by .root)",
     )
-    parser.add_argument(
-        "--root", default=None,
-        help="path to the ROOT executable (default: 'root' found on PATH)",
-    )
+    add_root_option(parser)
     return parser.parse_args(argv)
 
 
@@ -51,30 +51,13 @@ def main(argv: list[str] | None = None) -> int:
     output_file = (input_file.with_suffix(".root")
                    if args.output is None else args.output.expanduser().resolve())
 
-    root_exe = args.root or shutil.which("root")
-    if not root_exe:
-        print("[csv2root] error: 'root' executable not found on PATH (use --root)",
-              file=sys.stderr)
-        return 1
-
-    macro = Path(__file__).resolve().parent / "kc761util" / "csv2root.cxx"
-    if not macro.is_file():
-        print(f"[csv2root] error: macro not found: {macro}", file=sys.stderr)
-        return 1
-
-    # Escape characters that would confuse ROOT's command-line macro parsing.
-    esc = lambda s: str(s).replace("\\", "\\\\").replace('"', '\\"')
-    script = f'{esc(macro)}("{esc(input_file)}","{esc(output_file)}")'
-
-    cmd = [root_exe, "-l", "-b", "-q", script]
-    print("[csv2root] running:", " ".join(cmd))
-
-    try:
-        proc = subprocess.run(cmd, cwd=str(input_file.parent))
-    except OSError as exc:
-        print(f"[csv2root] error: failed to run ROOT: {exc}", file=sys.stderr)
-        return 1
-    return proc.returncode
+    return run_macro(
+        "kc761util/csv2root.cxx",
+        [str(input_file), str(output_file)],
+        root_exe=args.root,
+        cwd=input_file.parent,
+        echo_prefix="csv2root",
+    )
 
 
 if __name__ == "__main__":
