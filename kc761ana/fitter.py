@@ -94,8 +94,9 @@ def _residual(q, model, fixed_mask):
     d = d[fixed_mask]
     err = err[fixed_mask]
     m_raw = m_raw[fixed_mask]
-    # Variance floor consistent with FitModel.detail.
-    err = np.sqrt(np.maximum(err**2, model.min_variance))
+    # Statistical + fractional-systematic errors, consistent with
+    # FitModel.detail.
+    err = model.total_errors(d, err)
     s = float(q[7])
     return (d - s * m_raw) / err
 
@@ -196,7 +197,7 @@ def _finalize(model, q):
 
 
 def run_fit(model, x0=None, bounds=None, maxiter: int = None,
-            n_passes: int = 3, verbose: bool = True) -> FitResult:
+            n_passes: int = 5, verbose: bool = True) -> FitResult:
     """Minimise chi^2 on the model's energy grid; return the fit result.
 
     ``x0`` / ``bounds`` are in the fit parameter space
@@ -204,7 +205,7 @@ def run_fit(model, x0=None, bounds=None, maxiter: int = None,
     are used.  The returned parameters, errors and covariance are in the same
     space, and the derived coefficients (c0..c3, a0..a2) are reported too.
 
-    Multi-pass scheme (``n_passes``, default 3): each pass fits from a single
+    Multi-pass scheme (``n_passes``, default 5): each pass fits from a single
     starting point on a *fixed* energy grid — pass 1 starts from the initial
     values, later passes warm-start from the previous pass's solution.
     Between passes the grid is rebuilt from the fitted calibration, with the

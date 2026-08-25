@@ -18,7 +18,10 @@ Forward model (all on a *fixed* uniform energy grid over [elow, ehigh])
    resolution whose *relative* widths sigma(E)/E at 60/1461/2614 keV are the
    fit parameters (see :mod:`kc761ana.resolution`) directly onto the same
    fixed grid, matching the simulation to the data binning.
-3. chi^2 = sum over grid bins with error > 0 of (d - s m)^2 / sigma^2.
+3. chi^2 = sum over grid bins with error > 0 of (d - s m)^2 / sigma^2,
+   where sigma is the statistical error plus a fractional systematic
+   proportional to the bin counts, added in quadrature (see
+   ``FitModel.total_errors``; ``sys_frac``, default 5%).
 
 Parameters
 ----------
@@ -86,12 +89,16 @@ class FitModel:
     """
 
     def __init__(self, data, sim, elow: float, ehigh: float, width: float | None = None,
-                 width_factor: float = 1.0):
+                 width_factor: float = 1.0, sys_frac: float = 0.05):
         self.data = data
         self.sim = sim
         self.elow = float(elow)
         self.ehigh = float(ehigh)
         self.width_factor = float(width_factor)
+        # Per-bin fractional systematic error (dimensionless, e.g. 0.05 = 5%),
+        # added in quadrature to the statistical errors proportional to the
+        # bin counts: err = sqrt(err_stat^2 + (sys_frac * d)^2).
+        self.sys_frac = float(sys_frac)
 
         # Variance floor (counts^2) applied to the data errors in the chi^2
         # weights.  Real background-subtracted errors are sqrt(S + r^2 B);
@@ -119,6 +126,18 @@ class FitModel:
         # least-squares estimate at the default calibration / resolution.
         self.x0 = np.append(self.x0[:-1], self._initial_scale(self.x0[:-1]))
 
+    def total_errors(self, d, err_stat) -> np.ndarray:
+        """Total per-bin errors used in the chi^2 weights.
+
+        Statistical error plus a fractional systematic proportional to the
+        bin counts (``sys_frac``), added in quadrature, with the
+        ``min_variance`` floor:
+
+            err = sqrt(err_stat^2 + (sys_frac * d)^2),  floored at 1 count.
+        """
+        var = err_stat**2 + (self.sys_frac * d) ** 2
+        return np.sqrt(np.maximum(var, self.min_variance))
+
     def _initial_scale(self, q7) -> float:
         """Weighted least-squares scale estimate at parameters q7."""
         d, err, m_raw = self.arrays(q7)
@@ -126,6 +145,7 @@ class FitModel:
         if not np.any(mask):
             return 1.0
         d, err, m_raw = d[mask], err[mask], m_raw[mask]
+        err = self.total_errors(d, err)
         smm = float(np.sum(m_raw * m_raw / err**2))
         if smm <= 0:
             return 1.0
@@ -165,7 +185,7 @@ class FitModel:
         """
         m = FitModel(self.data, self.sim, self.elow, self.ehigh, width=width,
                      width_factor=self.width_factor if width_factor is None
-                     else width_factor)
+                     else width_factor, sys_frac=self.sys_frac)
         channels = np.asarray(channels, dtype=float)
         m.x0 = np.concatenate([channels, m.x0[4:]])
         m.grid_edges = m._make_grid(width, c_orig=channels_to_c(channels))
@@ -326,8 +346,9 @@ class FitModel:
             return self._degenerate_detail(p)
         mask = err > 0
         d, err, m_raw = d[mask], err[mask], m_raw[mask]
-        # Variance floor in the weights (see __init__).
-        err = np.sqrt(np.maximum(err**2, self.min_variance))
+        # Statistical + fractional-systematic errors in the chi^2 weights
+        # (see __init__ / total_errors).
+        err = self.total_errors(d, err)
         mu = self.grid_centers[mask]
         m = s * m_raw
         chi2 = float(np.sum((d - m) ** 2 / err**2))

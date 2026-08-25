@@ -35,7 +35,7 @@ CAL_ENERGIES = np.array([60.0, 609.0, 1461.0, 2614.0])
 
 # Default channel positions of the reference lines (initial fit values),
 # typical for the KC761 MCA (~1.49 keV/channel, 2048 channels).
-DEFAULT_X = np.array([155.0, 471.0, 888.0, 1361.0])
+DEFAULT_X = np.array([150.0, 470.0, 890.0, 1360.0])
 
 # Soft monotonicity-penalty strength: chi^2 units per (channel)^2 of
 # ordering violation.  A 1-channel reversal of the calibration-line order
