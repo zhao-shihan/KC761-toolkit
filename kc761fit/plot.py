@@ -13,15 +13,17 @@ scale together with the derived coefficients c0..c3 and a0..a2.
 """
 
 from __future__ import annotations
-from .resolution import RES_ENERGIES, sigma_model
-from .fitmodel import PARAM_NAMES_A, PARAM_NAMES_C
-from .calibration import CAL_ENERGIES, poly3
-import matplotlib.pyplot as plt
-
-import numpy as np
 
 import matplotlib
+
 matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+from .calibration import CAL_ENERGIES, poly3
+from .fitmodel import PARAM_NAMES_A, PARAM_NAMES_C
+from .resolution import RES_ENERGIES, sigma_model
 
 
 def plot_fit(model, result, out_pdf: str, elow: float, ehigh: float) -> None:

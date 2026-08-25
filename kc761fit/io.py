@@ -29,18 +29,27 @@ class Spectrum:
         return len(self.counts)
 
 
+def _load_spectrum(path: str, hist_name: str, with_errors: bool) -> Spectrum:
+    """Read the TH1D ``hist_name`` from a ROOT file as a Spectrum.
+
+    With ``with_errors=True`` the per-bin errors are read from the histogram;
+    otherwise they are dropped (``errors=None``).
+    """
+    with uproot.open(path) as f:
+        h = f[hist_name]
+    counts = np.asarray(h.values(), dtype=float)
+    errors = np.asarray(h.errors(), dtype=float) if with_errors else None
+    edges = np.asarray(h.axis().edges(), dtype=float)
+    return Spectrum(counts, errors, edges)
+
+
 def load_data_spectrum(path: str, hist_name: str = "kc761_spectrum") -> Spectrum:
     """Read an experimental spectrum (counts + errors) from a ROOT file.
 
     Typical input: the background-subtracted file written by subbkg.cxx
     (TH1D "kc761_spectrum" with per-bin errors stored).
     """
-    with uproot.open(path) as f:
-        h = f[hist_name]
-    counts = np.asarray(h.values(), dtype=float)
-    errors = np.asarray(h.errors(), dtype=float)
-    edges = np.asarray(h.axis().edges(), dtype=float)
-    return Spectrum(counts, errors, edges)
+    return _load_spectrum(path, hist_name, with_errors=True)
 
 
 def load_sim_spectrum(path: str, hist_name: str = "kc761_spectrum") -> Spectrum:
@@ -51,8 +60,4 @@ def load_sim_spectrum(path: str, hist_name: str = "kc761_spectrum") -> Spectrum:
     (TH1D "kc761_spectrum", 1 keV bins).  Its per-bin errors are not needed
     for the fit and are dropped.
     """
-    with uproot.open(path) as f:
-        h = f[hist_name]
-    counts = np.asarray(h.values(), dtype=float)
-    edges = np.asarray(h.axis().edges(), dtype=float)
-    return Spectrum(counts, None, edges)
+    return _load_spectrum(path, hist_name, with_errors=False)

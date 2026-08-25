@@ -3,35 +3,35 @@
 Resolution model:
     sigma(E) = a2 E + a1 sqrt(E) + a0      (keV, E in keV)
 
-Fit parameterisation
+Fit parameterization
 --------------------
 Instead of fitting the polynomial coefficients a0..a2 directly, the fit works
 in terms of the *relative* resolution r(E) = sigma(E)/E at the reference
 energies 60 keV, 1461 keV, 2614 keV.  Each is a dimensionless width (the
-FWHM/2.355 fraction at that line), bounded between 0 and 1, and they must
+FWHM/2.355 fraction at that line), bounded between 0 and 1, and the three must
 *decrease* with energy (resolution improves as energy rises).  The
 coefficients are recovered by solving the 3x3 linear system
 r_i E_i = a0 + a1 sqrt(E_i) + a2 E_i; they are only needed for the forward
 model and the final report (``res_to_a``), and the relative resolutions are
 recovered from a given a by evaluation (``a_to_res``).
 
-Convolution algorithm (normalised sliding window):
-    The intrinsic simulation histogram f is convolved with a Gaussian of
-    width sigma(E).  For every target bin i (centre mu_i) only the
-    simulation bins within nsigma * sigma(mu_i) are used:
+Convolution algorithm (normalized sliding window)
+-------------------------------------------------
+The intrinsic simulation histogram f is convolved with a Gaussian of width
+sigma(E).  For every target bin i (center mu_i) only the simulation bins
+within nsigma * sigma(mu_i) are used:
 
-        g_ij = exp(-(mu_i - E_j)^2 / (2 sigma_j^2))
-               / (sigma_j sqrt(2 pi)) * dE_j
+    g_ij = exp(-(mu_i - E_j)^2 / (2 sigma_j^2))
+           / (sigma_j sqrt(2 pi)) * dE_j
 
-    with E_j the simulation bin centre, sigma_j = sigma(E_j) its true-energy
-    width.  The result is the smeared density sum_j f_j G(mu_i - E_j)
-    multiplied by the target bin width; counts of simulation bins near the
-    edge of the fitted energy range leak out naturally (the physical
-    behaviour), and the fit's normalisation scale absorbs the overall
-    factor.  With simulation bins much narrower than sigma (the usual case)
-    this is a very accurate approximation of the exact histogram
-    convolution, at a fraction of the cost of building the full kernel
-    matrix.
+with E_j the simulation bin center and sigma_j = sigma(E_j) its true-energy
+width.  The result is the smeared density sum_j f_j G(mu_i - E_j) multiplied
+by the target bin width; counts of simulation bins near the edge of the
+fitted energy range leak out naturally (the physical behavior), and the fit's
+normalization scale absorbs the overall factor.  With simulation bins much
+narrower than sigma (the usual case) this is a very accurate approximation of
+the exact histogram convolution, at a fraction of the cost of building the
+full kernel matrix.
 """
 
 from __future__ import annotations
@@ -46,6 +46,25 @@ try:  # numba is optional; without it the numpy convolution fallback is used.
 except ImportError:  # pragma: no cover
     numba = None
     _HAVE_NUMBA = False
+
+# Reference energies (keV) whose relative resolutions parameterize the fit.
+RES_ENERGIES = np.array([60.0, 1461.0, 2614.0])
+
+# Default relative resolutions r = sigma/E at RES_ENERGIES (initial fit values).
+DEFAULT_R = np.array([0.1, 0.03, 0.02])
+
+# Fit bounds for the relative resolutions (dimensionless, must stay < 1).
+BOUNDS_R = [(0.0, 1.0)] * 3
+
+# Soft monotonicity-penalty strength: chi^2 units per (relative-resolution
+# unit)^2 of ordering violation.  The relative resolutions are O(0.03), so a
+# reversal of 0.01 (one "resolution unit") costs ~10 chi^2 units, growing
+# quadratically — a gentle prior that discourages resolution worsening with
+# energy without fighting the data where it is unconstrained (e.g. anchors far
+# outside the fitted energy range), while keeping the objective finite and
+# smooth for the derivative-free optimizer.
+MONOTONICITY_PENALTY = 1e5
+
 
 if _HAVE_NUMBA and "NUMBA_NUM_THREADS" not in os.environ:
     # The convolution kernel is small (one thread per handful of grid bins),
@@ -66,7 +85,7 @@ if _HAVE_NUMBA:
 
         A sliding window over the simulation bins (no large intermediate
         matrix, no per-call allocation) makes this far faster than the
-        vectorised numpy version; ``prange`` splits the target bins across
+        vectorized numpy version; ``prange`` splits the target bins across
         threads (NUMBA_NUM_THREADS controls the count).
         """
         out = np.empty(mu.shape[0], dtype=np.float64)
@@ -80,34 +99,8 @@ if _HAVE_NUMBA:
             out[i] = widths[i] * s
         return out
 
-# Reference energies (keV) whose relative resolutions parameterise the fit.
-RES_ENERGIES = np.array([60.0, 1461.0, 2614.0])
 
-# Default relative resolutions r = sigma/E at RES_ENERGIES (initial fit values)
-DEFAULT_R = np.array([0.1, 0.03, 0.02])
-
-# Fit bounds for the relative resolutions (dimensionless, must stay < 1).
-BOUNDS_R = [(0.0, 1.0)] * 3
-
-# Soft monotonicity-penalty strength: chi^2 units per (relative-resolution
-# unit)^2 of ordering violation.  The relative resolutions are O(0.03), so a
-# reversal of 0.01 (one "resolution unit") costs ~10 chi^2 units, growing
-# quadratically — a gentle prior that discourages resolution worsening with
-# energy without fighting the data where it is unconstrained (e.g. anchors
-# far outside the fitted energy range), while keeping the objective finite
-# and smooth for the derivative-free optimiser.
-MONOTONICITY_PENALTY = 1e5
-
-
-def ordering_slack(r) -> float:
-    """Constraint slack (>= 0 for strictly decreasing resolutions): the
-    minimum of -gap, where gap = r_{i+1} - r_i (resolution improves as energy
-    rises, so r60 > r1461 > r2614)."""
-    gaps = np.diff(np.asarray(r, dtype=float))
-    return float(-np.max(gaps))
-
-
-def monotonicity_penalty(r) -> float:
+def monotonicity_penalty(r: np.ndarray | list[float]) -> float:
     """Soft, continuously rising penalty for non-decreasing resolutions.
 
     Zero when the relative resolutions are strictly decreasing
@@ -129,13 +122,16 @@ def sigma_model(a: np.ndarray | list[float], e: np.ndarray | float) -> np.ndarra
     return a2 * e + a1 * np.sqrt(np.maximum(e, 0.0)) + a0
 
 
-def a_to_res(a, energies=RES_ENERGIES) -> np.ndarray:
+def a_to_res(a: np.ndarray | list[float],
+             energies: np.ndarray | list[float] = RES_ENERGIES) -> np.ndarray:
     """Relative resolution r = sigma(E)/E at the reference energies."""
     e = np.asarray(energies, dtype=float)
     return sigma_model(a, e) / e
 
 
-def res_to_a(r, energies=RES_ENERGIES, jacobian: bool = False):
+def res_to_a(r: np.ndarray | list[float],
+             energies: np.ndarray | list[float] = RES_ENERGIES,
+             jacobian: bool = False) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Resolution coefficients a = [a0, a1, a2] whose relative widths at the
     reference ``energies`` equal ``r`` (linear solve on r E = sigma(E)).
 
@@ -144,7 +140,8 @@ def res_to_a(r, energies=RES_ENERGIES, jacobian: bool = False):
     """
     e = np.asarray(energies, dtype=float)
     r = np.asarray(r, dtype=float)
-    m = np.stack([np.ones_like(e), np.sqrt(e), e], axis=1)  # columns a0,a1,a2
+    m = np.stack([np.ones_like(e), np.sqrt(e), e],
+                 axis=1)  # columns a0, a1, a2
     a = np.linalg.solve(m, r * e)
     if not jacobian:
         return a
@@ -173,7 +170,7 @@ def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
 
     The convolution is the dominant cost of the fit; with numba available it
     runs as a JIT-compiled parallel loop over target bins (``prange``), which
-    is ~10-30x faster than the vectorised numpy fallback.  Thread count can
+    is ~10-30x faster than the vectorized numpy fallback.  Thread count can
     be tuned via the ``NUMBA_NUM_THREADS`` environment variable.
     """
     a = np.asarray(a, dtype=float)
@@ -199,7 +196,7 @@ def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
     if _HAVE_NUMBA:
         return _smear_kernel(ec, f, sig_j, mu, sig_i, t_hi - t_lo, nsigma)
 
-    # Vectorised numpy fallback: sliding window per target bin with
+    # Vectorized numpy fallback: sliding window per target bin with
     # simulation bins within nsigma * sig_i.
     j_lo = np.searchsorted(ec, mu - nsigma * sig_i)
     j_hi = np.searchsorted(ec, mu + nsigma * sig_i)
@@ -210,7 +207,7 @@ def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
     idx = np.clip(idx, 0, len(ec) - 1)
 
     # Gaussian kernel (float64: avoid numerical noise that could degrade the
-    # optimiser's step selection).
+    # optimizer's step selection).
     diff = (mu[:, None] - ec[idx]) / sig_j[idx]
     g = np.exp(-0.5 * diff * diff) / (np.sqrt(2.0 * np.pi) * sig_j[idx])
     g = np.where(ok, g, 0.0)

@@ -1,4 +1,4 @@
-"""Parameter fit with the bounded Nelder-Mead derivative-free optimiser.
+"""Parameter fit with the bounded Nelder-Mead derivative-free optimizer.
 
 The chi^2 of :class:`kc761fit.fitmodel.FitModel` is a piecewise-smooth
 (jagged) function of the calibration parameters (the exact data rebinning
@@ -17,13 +17,14 @@ data coverage.
 
 The fit runs directly in the physically meaningful parameter space
 q = [x60..x2614, r60..r2614, s] (channel positions of the calibration lines,
-relative resolutions, and the simulation normalisation s).  The reported
+relative resolutions, and the simulation normalization s).  The reported
 ``FitResult`` contains these 8 parameters together with the derived
 calibration coefficients c0..c3 and resolution coefficients a0..a2 (with
 errors propagated through the linear maps).
 
-Between passes the energy grid is rebuilt from the fitted calibration and
-narrowed (3x coarse -> native), so the final grid matches the actual
+Multi-pass scheme: each pass fits on a *fixed* energy grid at the native
+resolution (one bin per data channel) and the grid is rebuilt from the
+previous pass's fitted calibration, so it always matches the actual
 channel-to-energy density and the final chi^2/ndof is meaningful.
 
 Parameter uncertainties are estimated from the weighted-residual Jacobian
@@ -75,7 +76,7 @@ class FitResult:
 
 
 def _fit_once(model, x0, bounds, maxiter):
-    """Bounded Nelder-Mead minimisation of chi^2 from the starting point ``x0``.
+    """Bounded Nelder-Mead minimization of chi^2 from the starting point ``x0``.
 
     The box ``bounds`` are passed to scipy's bounded Nelder-Mead, which clips
     the initial point and every simplex vertex to the box before evaluating
@@ -104,12 +105,12 @@ def _residual(q, model, fixed_mask):
 def _jacobian(model, q0, rel_step=1e-4):
     """Central-difference Jacobian of the residuals on the fixed grid.
 
-    Returns None if the point is infeasible (degenerate detail) or the
-    residuals are not finite, in which case parameter errors are not
+    Returns None if the point is degenerate (its ``detail`` has no mask) or
+    the residuals are not finite, in which case parameter errors are not
     defined.
     """
     det0 = model.detail(q0)
-    if det0 is None or det0["mask"] is None:
+    if det0["mask"] is None:
         return None
     mask = det0["mask"]
     r0 = _residual(q0, model, mask)
@@ -151,11 +152,11 @@ def _jacobian(model, q0, rel_step=1e-4):
     return jac
 
 
-def _finalize(model, q):
+def _finalize(model, q, success: bool = True, message: str = "", nfev: int = 0):
     """Build the FitResult for a converged point q (fitted parameters)."""
     det = model.detail(q)
-    chi2 = det["chi2"] if det is not None else np.nan
-    ndof = det["ndof"] if det is not None else 0
+    chi2 = det["chi2"]
+    ndof = det["ndof"]
 
     # Parameter uncertainties from the residual Jacobian on the fixed grid.
     jac = _jacobian(model, q)
@@ -177,9 +178,9 @@ def _finalize(model, q):
     perr_a = np.sqrt(np.clip(np.diag(cov_a), 0, None))
 
     return FitResult(
-        success=True,
-        message="",
-        nfev=0,
+        success=success,
+        message=message,
+        nfev=nfev,
         params=np.asarray(q, dtype=float),
         errors=perr,
         names=PARAM_NAMES,
@@ -198,7 +199,7 @@ def _finalize(model, q):
 
 def run_fit(model, x0=None, bounds=None, maxiter: int = None,
             n_passes: int = 5, verbose: bool = True) -> FitResult:
-    """Minimise chi^2 on the model's energy grid; return the fit result.
+    """Minimize chi^2 on the model's energy grid; return the fit result.
 
     ``x0`` / ``bounds`` are in the fit parameter space
     [x60..x2614, r60..r2614, s]; by default the model's own ``x0`` / ``bounds``
@@ -272,8 +273,5 @@ def run_fit(model, x0=None, bounds=None, maxiter: int = None,
 
     # scipy's bounded Nelder-Mead keeps every simplex vertex inside the box,
     # so the reported solution is in-bounds by construction.
-    result = _finalize(model_final, q)
-    result.nfev = int(nfev_total)
-    result.success = bool(best.success)
-    result.message = str(best.message)
-    return result
+    return _finalize(model_final, q, success=bool(best.success),
+                     message=str(best.message), nfev=int(nfev_total))

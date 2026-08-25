@@ -1,45 +1,42 @@
 """Chi-square forward model linking calibration + resolution to the data.
 
-Forward model (all on a *fixed* uniform energy grid over [elow, ehigh])
------------------------------------------------------------------------
+The model evaluates chi^2 on a *fixed* uniform energy grid over [elow, ehigh]:
+
 1. The experimental (background-subtracted) channel spectrum is calibrated
    with the cubic E(x) fixed by the channel positions of the 60/609/1461/2614
    keV lines (see :mod:`kc761fit.calibration`) and *exactly rebinned* onto the
-   fixed energy grid.  The rebin uses the cumulative distribution of the
-   channel histogram (linear interpolation of the cumulative counts and
-   cumulative sum-of-weights): for grid bin [g_lo, g_hi] with inverse
-   calibration channels x_lo = E^-1(g_lo), x_hi = E^-1(g_hi),
+   grid.  The rebin uses the cumulative distribution of the channel histogram
+   (linear interpolation of the cumulative counts and cumulative
+   sum-of-weights): for grid bin [g_lo, g_hi] with inverse-calibration
+   channels x_lo = E^-1(g_lo), x_hi = E^-1(g_hi),
 
-        d_grid   = C(x_hi) - C(x_lo)
-        var_grid = W(x_hi) - W(x_lo)
+       d_grid   = C(x_hi) - C(x_lo)
+       var_grid = W(x_hi) - W(x_lo)
 
    which is the count- and error-conserving transform.
 2. The intrinsic simulation spectrum is convolved with the Gaussian
-   resolution whose *relative* widths sigma(E)/E at 60/1461/2614 keV are the
-   fit parameters (see :mod:`kc761fit.resolution`) directly onto the same
-   fixed grid, matching the simulation to the data binning.
-3. chi^2 = sum over grid bins with error > 0 of (d - s m)^2 / sigma^2,
-   where sigma is the statistical error plus a fractional systematic
-   proportional to the bin counts, added in quadrature (see
-   ``FitModel.total_errors``; ``sys_frac``, default 5%).
+   resolution, whose *relative* widths sigma(E)/E at 60/1461/2614 keV are the
+   fit parameters (see :mod:`kc761fit.resolution`), directly onto the same
+   grid, matching the simulation to the data binning.
+3. chi^2 = sum over grid bins with error > 0 of (d - s m)^2 / sigma^2, where
+   sigma is the statistical error plus a fractional systematic proportional
+   to the bin counts, added in quadrature (``FitModel.total_errors``;
+   ``sys_frac``, default 5%).
 
 Parameters
 ----------
-The optimiser works directly with the physically meaningful parameters
+The optimizer works directly with the physically meaningful parameters
 
     q = [x60, x609, x1461, x2614, r60, r1461, r2614, s]
 
 where x are the channel positions of the calibration lines, r = sigma/E the
-relative resolutions at the resolution lines, and s the normalisation scale.
-Bounds and ordering are simple and explicit:
-
-    * box bounds:  channels in (0, n_channels), r in (0, 1), s in BOUNDS_S;
-    * ordering:    x60 < x609 < x1461 < x2614 and r60 > r1461 > r2614.
-
-The ordering conditions are *soft*: violations add a quadratically rising
-penalty to chi^2 (see ``calibration.monotonicity_penalty`` /
+relative resolutions at the resolution lines, and s the normalization scale.
+Bounds are simple box constraints (channels in (0, n_channels), r in (0, 1),
+s in BOUNDS_S).  The ordering conditions (x60 < x609 < x1461 < x2614 and
+r60 > r1461 > r2614) are enforced *softly*: violations add a quadratically
+rising penalty to chi^2 (see ``calibration.monotonicity_penalty`` /
 ``resolution.monotonicity_penalty``) instead of returning inf, so the
-objective stays finite everywhere and the derivative-free optimiser can
+objective stays finite everywhere and the derivative-free optimizer can
 converge even when the optimum sits on the ordering boundary.  The penalty is
 zero for any physically ordered point, so it does not bias the minimum; the
 only hard-degeneracy condition is insufficient data coverage.
@@ -55,11 +52,11 @@ import numpy as np
 
 from .calibration import (
     DEFAULT_X, channels_to_c, monotonicity_penalty as calib_monotonicity_penalty,
-    ordering_slack as calib_ordering_slack, poly3,
+    poly3,
 )
 from .resolution import (
     BOUNDS_R, DEFAULT_R, monotonicity_penalty as res_monotonicity_penalty,
-    ordering_slack as res_ordering_slack, res_to_a, smear,
+    res_to_a, smear,
 )
 
 # Order of the fitted (reported) parameters.
@@ -70,7 +67,7 @@ PARAM_NAMES_A = ["a0", "a1", "a2"]
 
 # Nominal initial scale; replaced in __init__ by a data-driven estimate.
 SCALE_INIT = 1.0
-# Scale fit bounds (dimensionless normalisation).
+# Scale fit bounds (dimensionless normalization).
 BOUNDS_S = [(1e-3, 1e3)]
 
 # Default initial values: channel positions of the calibration lines,
@@ -103,8 +100,17 @@ class FitModel:
         # weights.  Real background-subtracted errors are sqrt(S + r^2 B);
         # bins with S = B = 0 would otherwise get infinite weight and drive
         # the profiled scale to zero.  A one-count floor is the standard
-        # "zero-count bin has ~1 count of uncertainty" approximation.
+        # "a zero-count bin has ~1 count of uncertainty" approximation.
         self.min_variance = 1.0
+
+        if data.errors is None:
+            raise ValueError("data spectrum must carry per-bin errors")
+
+        # Cumulative channel histogram and sum-of-weights, used for the exact
+        # rebin of the calibrated data onto the energy grid.
+        self._cum_counts = np.concatenate(([0.0], np.cumsum(data.counts)))
+        self._cum_sumw2 = np.concatenate(([0.0], np.cumsum(data.errors**2)))
+        self._ch_edges = data.edges
 
         # Fit bounds: channels in (0, n_bins), relative resolutions in
         # (0, 1), scale in BOUNDS_S.
@@ -112,17 +118,11 @@ class FitModel:
         self.bounds = [(0.0, n)] * 4 + BOUNDS_R + BOUNDS_S
 
         self.x0 = np.array(DEFAULT_INIT, dtype=float)
-        self._cum_counts = np.concatenate(([0.0], np.cumsum(data.counts)))
-        if data.errors is None:
-            raise ValueError("data spectrum must carry per-bin errors")
-        self._cum_sumw2 = np.concatenate(([0.0], np.cumsum(data.errors**2)))
-        self._ch_edges = data.edges
-
         self.grid_edges = self._make_grid(width)
         self.grid_centers = 0.5 * (self.grid_edges[:-1] + self.grid_edges[1:])
 
-        # Reasonable initial value for the normalisation: the weighted
-        # least-squares estimate at the default calibration / resolution.
+        # Reasonable initial scale: the weighted least-squares estimate at
+        # the default calibration / resolution.
         self.x0 = np.append(self.x0[:-1], self._initial_scale(self.x0[:-1]))
 
     def total_errors(self, d, err_stat) -> np.ndarray:
@@ -138,7 +138,8 @@ class FitModel:
         return np.sqrt(np.maximum(var, self.min_variance))
 
     def _initial_scale(self, q7) -> float:
-        """Weighted least-squares scale estimate at parameters q7."""
+        """Weighted least-squares scale estimate at the 7 parameters q7
+        (channels and resolutions, without the scale)."""
         d, err, m_raw = self.arrays(q7)
         mask = err > 0
         if not np.any(mask):
@@ -163,7 +164,7 @@ class FitModel:
             c_orig = channels_to_c(self.x0[:4])
         if width is None:
             e = poly3(c_orig, self._ch_edges)
-            # channel index of elow / ehigh under the reference calibration
+            # Channel index of elow / ehigh under the reference calibration.
             x_lo = np.interp(self.elow, e, self._ch_edges)
             x_hi = np.interp(self.ehigh, e, self._ch_edges)
             n_ch = max(1.0, x_hi - x_lo)
@@ -184,10 +185,12 @@ class FitModel:
         m = FitModel(self.data, self.sim, self.elow, self.ehigh, width=width,
                      sys_frac=self.sys_frac)
         channels = np.asarray(channels, dtype=float)
-        m.x0 = np.concatenate([channels, m.x0[4:]])
+        # Keep the resolutions, drop the scale: it is re-estimated below for
+        # the new grid.
+        m.x0 = np.concatenate([channels, m.x0[4:7]])
         m.grid_edges = m._make_grid(width, c_orig=channels_to_c(channels))
         m.grid_centers = 0.5 * (m.grid_edges[:-1] + m.grid_edges[1:])
-        m.x0 = np.append(m.x0[:-1], m._initial_scale(m.x0[:-1]))
+        m.x0 = np.append(m.x0, m._initial_scale(m.x0))
         return m
 
     # -- data rebinning ---------------------------------------------------
@@ -201,7 +204,7 @@ class FitModel:
         # Inverse calibration: channel coordinate of each grid edge.  For a
         # (nearly) non-monotonic calibration the pairs are sorted so that the
         # interpolation stays finite (used only as a smooth fallback region
-        # for the optimiser).
+        # for the optimizer).
         if np.all(np.diff(e_edges) > 0):
             e_sorted, x_sorted = e_edges, self._ch_edges
         else:
@@ -214,7 +217,7 @@ class FitModel:
         var = np.clip(np.diff(w_int), 0.0, None)
         return d, np.sqrt(var)
 
-    # -- validity / constraints --------------------------------------------
+    # -- validity -----------------------------------------------------------
     @property
     def min_usable_bins(self) -> int:
         """Minimum number of data-covered grid bins for a meaningful fit.
@@ -225,33 +228,6 @@ class FitModel:
         """
         return max(10, int(0.1 * len(self.grid_centers)))
 
-    def coverage_slack(self, q) -> int:
-        """Constraint slack (>= 0 for sufficient coverage): the number of
-        grid bins with data, minus the minimum usable count."""
-        _d, err, _m = self.arrays(q)
-        return int(np.sum(err > 0)) - self.min_usable_bins
-
-    def constraints(self):
-        """Feasibility constraints as scipy ``NonlinearConstraint`` objects
-        (for constraint-capable optimisers):
-
-        * channels strictly increasing (smooth, differentiable);
-        * relative resolutions strictly decreasing (smooth);
-        * coverage >= ``min_usable_bins`` (piecewise constant -- use a
-          derivative-free method such as COBYLA).
-
-        The default Nelder-Mead path does not use these: it relies on the
-        box ``bounds`` plus the soft monotonicity penalties in ``detail``.
-        """
-        from scipy.optimize import NonlinearConstraint
-        return [
-            NonlinearConstraint(lambda q: calib_ordering_slack(q[:4]),
-                                0.0, np.inf, keep_feasible=True),
-            NonlinearConstraint(lambda q: res_ordering_slack(q[4:7]),
-                                0.0, np.inf, keep_feasible=True),
-            NonlinearConstraint(self.coverage_slack, 0.0, np.inf),
-        ]
-
     def _check(self, q):
         """Single-pass degeneracy check + model arrays.
 
@@ -259,11 +235,11 @@ class FitModel:
         condition is data coverage (too few usable grid bins); ordering of
         the channels / resolutions is enforced *softly* by penalties added
         to chi^2 (see ``detail``), so the objective stays finite everywhere
-        for the derivative-free optimiser.
+        for the derivative-free optimizer.
         """
-        c = channels_to_c(np.asarray(q[:4], dtype=float))
-        a = res_to_a(np.asarray(q[4:7], dtype=float))
-        d, err, m_raw = self.arrays(q)
+        c = channels_to_c(q[:4])
+        a = res_to_a(q[4:7])
+        d, err, m_raw = self.arrays(q, c, a)
         if int(np.sum(err > 0)) < self.min_usable_bins:
             return False, None, None, None, c, a
         return True, d, err, m_raw, c, a
@@ -294,33 +270,38 @@ class FitModel:
         return c_hi - c_lo
 
     # -- evaluation -------------------------------------------------------
-    def arrays(self, q):
-        """Full-grid (d, err, m_raw) arrays.
+    def arrays(self, q, c=None, a=None):
+        """Full-grid (d, err, m_raw) arrays at parameters q.
 
-        ``q`` is the fit parameter vector; the calibration / resolution
-        coefficients are derived from it before evaluating the models.
+        ``q`` is the fit parameter vector.  The calibration / resolution
+        coefficients are derived from it unless already computed and passed
+        in as ``c`` / ``a`` (used by the hot evaluation path to avoid
+        re-solving them).
         """
-        c = channels_to_c(q[:4])
-        a = res_to_a(q[4:7])
+        if c is None:
+            c = channels_to_c(q[:4])
+        if a is None:
+            a = res_to_a(q[4:7])
         d, err = self.rebin_data(c)
         m_raw = self.model_counts(a)
         return d, err, m_raw
 
     @staticmethod
     def _degenerate_detail(p) -> dict:
-        """Placeholder detail for an infeasible parameter point.  The
-        returned chi^2 is ``np.inf`` so that any optimiser (including
+        """Placeholder detail for an infeasible parameter point.
+
+        The returned chi^2 is ``np.inf`` so that any optimizer (including
         derivative-free ones) rejects the point; a valid fit is never
-        affected, so this cannot bias the result."""
-        c = channels_to_c(np.asarray(p[:4], dtype=float))
-        a = res_to_a(np.asarray(p[4:7], dtype=float))
+        affected, so this cannot bias the result.
+        """
+        c = channels_to_c(p[:4])
+        a = res_to_a(p[4:7])
         s = float(p[7])
         return dict(
             d=np.array([]), err=np.array([]), m_raw=np.array([]),
             m=np.array([]), s=s, mu=np.array([]),
             chi2=np.inf, ndof=0, pen=0.0,
-            c=c, a=a, x=np.asarray(p[:4], dtype=float),
-            r=np.asarray(p[4:7], dtype=float), mask=None, grid_centers=None,
+            c=c, a=a, x=p[:4], r=p[4:7], mask=None, grid_centers=None,
         )
 
     def detail(self, q):
@@ -328,11 +309,12 @@ class FitModel:
 
         ``q`` = [x60..x2614, r60..r2614, s]; the returned dict carries the
         fitted channels (x) / resolutions (r), the derived coefficients
-        (c, a), the scale s, the *data* chi^2 (``chi2``) and the monotonicity
-        penalty (``pen``).  Ordering violations of the channels / resolutions
-        do not make the point infeasible: they just add a quadratically
-        rising penalty (zero for any physically ordered point).  Only a
-        degenerate point (insufficient data coverage) returns chi^2 = inf.
+        (c, a), the scale s, the *data* chi^2 (``chi2``) and the
+        monotonicity penalty (``pen``).  Ordering violations of the channels
+        / resolutions do not make the point infeasible: they just add a
+        quadratically rising penalty (zero for any physically ordered point).
+        Only a degenerate point (insufficient data coverage) returns
+        chi^2 = inf.
         """
         ok, d, err, m_raw, c, a = self._check(q)
         s = float(q[7])
