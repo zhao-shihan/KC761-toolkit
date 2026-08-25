@@ -343,3 +343,19 @@ class FitModel:
     def evaluate(self, q) -> float:
         det = self.detail(q)
         return det["chi2"] + det["pen"]
+
+    def residuals(self, q, mask=None) -> np.ndarray:
+        """Weighted residuals (d - s*m)/sigma over the fixed grid bins.
+
+        ``mask`` selects the grid bins (e.g. ``detail()["mask"]``); with
+        ``mask=None`` all bins are used.  Statistical + fractional-systematic
+        errors enter via ``total_errors``, consistent with ``detail``.  This
+        is the vector whose central-difference Jacobian gives the parameter
+        uncertainties (see :func:`kc761fit.fitter._jacobian`).
+        """
+        d, err, m_raw = self.arrays(q)
+        if mask is not None:
+            d, err, m_raw = d[mask], err[mask], m_raw[mask]
+        err = self.total_errors(d, err)
+        s = float(q[7])
+        return (d - s * m_raw) / err

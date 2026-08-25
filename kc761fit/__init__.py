@@ -7,6 +7,9 @@ Submodules:
     resolution  : Gaussian resolution model sigma(E) = a2 E + a1 sqrt(E) + a0,
                   parameterized by the relative widths sigma/E at 60/1461/2614 keV
     fitmodel    : chi^2 forward model (normalized sim vs calibrated data)
-    fitter      : parameter fit via scipy.optimize.minimize
+    globalfit   : multi-dataset (global) forward model: global-fit calibration
+                  + resolution across several (data, sim, range) pairs, with a
+                  per-dataset normalization scale (chi^2 summed over datasets)
+    fitter      : parameter fit via scipy.optimize.minimize (single and global)
     plot        : PDF figures of the fit result
 """
