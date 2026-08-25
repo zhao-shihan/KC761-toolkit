@@ -11,6 +11,7 @@ the chunks with ``uproot`` into the final output file.
 from __future__ import annotations
 
 import multiprocessing
+import contextlib
 import os
 
 from geant4_pybind import (
@@ -81,7 +82,9 @@ def run_simulation(
     mats = materials.build_all_materials()
     det = detector.DetectorConstruction(spec, mats, check_overlaps=verbose > 0)
 
-    run_manager = G4RunManagerFactory.CreateRunManager(G4RunManagerType.Serial)
+    with contextlib.redirect_stdout(open(os.devnull, 'w')):
+        run_manager = G4RunManagerFactory.CreateRunManager(
+            G4RunManagerType.Serial)
     run_manager.SetUserInitialization(det)
     run_manager.SetUserInitialization(physics.PhysicsList())
     run_manager.SetUserInitialization(
@@ -89,7 +92,7 @@ def run_simulation(
             spec, det, output_stem, event_offset, verbose)
     )
     apply_verbosity(run_manager, verbose)
-    run_manager.SetPrintProgress(max(1, n_events // 10))
+    run_manager.SetPrintProgress(1000)
     run_manager.Initialize()
     physics.configure_radioactive_decay(spec)
     physics.configure_gps(spec, det)
