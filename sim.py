@@ -55,9 +55,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "-o",
         "--output",
-        default="sim_output.root",
+        default=None,
         metavar="FILE",
-        help="output ROOT file name (a missing .root suffix is appended)",
+        help="output ROOT file name (default: sim_output.root in batch mode, "
+        "sim_vis_output.root in interactive mode; a missing .root suffix is "
+        "appended)",
     )
     parser.add_argument(
         "-n",
@@ -153,11 +155,15 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     source_key = _selected_source(args)
     if args.events is None:
+        if args.output is None:
+            args.output = "sim_vis_output.root"
         verbose = args.verbose if args.verbose is not None else 1
         interactive_mode(args, source_key, verbose)
     else:
         if args.events <= 0:
             raise SystemExit("error: --events must be a positive integer")
+        if args.output is None:
+            args.output = "sim_output.root"
         verbose = args.verbose if args.verbose is not None else 0
         batch_mode(args, source_key, verbose)
 
