@@ -10,7 +10,8 @@ from geant4_pybind import (
     G4Material,
     G4NistManager,
     cm3,
-    g)
+    g,
+)
 
 #: Density of the ABS plastic housing (common ABS density), g/cm3.
 ABS_DENSITY_G_CM3 = 1.05

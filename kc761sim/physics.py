@@ -16,7 +16,8 @@ from geant4_pybind import (
     G4StoppingPhysics,
     G4UImanager,
     G4VModularPhysicsList,
-    mm)
+    mm,
+)
 
 
 class PhysicsList(G4VModularPhysicsList):
@@ -75,7 +76,7 @@ def configure_radioactive_decay(source) -> None:
     daughter Np-237 (2.14 Myr) does not produce a spurious decay chain.
 
     The commands require the RDM messenger, which is created during run
-    initialisation; this function must therefore be called after
+    initialization; this function must therefore be called after
     ``G4RunManager::Initialize``.
     """
     ui = G4UImanager.GetUIpointer()
@@ -98,7 +99,7 @@ def configure_gps(source, detector) -> None:
     rejects any point not located inside the physical volume ``Source``.
 
     The ``/gps`` messenger is created when the primary-generator action (and
-    with it the G4GeneralParticleSource) is built during run initialisation,
+    with it the G4GeneralParticleSource) is built during run initialization,
     and the confined volume must exist, so this function must be called after
     ``G4RunManager::Initialize``.
     """

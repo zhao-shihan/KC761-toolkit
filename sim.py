@@ -28,14 +28,16 @@ from geant4_pybind import (
     G4RunManagerType,
     G4UIExecutive,
     G4UImanager,
-    G4VisExecutive)
+    G4VisExecutive,
+)
 from kc761sim import (
     actions,
     config,
     detector,
     materials,
     physics,
-    runner)
+    runner,
+)
 
 _SCRIPT_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "kc761sim", "script"

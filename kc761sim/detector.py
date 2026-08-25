@@ -28,14 +28,16 @@ from geant4_pybind import (
     cm,
     deg,
     mm,
-    twopi)
+    twopi,
+)
 from .config import (
     Box,
     Disk,
     SourceSpec,
     Sphere,
     Tube,
-    source_center_z)
+    source_center_z,
+)
 
 #: World half-size (cm).
 WORLD_HALF_SIZE = 15.0 * cm
@@ -57,7 +59,7 @@ DETECTOR_FRONT_Z = HOUSING_HALF_Z
 class DetectorConstruction(G4VUserDetectorConstruction):
     """Builds the world, the detector and the source.
 
-    Visual attributes are intentionally NOT set here: rendering (colours,
+    Visual attributes are intentionally NOT set here: rendering (colors,
     transparency, visibility, projection) is fully controlled by the
     visualization macros (script/vis.mac), which the application executes in
     interactive mode.  ``check_overlaps`` enables the Geant4 geometry overlap
