@@ -89,12 +89,11 @@ class FitModel:
     """
 
     def __init__(self, data, sim, elow: float, ehigh: float, width: float | None = None,
-                 width_factor: float = 1.0, sys_frac: float = 0.05):
+                 sys_frac: float = 0.05):
         self.data = data
         self.sim = sim
         self.elow = float(elow)
         self.ehigh = float(ehigh)
-        self.width_factor = float(width_factor)
         # Per-bin fractional systematic error (dimensionless, e.g. 0.05 = 5%),
         # added in quadrature to the statistical errors proportional to the
         # bin counts: err = sqrt(err_stat^2 + (sys_frac * d)^2).
@@ -169,23 +168,21 @@ class FitModel:
             x_hi = np.interp(self.ehigh, e, self._ch_edges)
             n_ch = max(1.0, x_hi - x_lo)
             width = max(1.0, (self.ehigh - self.elow) / n_ch)
-        width *= self.width_factor
         n = max(2, int(np.ceil((self.ehigh - self.elow) / width)))
         return np.linspace(self.elow, self.ehigh, n + 1)
 
-    def rebuilt(self, channels, width: float | None = None,
-                width_factor: float | None = None):
+    def rebuilt(self, channels, width: float | None = None):
         """New FitModel whose comparison grid follows the calibration fixed
         by the fitted channel positions ``channels``.
 
-        Used to re-bin the fit after a first pass, so that the final grid
-        matches the actual (fitted) channel-to-energy density.  The initial
-        values of the resolution parameters are kept; the initial scale is
-        re-estimated for the new grid.
+        Used to re-bin the fit after a first pass, so that the grid always
+        matches the actual (fitted) channel-to-energy density at the native
+        resolution (one grid bin per data channel).  The initial values of
+        the resolution parameters are kept; the initial scale is re-estimated
+        for the new grid.
         """
         m = FitModel(self.data, self.sim, self.elow, self.ehigh, width=width,
-                     width_factor=self.width_factor if width_factor is None
-                     else width_factor, sys_frac=self.sys_frac)
+                     sys_frac=self.sys_frac)
         channels = np.asarray(channels, dtype=float)
         m.x0 = np.concatenate([channels, m.x0[4:]])
         m.grid_edges = m._make_grid(width, c_orig=channels_to_c(channels))

@@ -53,17 +53,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--width", type=float, default=None,
                         help="energy-grid bin width in keV (default: about one "
                              "data channel width)")
-    parser.add_argument("--sys", type=float, default=5.0,
-                        help="per-bin fractional systematic error in percent, "
-                             "added in quadrature to the statistical errors "
-                             "proportional to the bin counts (default 5)")
+    parser.add_argument("--sys", type=float, default=0.05,
+                        help="per-bin fractional systematic error (as a "
+                             "fraction, e.g. 0.05 = 5%%), added in quadrature "
+                             "to the statistical errors proportional to the "
+                             "bin counts (default 0.05)")
     parser.add_argument("--maxiter", type=int, default=None,
                         help="Nelder-Mead iterations per pass (default auto)")
     parser.add_argument("--passes", type=int, default=5,
                         help="number of fit passes; each pass fixes an energy "
-                             "grid, and the grid is rebuilt from the fitted "
-                             "calibration between passes, narrowing from 3x "
-                             "coarse to native (default 5)")
+                             "grid at the native resolution (one bin per data "
+                             "channel), rebuilt from the fitted calibration "
+                             "between passes (default 5)")
     for name, init in zip(PARAM_NAMES, DEFAULT_INIT):
         parser.add_argument(f"--{name}", type=float, default=None,
                             help=f"initial value of {name} (default {init:g})")
@@ -100,13 +101,13 @@ def main(argv: list[str] | None = None) -> int:
     sim = load_sim_spectrum(str(sim_file))
 
     model = FitModel(data, sim, args.elow, args.ehigh, width=args.width,
-                     sys_frac=args.sys / 100.0)
+                     sys_frac=args.sys)
     # Unless the user overrode it, use the model's auto-estimated initial
     # scale (weighted least-squares estimate at the default calibration).
     if args.s is None:
         x0[7] = model.x0[7]
     print(f"[fit] range {args.elow}-{args.ehigh} keV, "
-          f"systematic error {args.sys:g}%, x0={x0}")
+          f"systematic error {args.sys:g}, x0={x0}")
 
     result = run_fit(model, x0=x0, maxiter=args.maxiter, n_passes=args.passes)
 

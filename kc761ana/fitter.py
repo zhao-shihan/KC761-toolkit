@@ -206,13 +206,11 @@ def run_fit(model, x0=None, bounds=None, maxiter: int = None,
     space, and the derived coefficients (c0..c3, a0..a2) are reported too.
 
     Multi-pass scheme (``n_passes``, default 5): each pass fits from a single
-    starting point on a *fixed* energy grid — pass 1 starts from the initial
-    values, later passes warm-start from the previous pass's solution.
-    Between passes the grid is rebuilt from the fitted calibration, with the
-    grid width factor decreasing linearly from 3x (coarse, smoother chi^2,
-    faster) to 1x (native: one bin per data channel, so the final
-    chi^2/ndof is statistically meaningful).  The last executed pass is
-    reported.
+    starting point on a *fixed* energy grid at the native resolution (one bin
+    per data channel) — pass 1 starts from the initial values, later passes
+    warm-start from the previous pass's solution.  Between passes the grid is
+    rebuilt from the fitted calibration, so it follows the actual
+    channel-to-energy density.  The last executed pass is reported.
     """
     if x0 is None:
         x0 = model.x0
@@ -240,10 +238,10 @@ def run_fit(model, x0=None, bounds=None, maxiter: int = None,
         best = None
         nfev_total = 0
         for k in range(1, n_passes + 1):
-            # Grid width factor: 3.0 for pass 1, down to 1.0 for the last pass.
-            wf = max(1.0, 3.0 * (n_passes - k) / (n_passes - 1))
+            # Native-resolution grid every pass; it is rebuilt from the
+            # fitted calibration so it follows the channel-to-energy density.
             if k == 1:
-                m_new = model.rebuilt(x0[:4], width_factor=wf)
+                m_new = model.rebuilt(x0[:4])
                 st = x0
             else:
                 # Warm-start from the previous pass.  scipy's bounded
@@ -251,7 +249,7 @@ def run_fit(model, x0=None, bounds=None, maxiter: int = None,
                 # grid never follows an out-of-bounds (degenerate)
                 # calibration.
                 st = best.x
-                m_new = model.rebuilt(st[:4], width_factor=wf)
+                m_new = model.rebuilt(st[:4])
             # Keep the previous (good) model if the rebuilt grid is
             # degenerate: a degenerate grid cannot be fit meaningfully.
             if len(m_new.grid_centers) < 20:
@@ -265,7 +263,7 @@ def run_fit(model, x0=None, bounds=None, maxiter: int = None,
             m = m_new
             best = _fit_once(m, st, m.bounds, maxiter)
             nfev_total += int(best.nfev)
-            tag = "3x-coarsened, grid from initial calibration" if k == 1 \
+            tag = "grid from initial calibration" if k == 1 \
                 else "grid from fitted calibration"
             if verbose:
                 print(f"[fit] pass {k}: {len(m.grid_centers)} bins ({tag}), "

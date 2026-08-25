@@ -3,3 +3,4 @@ uproot >= 5.7.6
 numpy >= 2.5.2
 scipy >= 1.18.1
 matplotlib >= 3.11.1
+numba >= 0.67
