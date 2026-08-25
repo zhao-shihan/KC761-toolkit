@@ -3,6 +3,18 @@
 Resolution model:
     sigma(E) = a2 E + a1 sqrt(E) + a0      (keV, E in keV)
 
+Fit parameterisation
+--------------------
+Instead of fitting the polynomial coefficients a0..a2 directly, the fit works
+in terms of the *relative* resolution r(E) = sigma(E)/E at the reference
+energies 60 keV, 1461 keV, 2614 keV.  Each is a dimensionless width (the
+FWHM/2.355 fraction at that line), bounded between 0 and 1, and they must
+*decrease* with energy (resolution improves as energy rises).  The
+coefficients are recovered by solving the 3x3 linear system
+r_i E_i = a0 + a1 sqrt(E_i) + a2 E_i; they are only needed for the forward
+model and the final report (``res_to_a``), and the relative resolutions are
+recovered from a given a by evaluation (``a_to_res``).
+
 Convolution algorithm (normalised sliding window):
     The intrinsic simulation histogram f is convolved with a Gaussian of
     width sigma(E).  For every target bin i (centre mu_i) only the
@@ -26,14 +38,46 @@ from __future__ import annotations
 
 import numpy as np
 
-# Resolution parameters a0..a2: default initial values and fit bounds.
-# (units: a0 keV, a1 keV/sqrt(keV), a2 dimensionless)
-DEFAULT_A = np.array([5.0, 2.0, 0.0])
-BOUNDS_A = [
-    (1.0, 100.0),  # a0
-    (0.0, 10.0),   # a1
-    (0.0, 0.1),    # a2
-]
+# Reference energies (keV) whose relative resolutions parameterise the fit.
+RES_ENERGIES = np.array([60.0, 1461.0, 2614.0])
+
+# Default relative resolutions r = sigma/E at RES_ENERGIES (initial fit values)
+DEFAULT_R = np.array([0.1, 0.03, 0.02])
+
+# Fit bounds for the relative resolutions (dimensionless, must stay < 1).
+BOUNDS_R = [(0.0, 1.0)] * 3
+
+# Soft monotonicity-penalty strength: chi^2 units per (relative-resolution
+# unit)^2 of ordering violation.  The relative resolutions are O(0.03), so a
+# reversal of 0.01 (one "resolution unit") costs ~10 chi^2 units, growing
+# quadratically — a gentle prior that discourages resolution worsening with
+# energy without fighting the data where it is unconstrained (e.g. anchors
+# far outside the fitted energy range), while keeping the objective finite
+# and smooth for the derivative-free optimiser.
+MONOTONICITY_PENALTY = 1e5
+
+
+def ordering_slack(r) -> float:
+    """Constraint slack (>= 0 for strictly decreasing resolutions): the
+    minimum of -gap, where gap = r_{i+1} - r_i (resolution improves as energy
+    rises, so r60 > r1461 > r2614)."""
+    gaps = np.diff(np.asarray(r, dtype=float))
+    return float(-np.max(gaps))
+
+
+def monotonicity_penalty(r) -> float:
+    """Soft, continuously rising penalty for non-decreasing resolutions.
+
+    Zero when the relative resolutions are strictly decreasing
+    (r60 > r1461 > r2614); otherwise grows quadratically with each reversal
+    (``MONOTONICITY_PENALTY * violation^2``), so the objective stays finite
+    and rises continuously as the violation deepens.  Add to chi^2 rather
+    than returning inf: a physically ordered resolution has zero penalty, so
+    the minimum is not biased.
+    """
+    gaps = np.diff(np.asarray(r, dtype=float))
+    viol = np.maximum(gaps, 0.0)
+    return MONOTONICITY_PENALTY * float(np.sum(viol * viol))
 
 
 def sigma_model(a: np.ndarray | list[float], e: np.ndarray | float) -> np.ndarray:
@@ -41,6 +85,30 @@ def sigma_model(a: np.ndarray | list[float], e: np.ndarray | float) -> np.ndarra
     a0, a1, a2 = np.asarray(a, dtype=float)
     e = np.asarray(e, dtype=float)
     return a2 * e + a1 * np.sqrt(np.maximum(e, 0.0)) + a0
+
+
+def a_to_res(a, energies=RES_ENERGIES) -> np.ndarray:
+    """Relative resolution r = sigma(E)/E at the reference energies."""
+    e = np.asarray(energies, dtype=float)
+    return sigma_model(a, e) / e
+
+
+def res_to_a(r, energies=RES_ENERGIES, jacobian: bool = False):
+    """Resolution coefficients a = [a0, a1, a2] whose relative widths at the
+    reference ``energies`` equal ``r`` (linear solve on r E = sigma(E)).
+
+    With ``jacobian=True`` also returns the 3x3 Jacobian da/dr, used to
+    propagate the resolution-fit uncertainties to the reported coefficients.
+    """
+    e = np.asarray(energies, dtype=float)
+    r = np.asarray(r, dtype=float)
+    m = np.stack([np.ones_like(e), np.sqrt(e), e], axis=1)  # columns a0,a1,a2
+    a = np.linalg.solve(m, r * e)
+    if not jacobian:
+        return a
+    m_inv = np.linalg.inv(m)
+    jac = m_inv * e[None, :]  # da/dr_i = M^-1[:, i] * E_i
+    return a, jac
 
 
 def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
@@ -77,8 +145,8 @@ def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
     f = sim_counts[js]
     sig_j = sigma_model(a, ec)
     if np.any(sig_i <= 0) or np.any(sig_j <= 0):
-        # Non-positive resolution (e.g. resolution parameters stepped outside
-        # their bounds during finite differences): degenerate, model is zero.
+        # Non-positive resolution (e.g. parameters stepped outside their
+        # bounds during finite differences): degenerate, model is zero.
         return np.zeros_like(mu)
 
     # Sliding window per target bin: simulation bins within nsigma * sig_i.

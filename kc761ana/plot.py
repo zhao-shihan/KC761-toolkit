@@ -5,26 +5,31 @@ Four stacked panels:
                      best-fit model (resolution-smeared, scaled simulation),
                      plus the raw (unconvolved, scaled) simulation; x = energy;
   2. pulls         : (data - model) / error vs energy;
-  3. calibration   : fitted E(x) vs channel;
-  4. resolution    : fitted sigma(E) vs energy.
+  3. calibration   : fitted E(x) vs channel, with the fitted line positions;
+  4. resolution    : fitted sigma(E) vs energy, with the fitted sigma points.
+
+The parameter text box lists the fitted channels / relative resolutions /
+scale together with the derived coefficients c0..c3 and a0..a2.
 """
 
 from __future__ import annotations
+from .resolution import RES_ENERGIES, sigma_model
+from .fitmodel import PARAM_NAMES_A, PARAM_NAMES_C
+from .calibrate import CAL_ENERGIES, poly3
+import matplotlib.pyplot as plt
 
 import numpy as np
 
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-from .calibrate import poly3
-from .resolution import sigma_model
 
 
 def plot_fit(model, result, out_pdf: str, elow: float, ehigh: float) -> None:
     det = result.detail
     p = result.params
-    c, a = p[:4], p[4:7]
+    c, a = result.params_c, result.params_a
+    x_anchors = p[:4]
+    r_anchors = p[4:7]
 
     fig, axes = plt.subplots(
         4, 1, figsize=(9, 13),
@@ -37,14 +42,13 @@ def plot_fit(model, result, out_pdf: str, elow: float, ehigh: float) -> None:
     s = det["s"]
 
     # --- spectrum panel (log scale, x = energy) ---------------------------
-    pos = d > 0  # log scale cannot show non-positive points
-    ax_spec.errorbar(mu[pos], d[pos], yerr=err[pos], fmt="o", ms=3, lw=1,
+    ax_spec.errorbar(mu, d, yerr=err, fmt="o", ms=1, lw=0.1,
                      color="tab:blue", label="data (sub-bkg, calibrated)")
+    ax_spec.plot(mu, m, "-", color="tab:red", lw=1.5,
+                 label="best-fit model (smeared sim)")
     ax_spec.stairs(s * model.raw_model_counts(), model.grid_edges,
                    color="tab:gray", lw=0.8,
                    label="raw sim (no resolution, scaled)")
-    ax_spec.plot(mu, m, "-", color="tab:red", lw=1.5,
-                 label="best-fit model (smeared sim)")
     ax_spec.set_yscale("log")
     ax_spec.set_ylim(bottom=1.0)
     ax_spec.set_xlabel("energy (keV)")
@@ -57,19 +61,27 @@ def plot_fit(model, result, out_pdf: str, elow: float, ehigh: float) -> None:
         fontsize=10,
     )
 
-    # parameter text box (bottom-left)
-    names = result.names
+    # parameter text box (bottom-left): fitted + derived parameters
     txt = "\n".join(
         f"{n} = {v: .4g} $\\pm$ {e_: .3g}"
-        for n, v, e_ in zip(names, p, result.errors)
+        for n, v, e_ in zip(result.names, p, result.errors)
     )
-    ax_spec.text(0.02, 0.02, txt, transform=ax_spec.transAxes, fontsize=8,
+    txt += "\n" + "\n".join(
+        f"{n} = {v: .4g} $\\pm$ {e_: .3g}"
+        for n, v, e_ in zip(PARAM_NAMES_C, c, result.errors_c)
+    )
+    txt += "\n" + "\n".join(
+        f"{n} = {v: .4g} $\\pm$ {e_: .3g}"
+        for n, v, e_ in zip(PARAM_NAMES_A, a, result.errors_a)
+    )
+    ax_spec.text(0.02, 0.02, txt, transform=ax_spec.transAxes, fontsize=7.5,
                  va="bottom", ha="left", family="monospace",
                  bbox=dict(boxstyle="round", fc="white", ec="gray", alpha=0.9))
 
     # --- pull panel (x = energy) ------------------------------------------
     pull = (d - m) / err
-    ax_pull.errorbar(mu, pull, yerr=1.0, fmt="o", ms=2.5, lw=1, color="tab:green")
+    ax_pull.errorbar(mu, pull, yerr=1.0, fmt="o",
+                     ms=1, lw=0.1, color="tab:green")
     ax_pull.axhline(0, color="k", lw=0.8)
     ax_pull.axhline(3, color="tab:red", lw=0.6, ls=":")
     ax_pull.axhline(-3, color="tab:red", lw=0.6, ls=":")
@@ -81,7 +93,10 @@ def plot_fit(model, result, out_pdf: str, elow: float, ehigh: float) -> None:
     # --- calibration curve (x = channel) -----------------------------------
     x = np.linspace(model.data.edges[0], model.data.edges[-1], 400)
     ax_cal.plot(x, poly3(c, x), "-", color="tab:purple", lw=1.5,
-                label="calibration $E(x) = c_3 x^3 + c_2 x^2 + c_1 x + c_0$")
+                label="$E(x) = c_3 x^3 + c_2 x^2 + c_1 x + c_0$")
+    ax_cal.plot(x_anchors, CAL_ENERGIES, "o", ms=5, mfc="none",
+                color="tab:purple",
+                label="fit line positions (60/609/1461/2614 keV)")
     ax_cal.set_xlabel("channel")
     ax_cal.set_ylabel("energy (keV)")
     ax_cal.set_title("energy calibration", fontsize=10)
@@ -89,9 +104,17 @@ def plot_fit(model, result, out_pdf: str, elow: float, ehigh: float) -> None:
     ax_cal.legend(fontsize=8, loc="upper left")
 
     # --- resolution curve (x = energy) -------------------------------------
-    e_res = np.linspace(max(elow, 1.0), ehigh, 300)
-    ax_res.plot(e_res, sigma_model(a, e_res), "-", color="tab:orange", lw=1.5,
+    # Show the full fitted resolution model over [0, 3000] keV so all three
+    # fitted sigma points (60/1461/2614 keV) and the extrapolation are
+    # visible regardless of the fit range [elow, ehigh].
+    e_res = np.linspace(0.0, 3000.0, 300)
+    sig = sigma_model(a, e_res)
+    ax_res.plot(e_res, sig, "-", color="tab:orange", lw=1.5,
                 label=r"$\sigma(E) = a_2 E + a_1 \sqrt{E} + a_0$")
+    ax_res.plot(RES_ENERGIES, RES_ENERGIES * r_anchors, "o", ms=5, mfc="none",
+                color="tab:orange",
+                label=f"fit resolution ({'/'.join(f'{e:g}' for e in RES_ENERGIES)} keV)")
+    ax_res.set_xlim(0.0, 3000.0)
     ax_res.set_xlabel("energy (keV)")
     ax_res.set_ylabel(r"$\sigma$ (keV)")
     ax_res.set_title("energy resolution", fontsize=10)

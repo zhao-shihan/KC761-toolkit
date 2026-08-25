@@ -3,7 +3,8 @@
 Forward model (all on a *fixed* uniform energy grid over [elow, ehigh])
 -----------------------------------------------------------------------
 1. The experimental (background-subtracted) channel spectrum is calibrated
-   with E(x) = c3 x^3 + c2 x^2 + c1 x + c0 and *exactly rebinned* onto the
+   with the cubic E(x) fixed by the channel positions of the 60/609/1461/2614
+   keV lines (see :mod:`kc761ana.calibrate`) and *exactly rebinned* onto the
    fixed energy grid.  The rebin uses the cumulative distribution of the
    channel histogram (linear interpolation of the cumulative counts and
    cumulative sum-of-weights): for grid bin [g_lo, g_hi] with inverse
@@ -14,63 +15,74 @@ Forward model (all on a *fixed* uniform energy grid over [elow, ehigh])
 
    which is the count- and error-conserving transform.
 2. The intrinsic simulation spectrum is convolved with the Gaussian
-   resolution sigma(E) = a2 E + a1 sqrt(E) + a0 (see
-   :mod:`kc761ana.resolution`) directly onto the same fixed grid, matching
-   the simulation to the data binning.
+   resolution whose *relative* widths sigma(E)/E at 60/1461/2614 keV are the
+   fit parameters (see :mod:`kc761ana.resolution`) directly onto the same
+   fixed grid, matching the simulation to the data binning.
 3. chi^2 = sum over grid bins with error > 0 of (d - s m)^2 / sigma^2.
-
-Normalisation (scale)
----------------------
-The simulation counts are per simulated event; the measurement has its own
-live time and source strength, so a scale factor s is an explicit fit
-parameter (the 8th).  Its initial value is the weighted least-squares
-estimate at the default calibration.
 
 Parameters
 ----------
-The optimiser works with the *internal* (reparameterised) parameters
-q = [b0, b1, b2, b3, g0, g1, g2, s] (see :mod:`kc761ana.reparam`); the
-model converts them back to the original physics parameters
-p = [c0, c1, c2, c3, a0, a1, a2, s] (order matches PARAM_NAMES), which are
-the values reported by the fitter.
+The optimiser works directly with the physically meaningful parameters
+
+    q = [x60, x609, x1461, x2614, r60, r1461, r2614, s]
+
+where x are the channel positions of the calibration lines, r = sigma/E the
+relative resolutions at the resolution lines, and s the normalisation scale.
+Bounds and ordering are simple and explicit:
+
+    * box bounds:  channels in (0, n_channels), r in (0, 1), s in BOUNDS_S;
+    * ordering:    x60 < x609 < x1461 < x2614 and r60 > r1461 > r2614.
+
+The ordering conditions are *soft*: violations add a quadratically rising
+penalty to chi^2 (see ``calibrate.monotonicity_penalty`` /
+``resolution.monotonicity_penalty``) instead of returning inf, so the
+objective stays finite everywhere and the derivative-free optimiser can
+converge even when the optimum sits on the ordering boundary.  The penalty is
+zero for any physically ordered point, so it does not bias the minimum; the
+only hard-degeneracy condition is insufficient data coverage.
+
+The polynomial coefficients c0..c3 and a0..a2 are derived from q
+(``channels_to_c`` / ``res_to_a``) only where the forward model needs them
+and reported alongside the fitted channels/resolutions on output.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from .calibrate import BOUNDS_C, DEFAULT_C, poly3
-from .reparam import CalibTransform, RES_E_REF, ResTransform
-from .resolution import BOUNDS_A, DEFAULT_A, sigma_model, smear
+from .calibrate import (
+    DEFAULT_X, channels_to_c, monotonicity_penalty as calib_monotonicity_penalty,
+    ordering_slack as calib_ordering_slack, poly3,
+)
+from .resolution import (
+    BOUNDS_R, DEFAULT_R, monotonicity_penalty as res_monotonicity_penalty,
+    ordering_slack as res_ordering_slack, res_to_a, smear,
+)
 
-PARAM_NAMES = ["c0", "c1", "c2", "c3", "a0", "a1", "a2", "s"]
+# Order of the fitted (reported) parameters.
+PARAM_NAMES = ["x60", "x609", "x1461", "x2614", "r60", "r1461", "r2614", "s"]
+# Derived coefficients reported on output (from channels / resolutions).
+PARAM_NAMES_C = ["c0", "c1", "c2", "c3"]
+PARAM_NAMES_A = ["a0", "a1", "a2"]
 
 # Nominal initial scale; replaced in __init__ by a data-driven estimate.
 SCALE_INIT = 1.0
 # Scale fit bounds (dimensionless normalisation).
 BOUNDS_S = [(1e-3, 1e3)]
 
-# Default initial values and fit bounds in the ORIGINAL (reported) parameter
-# space.  The single source of truth for the calibration / resolution
-# defaults and bounds is calibrate.py (DEFAULT_C, BOUNDS_C) and
-# resolution.py (DEFAULT_A, BOUNDS_A); they are composed here.  FitModel
-# maps the shape parameters to the internal space.
-DEFAULT_INIT_ORIG = np.concatenate([DEFAULT_C, DEFAULT_A, [SCALE_INIT]])
-DEFAULT_BOUNDS_ORIG = BOUNDS_C + BOUNDS_A + BOUNDS_S
-
-# Feasibility of parameter points is enforced by the two NonlinearConstraint
-# objects returned by FitModel.constraints() (for constraint-capable
-# optimisers) and, for the other optimisers, by returning chi^2 = inf for
-# infeasible points (see FitModel.detail).  Neither mechanism contributes to
-# valid fits, so the fit is unbiased.
+# Default initial values: channel positions of the calibration lines,
+# relative resolutions, scale.  The per-channel upper bound (0, n_bins)
+# depends on the data and is built in FitModel.__init__.
+DEFAULT_INIT = np.concatenate([DEFAULT_X, DEFAULT_R, [SCALE_INIT]])
 
 
 class FitModel:
     """Bundles data + simulation and evaluates chi^2 on a fixed energy grid.
 
-    ``evaluate`` / ``detail`` / ``arrays`` expect the *internal* parameter
-    vector q = [b0..b3, g0..g2] (well-scaled); the reported ``detail`` dict
-    carries the original physics parameters (c, a).
+    ``evaluate`` / ``detail`` / ``arrays`` expect the fit parameter vector
+    q = [x60..x2614, r60..r2614, s] (channels, relative resolutions, scale);
+    the reported ``detail`` dict also carries the derived coefficients
+    (c, a) and the fitted channels / resolutions (x, r).
     """
 
     def __init__(self, data, sim, elow: float, ehigh: float, width: float | None = None,
@@ -88,18 +100,12 @@ class FitModel:
         # "zero-count bin has ~1 count of uncertainty" approximation.
         self.min_variance = 1.0
 
-        # Reparameterisation: normalised channel axis (u = x/N) and a fixed
-        # reference energy (662 keV) for the resolution model.  self.x0 starts
-        # as the 7 shape parameters (needed by _make_grid); the initial scale
-        # is appended afterwards.
-        self.calib_t = CalibTransform(data.n_bins)
-        self.res_t = ResTransform(RES_E_REF)
-        self.x0 = np.concatenate([
-            self.calib_t.to_internal(DEFAULT_INIT_ORIG[:4]),
-            self.res_t.to_internal(DEFAULT_INIT_ORIG[4:7]),
-        ])
-        self.bounds = self._map_bounds(DEFAULT_BOUNDS_ORIG)
+        # Fit bounds: channels in (0, n_bins), relative resolutions in
+        # (0, 1), scale in BOUNDS_S.
+        n = float(data.n_bins)
+        self.bounds = [(0.0, n)] * 4 + BOUNDS_R + BOUNDS_S
 
+        self.x0 = np.array(DEFAULT_INIT, dtype=float)
         self._cum_counts = np.concatenate(([0.0], np.cumsum(data.counts)))
         if data.errors is None:
             raise ValueError("data spectrum must carry per-bin errors")
@@ -110,8 +116,8 @@ class FitModel:
         self.grid_centers = 0.5 * (self.grid_edges[:-1] + self.grid_edges[1:])
 
         # Reasonable initial value for the normalisation: the weighted
-        # least-squares estimate at the default calibration.
-        self.x0 = np.append(self.x0, self._initial_scale(self.x0))
+        # least-squares estimate at the default calibration / resolution.
+        self.x0 = np.append(self.x0[:-1], self._initial_scale(self.x0[:-1]))
 
     def _initial_scale(self, q7) -> float:
         """Weighted least-squares scale estimate at parameters q7."""
@@ -125,16 +131,6 @@ class FitModel:
             return 1.0
         return float(np.sum(d * m_raw / err**2) / smm)
 
-    def _map_bounds(self, bounds_orig) -> list[tuple[float, float]]:
-        """Map the original-space bounds into the internal parameter space."""
-        lo = np.array([b[0] for b in bounds_orig], dtype=float)
-        hi = np.array([b[1] for b in bounds_orig], dtype=float)
-        lo_int = np.concatenate([self.calib_t.to_internal(lo[:4]),
-                                 self.res_t.to_internal(lo[4:7]), [lo[7]]])
-        hi_int = np.concatenate([self.calib_t.to_internal(hi[:4]),
-                                 self.res_t.to_internal(hi[4:7]), [hi[7]]])
-        return list(zip(lo_int, hi_int))
-
     # -- fixed comparison grid -------------------------------------------
     def _make_grid(self, width: float | None, c_orig=None) -> np.ndarray:
         """Uniform energy grid over [elow, ehigh].
@@ -145,7 +141,7 @@ class FitModel:
         weakly correlated bins.
         """
         if c_orig is None:
-            c_orig = self.calib_t.from_internal(self.x0[:4])
+            c_orig = channels_to_c(self.x0[:4])
         if width is None:
             e = poly3(c_orig, self._ch_edges)
             # channel index of elow / ehigh under the reference calibration
@@ -157,9 +153,10 @@ class FitModel:
         n = max(2, int(np.ceil((self.ehigh - self.elow) / width)))
         return np.linspace(self.elow, self.ehigh, n + 1)
 
-    def rebuilt(self, c_orig, width: float | None = None,
+    def rebuilt(self, channels, width: float | None = None,
                 width_factor: float | None = None):
-        """New FitModel whose comparison grid follows the calibration c_orig.
+        """New FitModel whose comparison grid follows the calibration fixed
+        by the fitted channel positions ``channels``.
 
         Used to re-bin the fit after a first pass, so that the final grid
         matches the actual (fitted) channel-to-energy density.  The initial
@@ -169,9 +166,9 @@ class FitModel:
         m = FitModel(self.data, self.sim, self.elow, self.ehigh, width=width,
                      width_factor=self.width_factor if width_factor is None
                      else width_factor)
-        c_orig = np.asarray(c_orig, dtype=float)
-        m.x0 = np.concatenate([m.calib_t.to_internal(c_orig), m.x0[4:]])
-        m.grid_edges = m._make_grid(width, c_orig=c_orig)
+        channels = np.asarray(channels, dtype=float)
+        m.x0 = np.concatenate([channels, m.x0[4:]])
+        m.grid_edges = m._make_grid(width, c_orig=channels_to_c(channels))
         m.grid_centers = 0.5 * (m.grid_edges[:-1] + m.grid_edges[1:])
         m.x0 = np.append(m.x0[:-1], m._initial_scale(m.x0[:-1]))
         return m
@@ -187,8 +184,7 @@ class FitModel:
         # Inverse calibration: channel coordinate of each grid edge.  For a
         # (nearly) non-monotonic calibration the pairs are sorted so that the
         # interpolation stays finite (used only as a smooth fallback region
-        # for the optimiser; the monotonicity penalty keeps the solution
-        # monotonic).
+        # for the optimiser).
         if np.all(np.diff(e_edges) > 0):
             e_sorted, x_sorted = e_edges, self._ch_edges
         else:
@@ -198,8 +194,7 @@ class FitModel:
         c_int = np.interp(x_edges, self._ch_edges, self._cum_counts)
         w_int = np.interp(x_edges, self._ch_edges, self._cum_sumw2)
         d = np.diff(c_int)
-        var = np.diff(w_int)
-        var = np.clip(var, 0.0, None)
+        var = np.clip(np.diff(w_int), 0.0, None)
         return d, np.sqrt(var)
 
     # -- validity / constraints --------------------------------------------
@@ -213,17 +208,6 @@ class FitModel:
         """
         return max(10, int(0.1 * len(self.grid_centers)))
 
-    def is_monotonic(self, c) -> bool:
-        """True if the calibration E(x) is strictly increasing over all
-        channel edges (a correct calibration is always monotonic)."""
-        return bool(np.all(np.diff(poly3(c, self._ch_edges)) > 0))
-
-    def monotonicity_slack(self, q) -> float:
-        """Constraint slack (>= 0 for a monotonic calibration): the minimum
-        slope of E(x) over the channel edges, in keV per channel."""
-        c = self.calib_t.from_internal(q[:4])
-        return float(np.min(np.diff(poly3(c, self._ch_edges))))
-
     def coverage_slack(self, q) -> int:
         """Constraint slack (>= 0 for sufficient coverage): the number of
         grid bins with data, minus the minimum usable count."""
@@ -231,35 +215,50 @@ class FitModel:
         return int(np.sum(err > 0)) - self.min_usable_bins
 
     def constraints(self):
-        """The two feasibility constraints of the fit as scipy
-        ``NonlinearConstraint`` objects (for constraint-capable optimisers):
+        """Feasibility constraints as scipy ``NonlinearConstraint`` objects
+        (for constraint-capable optimisers):
 
-        * monotonicity: ``min(E') > 0`` (smooth, differentiable);
-        * coverage:     usable grid bins >= ``min_usable_bins`` (piecewise
-          constant, non-differentiable -- use a derivative-free method such
-          as COBYLA).
+        * channels strictly increasing (smooth, differentiable);
+        * relative resolutions strictly decreasing (smooth);
+        * coverage >= ``min_usable_bins`` (piecewise constant -- use a
+          derivative-free method such as COBYLA).
+
+        The default Nelder-Mead path does not use these: it relies on the
+        box ``bounds`` plus the soft monotonicity penalties in ``detail``.
         """
         from scipy.optimize import NonlinearConstraint
         return [
-            NonlinearConstraint(self.monotonicity_slack, 0.0, np.inf,
-                                keep_feasible=True),
+            NonlinearConstraint(lambda q: calib_ordering_slack(q[:4]),
+                                0.0, np.inf, keep_feasible=True),
+            NonlinearConstraint(lambda q: res_ordering_slack(q[4:7]),
+                                0.0, np.inf, keep_feasible=True),
             NonlinearConstraint(self.coverage_slack, 0.0, np.inf),
         ]
 
-    def is_valid(self, q) -> bool:
-        """Feasibility of a parameter point: monotonic calibration,
-        non-negative resolution, and non-degenerate data coverage."""
-        c = self.calib_t.from_internal(q[:4])
-        a = self.res_t.from_internal(q[4:7])
-        if not self.is_monotonic(c):
-            return False
-        d, err, _m = self.arrays(q)
+    def _check(self, q):
+        """Single-pass degeneracy check + model arrays.
+
+        Returns ``(ok, d, err, m_raw, c, a)``.  The only hard-degeneracy
+        condition is data coverage (too few usable grid bins); ordering of
+        the channels / resolutions is enforced *softly* by penalties added
+        to chi^2 (see ``detail``), so the objective stays finite everywhere
+        for the derivative-free optimiser.
+        """
+        c = channels_to_c(np.asarray(q[:4], dtype=float))
+        a = res_to_a(np.asarray(q[4:7], dtype=float))
+        d, err, m_raw = self.arrays(q)
         if int(np.sum(err > 0)) < self.min_usable_bins:
-            return False
-        mu = self.grid_centers[err > 0]
-        if np.any(sigma_model(a, mu) <= 0):
-            return False
-        return True
+            return False, None, None, None, c, a
+        return True, d, err, m_raw, c, a
+
+    def is_valid(self, q) -> bool:
+        """True unless the point is degenerate (insufficient data coverage).
+
+        Monotonicity of the calibration channels / resolutions is not a hard
+        validity condition: ordering violations are handled by soft penalties
+        in the objective, keeping the search finite everywhere.
+        """
+        return self._check(q)[0]
 
     # -- model ------------------------------------------------------------
     def model_counts(self, a) -> np.ndarray:
@@ -281,11 +280,11 @@ class FitModel:
     def arrays(self, q):
         """Full-grid (d, err, m_raw) arrays.
 
-        ``q`` is the internal parameter vector; it is converted to the
-        original physics parameters before evaluating the models.
+        ``q`` is the fit parameter vector; the calibration / resolution
+        coefficients are derived from it before evaluating the models.
         """
-        c = self.calib_t.from_internal(q[:4])
-        a = self.res_t.from_internal(q[4:7])
+        c = channels_to_c(q[:4])
+        a = res_to_a(q[4:7])
         d, err = self.rebin_data(c)
         m_raw = self.model_counts(a)
         return d, err, m_raw
@@ -296,31 +295,35 @@ class FitModel:
         returned chi^2 is ``np.inf`` so that any optimiser (including
         derivative-free ones) rejects the point; a valid fit is never
         affected, so this cannot bias the result."""
-        c = np.asarray(p[:4], dtype=float)
-        a = np.asarray(p[4:7], dtype=float)
+        c = channels_to_c(np.asarray(p[:4], dtype=float))
+        a = res_to_a(np.asarray(p[4:7], dtype=float))
         s = float(p[7])
         return dict(
             d=np.array([]), err=np.array([]), m_raw=np.array([]),
             m=np.array([]), s=s, mu=np.array([]),
             chi2=np.inf, ndof=0, pen=0.0,
-            c=c, a=a, mask=None, grid_centers=None,
+            c=c, a=a, x=np.asarray(p[:4], dtype=float),
+            r=np.asarray(p[4:7], dtype=float), mask=None, grid_centers=None,
         )
 
     def detail(self, q):
-        """Masked evaluation at internal parameters q (always a dict).
+        """Masked evaluation at fit parameters q (always a dict).
 
-        ``q`` = [b0..b3, g0..g2, s]; the returned dict carries the original
-        physics parameters (c, a) and the scale s.  Infeasible points
-        (non-monotonic calibration, no coverage, non-positive resolution)
-        return a degenerate dict with chi^2 = inf.
+        ``q`` = [x60..x2614, r60..r2614, s]; the returned dict carries the
+        fitted channels (x) / resolutions (r), the derived coefficients
+        (c, a), the scale s, the *data* chi^2 (``chi2``) and the monotonicity
+        penalty (``pen``).  Ordering violations of the channels / resolutions
+        do not make the point infeasible: they just add a quadratically
+        rising penalty (zero for any physically ordered point).  Only a
+        degenerate point (insufficient data coverage) returns chi^2 = inf.
         """
-        c = self.calib_t.from_internal(q[:4])
-        a = self.res_t.from_internal(q[4:7])
+        ok, d, err, m_raw, c, a = self._check(q)
         s = float(q[7])
-        p = np.concatenate([c, a, [s]])
-        if not self.is_valid(q):
+        x = np.asarray(q[:4], dtype=float)
+        r = np.asarray(q[4:7], dtype=float)
+        p = np.concatenate([x, r, [s]])
+        if not ok:
             return self._degenerate_detail(p)
-        d, err, m_raw = self.arrays(q)
         mask = err > 0
         d, err, m_raw = d[mask], err[mask], m_raw[mask]
         # Variance floor in the weights (see __init__).
@@ -328,14 +331,15 @@ class FitModel:
         mu = self.grid_centers[mask]
         m = s * m_raw
         chi2 = float(np.sum((d - m) ** 2 / err**2))
+        pen = calib_monotonicity_penalty(x) + res_monotonicity_penalty(r)
         ndof = len(d) - len(PARAM_NAMES)
         return dict(
             d=d, err=err, m_raw=m_raw, m=m, s=s,
-            mu=mu, chi2=chi2, ndof=ndof, pen=0.0,
-            c=c, a=a, mask=mask,
+            mu=mu, chi2=chi2, ndof=ndof, pen=pen,
+            c=c, a=a, x=x, r=r, mask=mask,
             grid_centers=self.grid_centers,
         )
 
     def evaluate(self, q) -> float:
         det = self.detail(q)
-        return det["chi2"]
+        return det["chi2"] + det["pen"]

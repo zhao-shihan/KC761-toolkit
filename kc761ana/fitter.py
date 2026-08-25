@@ -1,18 +1,26 @@
-"""Parameter fit with the Nelder-Mead derivative-free optimiser.
+"""Parameter fit with the bounded Nelder-Mead derivative-free optimiser.
 
 The chi^2 of :class:`kc761ana.fitmodel.FitModel` is a piecewise-smooth
 (jagged) function of the calibration parameters (the exact data rebinning
 has kinks where channel boundaries cross the energy grid), so the fit uses
-the derivative-free Nelder-Mead method (bounds enforced by clamping; the
-monotonicity and coverage conditions are enforced by returning chi^2 = inf
-for infeasible points).  Neither mechanism contributes to a valid fit, so
-the result is unbiased.
+the derivative-free Nelder-Mead method.  The box bounds (channels within
+(0, n_bins), relative resolutions within (0, 1), scale) are passed to scipy,
+whose bounded Nelder-Mead clips every simplex vertex to the box.  The
+monotonicity conditions (channels strictly increasing, resolutions strictly
+decreasing) cannot be expressed as box bounds; they are enforced *softly* by
+penalties added to chi^2 (see ``calibrate.monotonicity_penalty`` /
+``resolution.monotonicity_penalty``), so the objective stays finite and
+smooth everywhere and the fit can converge even when the optimum lies on the
+ordering boundary.  The penalty is zero for any physically ordered point, so
+the minimum is unbiased; the only hard-degeneracy condition is insufficient
+data coverage.
 
-The fit runs in the *internal* (reparameterised) parameter space
-q = [b0..b3, g0..g2, s] (s is the simulation normalisation, an explicit fit
-parameter); the reported ``FitResult`` contains the original parameters
-p = [c0, c1, c2, c3, a0, a1, a2, s] together with their errors and
-covariance, mapped back through the linear reparameterisation.
+The fit runs directly in the physically meaningful parameter space
+q = [x60..x2614, r60..r2614, s] (channel positions of the calibration lines,
+relative resolutions, and the simulation normalisation s).  The reported
+``FitResult`` contains these 8 parameters together with the derived
+calibration coefficients c0..c3 and resolution coefficients a0..a2 (with
+errors propagated through the linear maps).
 
 Between passes the energy grid is rebuilt from the fitted calibration and
 narrowed (3x coarse -> native), so the final grid matches the actual
@@ -21,21 +29,23 @@ channel-to-energy density and the final chi^2/ndof is meaningful.
 Parameter uncertainties are estimated from the weighted-residual Jacobian
 at the best fit, evaluated on the fixed grid:
 
-    r(q) = (d(q) - s m(q)) / sigma(q),   cov_int = (J^T J)^-1,
+    r(q) = (d(q) - s m(q)) / sigma(q),   cov = (J^T J)^-1,
 
-mapped to the original parameters with cov_orig[i, j] = cov_int[i, j] *
-T[i] * T[j], where T is the diagonal scale vector of the reparameterisation
-(T = 1 for the scale s).
+and the reported coefficient errors are propagated as
+cov_c = J_c cov[0:4,0:4] J_c^T, cov_a = J_a cov[4:7,4:7] J_a^T.
 """
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.optimize import minimize
 
+from .calibrate import channels_to_c
 from .fitmodel import PARAM_NAMES
+from .resolution import res_to_a
 
 
 @dataclass
@@ -43,7 +53,7 @@ class FitResult:
     success: bool
     message: str
     nfev: int
-    params: np.ndarray
+    params: np.ndarray           # [x60..x2614, r60..r2614, s]
     errors: np.ndarray
     names: list[str]
     chi2: float
@@ -52,24 +62,28 @@ class FitResult:
     scale: float
     scale_err: float
     cov: np.ndarray
-    params_internal: np.ndarray = field(default_factory=lambda: np.array([]))
+    params_c: np.ndarray = field(
+        default_factory=lambda: np.array([]))   # c0..c3
+    errors_c: np.ndarray = field(default_factory=lambda: np.array([]))
+    cov_c: np.ndarray = field(default_factory=lambda: np.array([]))
+    params_a: np.ndarray = field(
+        default_factory=lambda: np.array([]))   # a0..a2
+    errors_a: np.ndarray = field(default_factory=lambda: np.array([]))
+    cov_a: np.ndarray = field(default_factory=lambda: np.array([]))
     model: object = None
     detail: dict = field(default_factory=dict)
 
 
-def _clamp(q, bounds):
-    return np.array([min(max(q[i], bounds[i][0]), bounds[i][1]) for i in range(len(q))])
-
-
 def _fit_once(model, x0, bounds, maxiter):
-    # """Nelder-Mead minimisation of chi^2 from the starting point ``x0``.
+    """Bounded Nelder-Mead minimisation of chi^2 from the starting point ``x0``.
 
-    # Nelder-Mead has no native bounds: the parameters are clamped to the
-    # bounds in the objective, and infeasible points are rejected by
-    # ``evaluate`` returning inf.
-    # """
-    return minimize(lambda q: model.evaluate(_clamp(q, bounds)), x0,
-                    method="Nelder-Mead", 
+    The box ``bounds`` are passed to scipy's bounded Nelder-Mead, which clips
+    the initial point and every simplex vertex to the box before evaluating
+    them, so the search always stays inside the bounds.  Ordering violations
+    are handled softly by penalties inside ``evaluate`` (finite, smoothly
+    rising), so the objective is well defined everywhere.
+    """
+    return minimize(model.evaluate, x0, method="Nelder-Mead", bounds=bounds,
                     options=dict(maxiter=maxiter, xatol=1e-6, fatol=1e-8))
 
 
@@ -114,8 +128,10 @@ def _jacobian(model, q0, rel_step=1e-4):
             # Central difference crossed an invalid region: retry with a
             # smaller step, then fall back to a one-sided difference.
             h_small = 1e-6 * max(1.0, abs(q0[k]))
-            q_s = np.array(q0); q_s[k] += h_small
-            q_m = np.array(q0); q_m[k] -= h_small
+            q_s = np.array(q0)
+            q_s[k] += h_small
+            q_m = np.array(q0)
+            q_m[k] -= h_small
             r_ps = _residual(q_s, model, mask)
             r_pm = _residual(q_m, model, mask)
             if np.all(np.isfinite(r_ps)) and np.all(np.isfinite(r_pm)):
@@ -134,7 +150,7 @@ def _jacobian(model, q0, rel_step=1e-4):
 
 
 def _finalize(model, q):
-    """Build the FitResult (original parameters) for a converged point q."""
+    """Build the FitResult for a converged point q (fitted parameters)."""
     det = model.detail(q)
     chi2 = det["chi2"] if det is not None else np.nan
     ndof = det["ndof"] if det is not None else 0
@@ -143,25 +159,26 @@ def _finalize(model, q):
     jac = _jacobian(model, q)
     if jac is not None and np.all(np.isfinite(jac)) and jac.shape[0] > len(q):
         try:
-            cov_int = np.linalg.inv(jac.T @ jac)
+            cov = np.linalg.inv(jac.T @ jac)
         except np.linalg.LinAlgError:
-            cov_int = np.full((len(q), len(q)), np.nan)
+            cov = np.full((len(q), len(q)), np.nan)
     else:
-        cov_int = np.full((len(q), len(q)), np.nan)
-
-    # Map internal parameters and covariance back to the original space
-    # (the scale s is unchanged by the reparameterisation: T = 1).
-    t_scale = np.concatenate([model.calib_t.scale, model.res_t.scale, [1.0]])
-    p_orig = np.concatenate([model.calib_t.from_internal(q[:4]),
-                             model.res_t.from_internal(q[4:7]), [q[7]]])
-    cov = cov_int * np.outer(t_scale, t_scale)
+        cov = np.full((len(q), len(q)), np.nan)
     perr = np.sqrt(np.clip(np.diag(cov), 0, None))
+
+    # Derived coefficients with propagated uncertainties (linear maps).
+    c, jac_c = channels_to_c(q[:4], jacobian=True)
+    a, jac_a = res_to_a(q[4:7], jacobian=True)
+    cov_c = jac_c @ cov[:4, :4] @ jac_c.T
+    cov_a = jac_a @ cov[4:7, 4:7] @ jac_a.T
+    perr_c = np.sqrt(np.clip(np.diag(cov_c), 0, None))
+    perr_a = np.sqrt(np.clip(np.diag(cov_a), 0, None))
 
     return FitResult(
         success=True,
         message="",
         nfev=0,
-        params=p_orig,
+        params=np.asarray(q, dtype=float),
         errors=perr,
         names=PARAM_NAMES,
         chi2=float(chi2),
@@ -170,7 +187,8 @@ def _finalize(model, q):
         scale=float(q[7]),
         scale_err=float(perr[7]) if np.isfinite(perr[7]) else np.nan,
         cov=cov,
-        params_internal=q,
+        params_c=c, errors_c=perr_c, cov_c=cov_c,
+        params_a=a, errors_a=perr_a, cov_a=cov_a,
         model=model,
         detail=det,
     )
@@ -180,9 +198,10 @@ def run_fit(model, x0=None, bounds=None, maxiter: int = 600,
             n_passes: int = 3, verbose: bool = True) -> FitResult:
     """Minimise chi^2 on the model's energy grid; return the fit result.
 
-    ``x0`` / ``bounds`` are in the *internal* parameter space; by default
-    the model's own ``x0`` / ``bounds`` are used.  The returned parameters,
-    errors and covariance are in the original (reported) space.
+    ``x0`` / ``bounds`` are in the fit parameter space
+    [x60..x2614, r60..r2614, s]; by default the model's own ``x0`` / ``bounds``
+    are used.  The returned parameters, errors and covariance are in the same
+    space, and the derived coefficients (c0..c3, a0..a2) are reported too.
 
     Multi-pass scheme (``n_passes``, default 3): each pass fits from a single
     starting point on a *fixed* energy grid — pass 1 starts from the initial
@@ -198,6 +217,12 @@ def run_fit(model, x0=None, bounds=None, maxiter: int = 600,
     if bounds is None:
         bounds = model.bounds
     x0 = np.asarray(x0, dtype=float)
+    # Clip the starting point into the box: scipy would do it anyway, but a
+    # clipped x0 avoids a warning and keeps the pass-1 grid estimate sane.
+    x0 = np.clip(x0, [b[0] for b in bounds], [b[1] for b in bounds])
+    if not model.is_valid(x0):
+        print("[fit] warning: the starting point is degenerate (insufficient "
+              "data coverage); the fit may not be meaningful", file=sys.stderr)
     n_passes = max(1, int(n_passes))
 
     if n_passes == 1:
@@ -216,13 +241,15 @@ def run_fit(model, x0=None, bounds=None, maxiter: int = 600,
             # Grid width factor: 3.0 for pass 1, down to 1.0 for the last pass.
             wf = max(1.0, 3.0 * (n_passes - k) / (n_passes - 1))
             if k == 1:
-                m_new = model.rebuilt(model.calib_t.from_internal(x0[:4]),
-                                      width_factor=wf)
+                m_new = model.rebuilt(x0[:4], width_factor=wf)
                 st = x0
             else:
-                c = m.calib_t.from_internal(best.x[:4])
-                m_new = model.rebuilt(c, width_factor=wf)
-                st = _clamp(best.x, m_new.bounds)  # warm start from previous pass
+                # Warm-start from the previous pass.  scipy's bounded
+                # Nelder-Mead returns an in-bounds vertex, so the rebuilt
+                # grid never follows an out-of-bounds (degenerate)
+                # calibration.
+                st = best.x
+                m_new = model.rebuilt(st[:4], width_factor=wf)
             # Keep the previous (good) model if the rebuilt grid is
             # degenerate: a degenerate grid cannot be fit meaningfully.
             if len(m_new.grid_centers) < 20:
@@ -243,10 +270,8 @@ def run_fit(model, x0=None, bounds=None, maxiter: int = 600,
                       f"best chi2 = {best.fun:.2f}, nfev = {best.nfev}")
         model_final, q = m, best.x
 
-    # Nelder-Mead evaluates the *clamped* parameters; clamp the reported
-    # solution to the bounds so the reported parameters and chi^2 are
-    # consistent with what was actually optimised.
-    q = _clamp(q, model_final.bounds)
+    # scipy's bounded Nelder-Mead keeps every simplex vertex inside the box,
+    # so the reported solution is in-bounds by construction.
     result = _finalize(model_final, q)
     result.nfev = int(nfev_total)
     result.success = bool(best.success)
