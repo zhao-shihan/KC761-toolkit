@@ -126,8 +126,8 @@ def build_all_materials() -> dict[str, G4Material]:
 
     mats["G4_AIR"] = nist.FindOrBuildMaterial("G4_AIR")
 
-    # Container materials (glass tube for Th-232, stainless-steel tube for
-    # Ra-226); always build them so the detector code can rely on their key.
-    mats["G4_GLASS_PLATE"] = nist.FindOrBuildMaterial("G4_GLASS_PLATE")
+    # Container materials (Pyrex glass tube for Th-232, stainless-steel tube
+    # for Ra-226); always build them so the detector code can rely on their key.
+    mats["G4_Pyrex_Glass"] = nist.FindOrBuildMaterial("G4_Pyrex_Glass")
     mats["G4_STAINLESS-STEEL"] = nist.FindOrBuildMaterial("G4_STAINLESS-STEEL")
     return mats

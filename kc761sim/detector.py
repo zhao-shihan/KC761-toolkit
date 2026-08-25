@@ -206,7 +206,7 @@ class DetectorConstruction(G4VUserDetectorConstruction):
         """Build and place the container tube (sibling of the source volume)."""
         spec = self.source
         if spec.key == "th232":
-            material = self.materials["G4_GLASS_PLATE"]
+            material = self.materials["G4_Pyrex_Glass"]
         elif spec.key == "ra226":
             material = self.materials["G4_STAINLESS-STEEL"]
         else:
