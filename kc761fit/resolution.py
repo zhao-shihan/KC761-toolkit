@@ -51,7 +51,7 @@ except ImportError:  # pragma: no cover
 RES_ENERGIES = np.array([60.0, 1461.0, 2614.0])
 
 # Default relative resolutions r = sigma/E at RES_ENERGIES (initial fit values).
-DEFAULT_R = np.array([0.1, 0.03, 0.02])
+DEFAULT_R = np.array([0.3, 0.03, 0.02])
 
 # Fit bounds for the relative resolutions (dimensionless, must stay < 1).
 BOUNDS_R = [(0.0, 1.0)] * 3
