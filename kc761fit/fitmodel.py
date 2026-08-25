@@ -4,7 +4,7 @@ Forward model (all on a *fixed* uniform energy grid over [elow, ehigh])
 -----------------------------------------------------------------------
 1. The experimental (background-subtracted) channel spectrum is calibrated
    with the cubic E(x) fixed by the channel positions of the 60/609/1461/2614
-   keV lines (see :mod:`kc761ana.calibrate`) and *exactly rebinned* onto the
+   keV lines (see :mod:`kc761fit.calibration`) and *exactly rebinned* onto the
    fixed energy grid.  The rebin uses the cumulative distribution of the
    channel histogram (linear interpolation of the cumulative counts and
    cumulative sum-of-weights): for grid bin [g_lo, g_hi] with inverse
@@ -16,7 +16,7 @@ Forward model (all on a *fixed* uniform energy grid over [elow, ehigh])
    which is the count- and error-conserving transform.
 2. The intrinsic simulation spectrum is convolved with the Gaussian
    resolution whose *relative* widths sigma(E)/E at 60/1461/2614 keV are the
-   fit parameters (see :mod:`kc761ana.resolution`) directly onto the same
+   fit parameters (see :mod:`kc761fit.resolution`) directly onto the same
    fixed grid, matching the simulation to the data binning.
 3. chi^2 = sum over grid bins with error > 0 of (d - s m)^2 / sigma^2,
    where sigma is the statistical error plus a fractional systematic
@@ -37,7 +37,7 @@ Bounds and ordering are simple and explicit:
     * ordering:    x60 < x609 < x1461 < x2614 and r60 > r1461 > r2614.
 
 The ordering conditions are *soft*: violations add a quadratically rising
-penalty to chi^2 (see ``calibrate.monotonicity_penalty`` /
+penalty to chi^2 (see ``calibration.monotonicity_penalty`` /
 ``resolution.monotonicity_penalty``) instead of returning inf, so the
 objective stays finite everywhere and the derivative-free optimiser can
 converge even when the optimum sits on the ordering boundary.  The penalty is
@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .calibrate import (
+from .calibration import (
     DEFAULT_X, channels_to_c, monotonicity_penalty as calib_monotonicity_penalty,
     ordering_slack as calib_ordering_slack, poly3,
 )

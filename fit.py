@@ -24,14 +24,14 @@ from pathlib import Path
 # Allow running from any working directory.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from kc761ana.calibrate import CAL_ENERGIES  # noqa: E402
-from kc761ana.fitmodel import (  # noqa: E402
+from kc761fit.calibration import CAL_ENERGIES  # noqa: E402
+from kc761fit.fitmodel import (  # noqa: E402
     DEFAULT_INIT, PARAM_NAMES, PARAM_NAMES_A, PARAM_NAMES_C, FitModel,
 )
-from kc761ana.fitter import run_fit  # noqa: E402
-from kc761ana.io import load_data_spectrum, load_sim_spectrum  # noqa: E402
-from kc761ana.plot import plot_fit  # noqa: E402
-from kc761ana.resolution import RES_ENERGIES  # noqa: E402
+from kc761fit.fitter import run_fit  # noqa: E402
+from kc761fit.io import load_data_spectrum, load_sim_spectrum  # noqa: E402
+from kc761fit.plot import plot_fit  # noqa: E402
+from kc761fit.resolution import RES_ENERGIES  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

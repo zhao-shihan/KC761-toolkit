@@ -57,7 +57,7 @@ _SQRT_2PI_INV = 1.0 / np.sqrt(2.0 * np.pi)
 
 
 if _HAVE_NUMBA:
-    @numba.njit(parallel=True, cache=True)
+    @numba.njit(parallel=True)
     def _smear_kernel(ec, f, sig_j, mu, sig_i, widths, nsigma):
         """Resolution-smeared density for every target bin i, parallel over i.
 

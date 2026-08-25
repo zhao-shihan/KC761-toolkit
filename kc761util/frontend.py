@@ -4,8 +4,8 @@ Both frontend scripts (csv2root.py, subbkg.py, ...) follow the same pattern:
 locate the ROOT executable, assemble a `root -l -b -q 'macro(args)'` command
 line and run it as a subprocess.  The common pieces live here.
 
-Macros live in subdirectories of the project root (kc761util/, kc761ana/, ...)
-and are addressed by their relative path, e.g. "kc761ana/subbkg.cxx".
+Macros live in subdirectories of the project root (kc761util/, kc761fit/, ...)
+and are addressed by their relative path, e.g. "kc761util/subbkg.cxx".
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def run_macro(macro_rel: str, macro_args: list[str], *,
     """Assemble ``root -l -b -q 'macro("arg1","arg2",...)'`` and run it.
 
     ``macro_rel`` is the macro path relative to the project root, e.g.
-    ``"kc761util/csv2root.cxx"`` or ``"kc761ana/subbkg.cxx"``.
+    ``"kc761util/csv2root.cxx"`` or ``"kc761util/subbkg.cxx"``.
 
     Returns the ROOT process exit code (non-zero on failure).
     """

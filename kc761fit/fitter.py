@@ -1,6 +1,6 @@
 """Parameter fit with the bounded Nelder-Mead derivative-free optimiser.
 
-The chi^2 of :class:`kc761ana.fitmodel.FitModel` is a piecewise-smooth
+The chi^2 of :class:`kc761fit.fitmodel.FitModel` is a piecewise-smooth
 (jagged) function of the calibration parameters (the exact data rebinning
 has kinks where channel boundaries cross the energy grid), so the fit uses
 the derivative-free Nelder-Mead method.  The box bounds (channels within
@@ -8,7 +8,7 @@ the derivative-free Nelder-Mead method.  The box bounds (channels within
 whose bounded Nelder-Mead clips every simplex vertex to the box.  The
 monotonicity conditions (channels strictly increasing, resolutions strictly
 decreasing) cannot be expressed as box bounds; they are enforced *softly* by
-penalties added to chi^2 (see ``calibrate.monotonicity_penalty`` /
+penalties added to chi^2 (see ``calibration.monotonicity_penalty`` /
 ``resolution.monotonicity_penalty``), so the objective stays finite and
 smooth everywhere and the fit can converge even when the optimum lies on the
 ordering boundary.  The penalty is zero for any physically ordered point, so
@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy import optimize
 
-from .calibrate import channels_to_c
+from .calibration import channels_to_c
 from .fitmodel import PARAM_NAMES
 from .resolution import res_to_a
 

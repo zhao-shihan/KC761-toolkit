@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         out = args.output.expanduser().resolve()
 
     return run_macro(
-        "kc761ana/subbkg.cxx",
+        "kc761util/subbkg.cxx",
         [str(sig), str(bkg), str(out)],
         root_exe=args.root,
         cwd=sig.parent,
