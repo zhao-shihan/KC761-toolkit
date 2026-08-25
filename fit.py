@@ -10,8 +10,8 @@ chi^2 over [elow, ehigh] keV.  The equivalent polynomial coefficients
 c0..c3 and a0..a2 are reported alongside.
 
 Examples:
-    python fit.py data/exp/k40-260825-data-subbkg.root \
-                  data/sim/k40-260825-simulation-1e8.root 400 2000
+    python fit.py data/exp/th232-data-subbkg.root \
+                  data/sim/th232-simulation.root 400 2000
     python fit.py data.root sim.root 400 2000 -o out.pdf --x609 530 --r60 0.30
 """
 
@@ -41,10 +41,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("data", type=Path,
                         help="background-subtracted data ROOT file "
-                             "(e.g. data/exp/k40-260825-data-subbkg.root)")
+                             "(e.g. data/exp/th232-data-subbkg.root)")
     parser.add_argument("sim", type=Path,
                         help="simulation ROOT file (e.g. "
-                             "data/sim/k40-260825-simulation-1e8.root)")
+                             "data/sim/th232-simulation.root)")
     parser.add_argument("elow", type=float, help="lower fit energy bound (keV)")
     parser.add_argument("ehigh", type=float, help="upper fit energy bound (keV)")
     parser.add_argument("-o", "--output", type=Path, default=None,
