@@ -41,7 +41,7 @@ import sys
 from dataclasses import dataclass, field
 
 import numpy as np
-from scipy.optimize import minimize
+from scipy import optimize
 
 from .calibrate import channels_to_c
 from .fitmodel import PARAM_NAMES
@@ -83,8 +83,9 @@ def _fit_once(model, x0, bounds, maxiter):
     are handled softly by penalties inside ``evaluate`` (finite, smoothly
     rising), so the objective is well defined everywhere.
     """
-    return minimize(model.evaluate, x0, method="Nelder-Mead", bounds=bounds,
-                    options=dict(maxiter=maxiter, xatol=1e-6, fatol=1e-8))
+    return optimize.minimize(
+        model.evaluate, x0, method="Nelder-Mead", bounds=bounds,
+        options=dict(maxiter=maxiter, xatol=1e-3, fatol=1e-6, adaptive=True))
 
 
 def _residual(q, model, fixed_mask):
@@ -194,7 +195,7 @@ def _finalize(model, q):
     )
 
 
-def run_fit(model, x0=None, bounds=None, maxiter: int = 600,
+def run_fit(model, x0=None, bounds=None, maxiter: int = None,
             n_passes: int = 3, verbose: bool = True) -> FitResult:
     """Minimise chi^2 on the model's energy grid; return the fit result.
 

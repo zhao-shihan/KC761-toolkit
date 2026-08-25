@@ -53,8 +53,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--width", type=float, default=None,
                         help="energy-grid bin width in keV (default: about one "
                              "data channel width)")
-    parser.add_argument("--maxiter", type=int, default=600,
-                        help="Nelder-Mead iterations per pass (default 600)")
+    parser.add_argument("--maxiter", type=int, default=None,
+                        help="Nelder-Mead iterations per pass (default auto)")
     parser.add_argument("--passes", type=int, default=3,
                         help="number of fit passes; each pass fixes an energy "
                              "grid, and the grid is rebuilt from the fitted "

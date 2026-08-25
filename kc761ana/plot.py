@@ -4,7 +4,7 @@ Four stacked panels:
   1. spectrum      : calibrated data (points with errors, log scale) vs
                      best-fit model (resolution-smeared, scaled simulation),
                      plus the raw (unconvolved, scaled) simulation; x = energy;
-  2. pulls         : (data - model) / error vs energy;
+  2. residual      : relative residual (data - model)/model vs energy;
   3. calibration   : fitted E(x) vs channel, with the fitted line positions;
   4. resolution    : fitted sigma(E) vs energy, with the fitted sigma points.
 
@@ -78,17 +78,20 @@ def plot_fit(model, result, out_pdf: str, elow: float, ehigh: float) -> None:
                  va="bottom", ha="left", family="monospace",
                  bbox=dict(boxstyle="round", fc="white", ec="gray", alpha=0.9))
 
-    # --- pull panel (x = energy) ------------------------------------------
-    pull = (d - m) / err
-    ax_pull.errorbar(mu, pull, yerr=1.0, fmt="o",
+    # --- relative-residual panel (x = energy) ------------------------------
+    # Fractional deviation (data - model)/model; error bars are the relative
+    # data errors.  Bins with a zero model (no data overlap) are skipped.
+    ok = m > 0
+    rel = (d[ok] - m[ok]) / m[ok]
+    ax_pull.errorbar(mu[ok], rel, yerr=err[ok] / m[ok], fmt="o",
                      ms=1, lw=0.1, color="tab:green")
     ax_pull.axhline(0, color="k", lw=0.8)
-    ax_pull.axhline(3, color="tab:red", lw=0.6, ls=":")
-    ax_pull.axhline(-3, color="tab:red", lw=0.6, ls=":")
+    ax_pull.axhline(0.3, color="tab:red", lw=0.6, ls=":")
+    ax_pull.axhline(-0.3, color="tab:red", lw=0.6, ls=":")
     ax_pull.set_xlabel("energy (keV)")
-    ax_pull.set_ylabel("pull")
+    ax_pull.set_ylabel("relative residual $(d-m)/m$")
     ax_pull.set_xlim(elow, ehigh)
-    ax_pull.set_ylim(-6, 6)
+    ax_pull.set_ylim(-0.6, 0.6)
 
     # --- calibration curve (x = channel) -----------------------------------
     x = np.linspace(model.data.edges[0], model.data.edges[-1], 400)

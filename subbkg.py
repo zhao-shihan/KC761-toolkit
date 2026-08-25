@@ -7,7 +7,7 @@ and propagating Poisson errors per bin.  Output TH1D "kc761_spectrum" is
 saved to a ROOT file.
 
 Examples:
-    python subbkg.py data/exp/k40-data.root data/exp/bkg-data.root
+    python subbkg.py data/exp/th232-data.root data/exp/bkg-data.root
     python subbkg.py sig.root bkg.root -o out.root
 """
 
