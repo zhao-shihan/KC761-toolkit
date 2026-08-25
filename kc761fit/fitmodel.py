@@ -15,25 +15,26 @@ The model evaluates chi^2 on a *fixed* uniform energy grid over [elow, ehigh]:
 
    which is the count- and error-conserving transform.
 2. The intrinsic simulation spectrum is convolved with the Gaussian
-   resolution, whose *relative* widths sigma(E)/E at 60/1461/2614 keV are the
+   resolution, whose *relative* widths sigma(E)/E at 60/609/2614 keV are the
    fit parameters (see :mod:`kc761fit.resolution`), directly onto the same
    grid, matching the simulation to the data binning.
 3. chi^2 = sum over grid bins with error > 0 of (d - s m)^2 / sigma^2, where
    sigma is the statistical error plus a fractional systematic proportional
-   to the bin counts, added in quadrature (``FitModel.total_errors``;
-   ``sys_frac``, default 5%).
+   to the bin counts (``sys_frac``, default 0) plus the x-direction
+   (finite energy-bin-width) error projected onto y through the model slope
+   (``FitModel.model_error``).
 
 Parameters
 ----------
 The optimizer works directly with the physically meaningful parameters
 
-    q = [x60, x609, x1461, x2614, r60, r1461, r2614, s]
+    q = [x60, x609, x1461, x2614, r60, r609, r2614, s]
 
 where x are the channel positions of the calibration lines, r = sigma/E the
 relative resolutions at the resolution lines, and s the normalization scale.
 Bounds are simple box constraints (channels in (0, n_channels), r in (0, 1),
 s in BOUNDS_S).  The ordering conditions (x60 < x609 < x1461 < x2614 and
-r60 > r1461 > r2614) are enforced *softly*: violations add a quadratically
+r60 > r609 > r2614) are enforced *softly*: violations add a quadratically
 rising penalty to chi^2 (see ``calibration.monotonicity_penalty`` /
 ``resolution.monotonicity_penalty``) instead of returning inf, so the
 objective stays finite everywhere and the derivative-free optimizer can
@@ -60,7 +61,7 @@ from .resolution import (
 )
 
 # Order of the fitted (reported) parameters.
-PARAM_NAMES = ["x60", "x609", "x1461", "x2614", "r60", "r1461", "r2614", "s"]
+PARAM_NAMES = ["x60", "x609", "x1461", "x2614", "r60", "r609", "r2614", "s"]
 # Derived coefficients reported on output (from channels / resolutions).
 PARAM_NAMES_C = ["c0", "c1", "c2", "c3"]
 PARAM_NAMES_A = ["a0", "a1", "a2"]
@@ -86,14 +87,15 @@ class FitModel:
     """
 
     def __init__(self, data, sim, elow: float, ehigh: float, width: float | None = None,
-                 sys_frac: float = 0.05):
+                 sys_frac: float = 0.0):
         self.data = data
         self.sim = sim
         self.elow = float(elow)
         self.ehigh = float(ehigh)
-        # Per-bin fractional systematic error (dimensionless, e.g. 0.05 = 5%),
-        # added in quadrature to the statistical errors proportional to the
-        # bin counts: err = sqrt(err_stat^2 + (sys_frac * d)^2).
+        # Per-bin fractional systematic error (dimensionless, e.g. 0.05 = 5%,
+        # 0 by default), added in quadrature to the statistical errors
+        # proportional to the bin counts:
+        # err = sqrt(err_stat^2 + (sys_frac * d)^2).
         self.sys_frac = float(sys_frac)
 
         # Variance floor (counts^2) applied to the data errors in the chi^2
@@ -120,6 +122,10 @@ class FitModel:
         self.x0 = np.array(INIT_PARAMS, dtype=float)
         self.grid_edges = self._make_grid(width)
         self.grid_centers = 0.5 * (self.grid_edges[:-1] + self.grid_edges[1:])
+        # Uniform grid: energy width of one grid bin (keV).  Half of it is the
+        # x-direction (energy) uncertainty of each bin, projected onto y
+        # through the model slope in ``model_error``.
+        self.bin_width = float(np.diff(self.grid_edges)[0])
 
         # Reasonable initial scale: the weighted least-squares estimate at
         # the initial calibration / resolution.
@@ -133,8 +139,30 @@ class FitModel:
         ``min_variance`` floor:
 
             err = sqrt(err_stat^2 + (sys_frac * d)^2),  floored at 1 count.
+
+        The x-direction (finite energy-bin-width) term is *not* included here;
+        use :meth:`model_error` for the full chi^2 weighting.
         """
         var = err_stat**2 + (self.sys_frac * d) ** 2
+        return np.sqrt(np.maximum(var, self.min_variance))
+
+    def model_error(self, d, err_stat, s, m_prime) -> np.ndarray:
+        """Total per-bin errors with the x-direction (energy) term included.
+
+        As in ROOT's TGraphErrors treatment, the error along x (here half the
+        energy-grid bin width, ``0.5 * bin_width``) is projected onto the y
+        direction through the slope of the model f = s * m_raw:
+
+            err = sqrt(err_stat^2 + (sys_frac * d)^2
+                       + (0.5 * bin_width * s * m_prime)^2)
+
+        with ``m_prime = d(m_raw)/dE`` the central-difference derivative of
+        the resolution-smeared model over the grid centers (the derivative of
+        the full model is ``s * m_prime``).  This adds a covariance-like term
+        to the weights that accounts for the finite energy width of each bin.
+        """
+        var = (err_stat**2 + (self.sys_frac * d) ** 2
+               + (0.5 * self.bin_width * s * m_prime) ** 2)
         return np.sqrt(np.maximum(var, self.min_variance))
 
     def _initial_scale(self, q7) -> float:
@@ -324,10 +352,14 @@ class FitModel:
         if not ok:
             return self._degenerate_detail(p)
         mask = err > 0
-        d, err, m_raw = d[mask], err[mask], m_raw[mask]
-        # Statistical + fractional-systematic errors in the chi^2 weights
-        # (see __init__ / total_errors).
-        err = self.total_errors(d, err)
+        # Model slope over the full grid (for the x-direction error term),
+        # then mask everything consistently.
+        m_prime = np.gradient(m_raw, self.grid_centers)
+        d, err, m_raw, m_prime = (
+            d[mask], err[mask], m_raw[mask], m_prime[mask])
+        # Statistical + fractional-systematic errors + the x-direction
+        # (finite bin-width) term in the chi^2 weights (see model_error).
+        err = self.model_error(d, err, s, m_prime)
         mu = self.grid_centers[mask]
         m = s * m_raw
         chi2 = float(np.sum((d - m) ** 2 / err**2))
@@ -349,13 +381,16 @@ class FitModel:
 
         ``mask`` selects the grid bins (e.g. ``detail()["mask"]``); with
         ``mask=None`` all bins are used.  Statistical + fractional-systematic
-        errors enter via ``total_errors``, consistent with ``detail``.  This
-        is the vector whose central-difference Jacobian gives the parameter
-        uncertainties (see :func:`kc761fit.fitter._jacobian`).
+        + x-direction errors enter via ``model_error``, consistent with
+        ``detail``.  This is the vector whose central-difference Jacobian
+        gives the parameter uncertainties
+        (see :func:`kc761fit.fitter._jacobian`).
         """
         d, err, m_raw = self.arrays(q)
+        m_prime = np.gradient(m_raw, self.grid_centers)
         if mask is not None:
-            d, err, m_raw = d[mask], err[mask], m_raw[mask]
-        err = self.total_errors(d, err)
+            d, err, m_raw, m_prime = (d[mask], err[mask], m_raw[mask],
+                                      m_prime[mask])
         s = float(q[7])
+        err = self.model_error(d, err, s, m_prime)
         return (d - s * m_raw) / err

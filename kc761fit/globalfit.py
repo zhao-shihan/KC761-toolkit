@@ -6,7 +6,7 @@ against one simulation over one energy range.  A global fit instead fits
 calibration and the detector resolution are *global-fit* parameters common
 to all datasets, and each dataset gets its own normalization scale:
 
-    q = [x60, x609, x1461, x2614, r60, r1461, r2614, s0, ..., s_{N-1}]
+    q = [x60, x609, x1461, x2614, r60, r609, r2614, s0, ..., s_{N-1}]
 
 The total chi^2 is the plain sum of the per-dataset chi^2 values.  Every
 dataset is weighted by its own statistical errors (plus its fractional
@@ -101,7 +101,7 @@ class GlobalFitModel:
     # all datasets.
     n_global_params = 7
 
-    def __init__(self, specs, sys_frac: float | list[float] = 0.05,
+    def __init__(self, specs, sys_frac: float | list[float] = 0.0,
                  labels: list[str] | None = None):
         self.specs = [s if isinstance(s, DatasetSpec) else DatasetSpec(*s)
                       for s in specs]
@@ -194,9 +194,9 @@ class GlobalFitModel:
     def arrays(self, q, c=None, a=None):
         """Concatenated (d, err, m_raw) over all datasets on their grids.
 
-        ``err`` is the *total* per-bin error (statistical + fractional
-        systematic, per-dataset ``sys_frac``), consistent with ``detail`` /
-        ``residuals``.
+        ``err`` is the statistical + fractional-systematic per-bin error
+        (per-dataset ``sys_frac``); the x-direction (finite bin-width) term
+        is applied in ``detail`` / ``residuals`` via ``FitModel.model_error``.
         """
         q = np.asarray(q, dtype=float)
         if c is None:
@@ -217,9 +217,10 @@ class GlobalFitModel:
         """Weighted residuals (d - s_i m)/sigma, concatenated over datasets.
 
         Each dataset's bins are weighted with its own scale s_i and its own
-        total errors; ``mask`` (concatenated, e.g. ``detail()["mask"]``)
-        selects the grid bins.  This is the vector whose central-difference
-        Jacobian gives the parameter uncertainties.
+        total errors (statistical + fractional-systematic + x-direction,
+        via ``FitModel.model_error``); ``mask`` (concatenated, e.g.
+        ``detail()["mask"]``) selects the grid bins.  This is the vector
+        whose central-difference Jacobian gives the parameter uncertainties.
         """
         q = np.asarray(q, dtype=float)
         c = channels_to_c(q[:4])
@@ -229,10 +230,12 @@ class GlobalFitModel:
         res = []
         for i, (m, msk) in enumerate(zip(self.models, masks)):
             d, err, m_raw = m.arrays(q[:7], c, a)
-            err = m.total_errors(d, err)
+            m_prime = np.gradient(m_raw, m.grid_centers)
             if msk is not None:
-                d, err, m_raw = d[msk], err[msk], m_raw[msk]
+                d, err, m_raw, m_prime = (d[msk], err[msk], m_raw[msk],
+                                          m_prime[msk])
             s_i = float(q[7 + i])
+            err = m.model_error(d, err, s_i, m_prime)
             res.append((d - s_i * m_raw) / err)
         return np.concatenate(res)
 
@@ -283,10 +286,14 @@ class GlobalFitModel:
             mask_i = err > 0
             if int(np.sum(mask_i)) < m.min_usable_bins:
                 degenerate = True
-            d, err, m_raw = d[mask_i], err[mask_i], m_raw[mask_i]
-            err = m.total_errors(d, err)
-            mu_i = m.grid_centers[mask_i]
+            # Model slope over the full grid (for the x-direction error
+            # term), then mask everything consistently.
+            m_prime = np.gradient(m_raw, m.grid_centers)
+            d, err, m_raw, m_prime = (d[mask_i], err[mask_i], m_raw[mask_i],
+                                      m_prime[mask_i])
             s_i = float(s[i])
+            err = m.model_error(d, err, s_i, m_prime)
+            mu_i = m.grid_centers[mask_i]
             mi = s_i * m_raw
             chi2_per[i] = float(np.sum((d - mi) ** 2 / err**2))
             bins_per[i] = len(d)

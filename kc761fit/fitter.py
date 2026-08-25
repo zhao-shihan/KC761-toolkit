@@ -280,7 +280,7 @@ def _finalize_global(model, q, success: bool = True, message: str = "",
     )
 
 
-def run_global_fit(model, x0=None, bounds=None, maxiter: int = None,
+def run_global_fit(model, x0=None, bounds=None, maxiter: int = 10000,
                    n_passes: int = 5, verbose: bool = True) -> GlobalFitResult:
     """Minimize the summed chi^2 of a global (multi-dataset) fit.
 
@@ -373,7 +373,7 @@ def _fit_passes(model, x0, bounds, maxiter, n_passes, verbose):
     return model_final, q, nfev_total, best
 
 
-def run_fit(model, x0=None, bounds=None, maxiter: int = None,
+def run_fit(model, x0=None, bounds=None, maxiter: int = 10000,
             n_passes: int = 5, verbose: bool = True) -> FitResult:
     """Minimize chi^2 on the model's energy grid; return the fit result.
 

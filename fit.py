@@ -5,7 +5,7 @@ Single-dataset mode (positional arguments, unchanged):
     The experimental (bkg subtracted) spectrum is calibrated with a cubic
     E(x) fixed by the channel positions of the 60/609/1461/2614 keV lines;
     the simulation spectrum is convolved with a Gaussian resolution whose
-    relative widths sigma/E at 60/1461/2614 keV are fit parameters.  The 8
+    relative widths sigma/E at 60/609/2614 keV are fit parameters.  The 8
     parameters (x60..x2614, r60..r2614, normalisation scale s) are obtained
     by minimising chi^2 over [elow, ehigh] keV.
 
@@ -91,11 +91,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "dataset (default: about one data channel width)")
     parser.add_argument("--sys", action="append", type=float, default=None,
                         metavar="FRAC",
-                        help="per-bin fractional systematic error, as a "
-                             "fraction (e.g. 0.05 = 5%%), added in quadrature "
-                             "to the statistical errors proportional to the "
-                             "bin counts; single value or one per dataset "
-                             "(default 0.05)")
+                         help="per-bin fractional systematic error, as a "
+                              "fraction (e.g. 0.05 = 5%%), added in quadrature "
+                              "to the statistical errors proportional to the "
+                              "bin counts; single value or one per dataset "
+                              "(default 0)")
     parser.add_argument("--s", action="append", type=float, default=None,
                         metavar="SCALE",
                         help="initial normalisation scale override; single "
@@ -106,8 +106,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="output PDF (default: <data stem>-fit.pdf, or "
                              "<label1>-<label2>-fit.pdf for a global fit, in "
                              "the current directory)")
-    parser.add_argument("--maxiter", type=int, default=None,
-                        help="Nelder-Mead iterations per pass (default auto)")
+    parser.add_argument("--maxiter", type=int, default=10000,
+                        help="Nelder-Mead iterations per pass (default 10000)")
     parser.add_argument("--passes", type=int, default=5,
                         help="number of fit passes; each pass fixes an energy "
                              "grid at the native resolution (one bin per data "
@@ -169,7 +169,7 @@ def _run_single(args) -> int:
     print(f"[fit] reading sim spectrum   : {sim_file}")
     sim = load_sim_spectrum(str(sim_file))
 
-    sys_frac = args.sys[0] if args.sys else 0.05
+    sys_frac = args.sys[0] if args.sys else 0.0
     width = args.width[0] if args.width else None
     model = FitModel(data, sim, args.elow, args.ehigh, width=width,
                      sys_frac=sys_frac)
@@ -221,7 +221,7 @@ def _run_global(args) -> int:
             return 1
 
     widths = _broadcast(args.width, None, n, "--width")
-    syss = _broadcast(args.sys, 0.05, n, "--sys")
+    syss = _broadcast(args.sys, 0.0, n, "--sys")
     s_inits = _broadcast(args.s, None, n, "--s")
     if args.label is None:
         labels = [_default_label(p) for p in args.data_multi]

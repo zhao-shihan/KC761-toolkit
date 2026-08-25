@@ -25,18 +25,16 @@ Panels:
 """
 
 from __future__ import annotations
+from .resolution import RESOL_ENERGIES, sigma_model
+from .fitmodel import PARAM_NAMES_A, PARAM_NAMES_C
+from .calibration import CALIB_ENERGIES, poly3
+import numpy as np
+from matplotlib.gridspec import GridSpecFromSubplotSpec
+import matplotlib.pyplot as plt
 
 import matplotlib
 
 matplotlib.use("Agg")
-
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpecFromSubplotSpec
-import numpy as np
-
-from .calibration import CALIB_ENERGIES, poly3
-from .fitmodel import PARAM_NAMES_A, PARAM_NAMES_C
-from .resolution import RESOL_ENERGIES, sigma_model
 
 
 def _cap(s: str) -> str:
@@ -116,8 +114,7 @@ def _parameter_panel(ax, txt: str) -> None:
     The text block is centered in its panel.
     """
     ax.axis("off")
-    ax.text(0.5, 0.5, txt, transform=ax.transAxes, va="center", ha="center",
-            fontsize=7.5, family="monospace", linespacing=1.4,
+    ax.text(0.5, 0.5, txt, transform=ax.transAxes, va="center", ha="center", fontsize=8,
             bbox=dict(boxstyle="round", fc="#f8f8f8", ec="gray", alpha=0.9))
 
 
@@ -164,8 +161,8 @@ def _residual_panel(ax, mu, d, err, m, elow, ehigh, title: str) -> None:
 # and resolution panels: the true 1-sigma bands are too narrow to be visible
 # at the axis scale, so they are scaled up for display.  The two factors are
 # independent.
-CALIB_BAND_SCALE = 30.0   # calibration: drawn sigma_E(x) = SCALE * 1-sigma
-RESOL_BAND_SCALE = 30.0     # resolution:  drawn sigma_r(E) = SCALE * 1-sigma
+CALIB_BAND_SCALE = 100.0   # calibration: drawn sigma_E(x) = SCALE * 1-sigma
+RESOL_BAND_SCALE = 30.0    # resolution:  drawn sigma_r(E) = SCALE * 1-sigma
 
 
 def _calibration_panel(ax, c, x_anchors, x_max: float = 2048.0,
@@ -188,7 +185,7 @@ def _calibration_panel(ax, c, x_anchors, x_max: float = 2048.0,
         ax.fill_between(x, e - err, e + err, color="tab:purple", alpha=0.15,
                         lw=0,
                         label=f"1$\\sigma$ band ($\\mathbf{{\\times "
-                              f"{CALIB_BAND_SCALE:g}}}$)")
+                        f"{CALIB_BAND_SCALE:g}}}$)")
     ax.plot(x_anchors, CALIB_ENERGIES, "o", ms=5, mfc="none",
             color="tab:purple",
             label="Fit line positions (60/609/1461/2614 keV)")
@@ -220,7 +217,7 @@ def _resolution_panel(ax, a, r_anchors, e_max: float, cov_a=None,
     e_res = np.linspace(1.0, e_max, 300)
     rel = 100.0 * sigma_model(a, e_res) / e_res  # percent
     ax.plot(e_res, rel, "-", color="tab:orange", lw=1.5,
-        label=r"$r(E) = \sigma(E)/E = a_2 + a_1/\sqrt{E} + a_0/E$")
+            label=r"$r(E) = \sigma(E)/E = a_0/E + a_1/\sqrt{E} + a_2$")
     if cov_a is not None and np.all(np.isfinite(cov_a)):
         w = np.stack([1.0 / e_res, 1.0 / np.sqrt(e_res),
                       np.ones_like(e_res)], axis=1)
@@ -229,7 +226,7 @@ def _resolution_panel(ax, a, r_anchors, e_max: float, cov_a=None,
         ax.fill_between(e_res, rel - err, rel + err, color="tab:orange",
                         alpha=0.15, lw=0,
                         label=f"1$\\sigma$ band ($\\mathbf{{\\times "
-                              f"{RESOL_BAND_SCALE:g}}}$)")
+                        f"{RESOL_BAND_SCALE:g}}}$)")
     ax.plot(RESOL_ENERGIES, 100.0 * r_anchors, "o", ms=5, mfc="none",
             color="tab:orange",
             label=f"Fit resolution ({'/'.join(f'{e:g}' for e in RESOL_ENERGIES)} keV)")

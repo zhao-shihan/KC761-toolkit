@@ -7,7 +7,7 @@ Fit parameterization
 --------------------
 Instead of fitting the polynomial coefficients a0..a2 directly, the fit works
 in terms of the *relative* resolution r(E) = sigma(E)/E at the reference
-energies 60 keV, 1461 keV, 2614 keV.  Each is a dimensionless width (the
+energies 60 keV, 609 keV, 2614 keV.  Each is a dimensionless width (the
 FWHM/2.355 fraction at that line), bounded between 0 and 1, and the three must
 *decrease* with energy (resolution improves as energy rises).  The
 coefficients are recovered by solving the 3x3 linear system
@@ -48,13 +48,13 @@ except ImportError:  # pragma: no cover
     _HAVE_NUMBA = False
 
 # Reference energies (keV) whose relative resolutions parameterize the fit.
-RESOL_ENERGIES = np.array([60.0, 1461.0, 2614.0])
+RESOL_ENERGIES = np.array([60.0, 609.0, 2614.0])
 
 # Initial relative resolutions r = sigma/E at RESOL_ENERGIES (fit start values).
-INIT_R = np.array([0.3, 0.03, 0.02])
+INIT_R = np.array([0.05, 0.02, 0.01])
 
 # Fit bounds for the relative resolutions (dimensionless, must stay < 1).
-BOUNDS_R = [(0.0, 1.0)] * 3
+BOUNDS_R = [(0.001, 0.5)] * 3
 
 # Soft monotonicity-penalty strength: chi^2 units per (relative-resolution
 # unit)^2 of ordering violation.  The relative resolutions are O(0.03), so a
@@ -68,8 +68,8 @@ MONOTONICITY_PENALTY = 1e5
 
 if _HAVE_NUMBA and "NUMBA_NUM_THREADS" not in os.environ:
     # The convolution kernel is small (one thread per handful of grid bins),
-    # so many threads only add scheduling overhead; cap the default at 16.
-    numba.set_num_threads(min(numba.get_num_threads(), 16))
+    # so many threads only add scheduling overhead; cap the default at 8.
+    numba.set_num_threads(min(numba.get_num_threads(), 8))
 
 # 1 / sqrt(2 pi), captured by the convolution kernel.
 _SQRT_2PI_INV = 1.0 / np.sqrt(2.0 * np.pi)
@@ -94,6 +94,10 @@ if _HAVE_NUMBA:
             hi = np.searchsorted(ec, mu[i] + nsigma * sig_i[i])
             s = 0.0
             for j in range(lo, hi):
+                if sig_j[j] <= 0.0:
+                    # Clipped (non-positive) resolution: this simulation bin
+                    # does not contribute to any target bin.
+                    continue
                 d = (mu[i] - ec[j]) / sig_j[j]
                 s += f[j] * np.exp(-0.5 * d * d) * _SQRT_2PI_INV / sig_j[j]
             out[i] = widths[i] * s
@@ -104,7 +108,7 @@ def monotonicity_penalty(r: np.ndarray | list[float]) -> float:
     """Soft, continuously rising penalty for non-decreasing resolutions.
 
     Zero when the relative resolutions are strictly decreasing
-    (r60 > r1461 > r2614); otherwise grows quadratically with each reversal
+    (r60 > r609 > r2614); otherwise grows quadratically with each reversal
     (``MONOTONICITY_PENALTY * violation^2``), so the objective stays finite
     and rises continuously as the violation deepens.  Add to chi^2 rather
     than returning inf: a physically ordered resolution has zero penalty, so
@@ -168,6 +172,13 @@ def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
     (M,) array with the resolution-smeared counts on the target bins
     (count-conserving: sum of the output equals sum of the input).
 
+    Non-positive resolution sigma(E) <= 0 (an unphysical region, e.g. the
+    low-energy tail of the resolution quadratic at the default parameters) is
+    clipped to 0: such simulation bins do not contribute to any target bin
+    and such target bins get zero model, so the output is *not* strictly
+    count-conserving there (the lost normalization is absorbed by the fit's
+    scale parameter).
+
     The convolution is the dominant cost of the fit; with numba available it
     runs as a JIT-compiled parallel loop over target bins (``prange``), which
     is ~10-30x faster than the vectorized numpy fallback.  Thread count can
@@ -175,7 +186,12 @@ def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
     """
     a = np.asarray(a, dtype=float)
     mu = 0.5 * (t_lo + t_hi)
-    sig_i = sigma_model(a, mu)
+    # Non-positive resolutions (unphysical, e.g. the low-energy tail of the
+    # resolution quadratic) are clipped to 0 instead of zeroing the whole
+    # model: target bins with sigma == 0 get an empty convolution window
+    # (model 0 locally) and zero-sigma simulation bins are excluded, while
+    # all other bins convolve normally.
+    sig_i = np.maximum(sigma_model(a, mu), 0.0)
 
     sim_centers = 0.5 * (sim_edges[:-1] + sim_edges[1:])
 
@@ -187,29 +203,28 @@ def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
 
     ec = sim_centers[js]
     f = sim_counts[js]
-    sig_j = sigma_model(a, ec)
-    if np.any(sig_i <= 0) or np.any(sig_j <= 0):
-        # Non-positive resolution (e.g. parameters stepped outside their
-        # bounds during finite differences): degenerate, model is zero.
-        return np.zeros_like(mu)
+    sig_j = np.maximum(sigma_model(a, ec), 0.0)
 
     if _HAVE_NUMBA:
         return _smear_kernel(ec, f, sig_j, mu, sig_i, t_hi - t_lo, nsigma)
 
     # Vectorized numpy fallback: sliding window per target bin with
-    # simulation bins within nsigma * sig_i.
+    # simulation bins within nsigma * sig_i.  Zero-sigma simulation bins
+    # (clipped) are excluded from every window.
     j_lo = np.searchsorted(ec, mu - nsigma * sig_i)
     j_hi = np.searchsorted(ec, mu + nsigma * sig_i)
     width = int(np.max(j_hi - j_lo)) + 1
     cols = np.arange(width, dtype=np.intp)
     idx = j_lo[:, None] + cols[None, :]
-    ok = idx < j_hi[:, None]
     idx = np.clip(idx, 0, len(ec) - 1)
+    ok = (idx < j_hi[:, None]) & (sig_j[idx] > 0)
 
     # Gaussian kernel (float64: avoid numerical noise that could degrade the
-    # optimizer's step selection).
-    diff = (mu[:, None] - ec[idx]) / sig_j[idx]
-    g = np.exp(-0.5 * diff * diff) / (np.sqrt(2.0 * np.pi) * sig_j[idx])
+    # optimizer's step selection).  Zero-sigma sim bins use a dummy sigma=1
+    # so the kernel stays finite; they are masked out by ``ok`` anyway.
+    sig_safe = np.where(sig_j[idx] > 0, sig_j[idx], 1.0)
+    diff = (mu[:, None] - ec[idx]) / sig_safe
+    g = np.exp(-0.5 * diff * diff) * _SQRT_2PI_INV / sig_safe
     g = np.where(ok, g, 0.0)
 
     # Smeared *density* sum_j f_j G(mu_i - E_j), times the target bin width.

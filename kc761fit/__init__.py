@@ -5,7 +5,7 @@ Submodules:
     calibration : energy calibration, parameterized by the channel positions
                   of the 60/609/1461/2614 keV lines (cubic E(x))
     resolution  : Gaussian resolution model sigma(E) = a2 E + a1 sqrt(E) + a0,
-                  parameterized by the relative widths sigma/E at 60/1461/2614 keV
+                  parameterized by the relative widths sigma/E at 60/609/2614 keV
     fitmodel    : chi^2 forward model (normalized sim vs calibrated data)
     globalfit   : multi-dataset (global) forward model: global-fit calibration
                   + resolution across several (data, sim, range) pairs, with a
