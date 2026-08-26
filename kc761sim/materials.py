@@ -85,7 +85,7 @@ def build_lu2o3(nist: G4NistManager, density: float) -> G4Material:
 
 def build_thorium_nitrate_pentahydrate(nist: G4NistManager, density: float) -> G4Material:
     """Thorium nitrate pentahydrate Th(NO3)4 * 5 H2O at the given density
-    (g/cm3), derived in the code from the stated total mass and sphere
+    (g/cm3), derived in the code from the stated total mass and source
     volume."""
     mat = G4Material("Th(NO3)4-5H2O", density * g / cm3, 4)
     mat.AddElementByNumberOfAtoms(_element(nist, "Th"), 1)
@@ -95,10 +95,39 @@ def build_thorium_nitrate_pentahydrate(nist: G4NistManager, density: float) -> G
     return mat
 
 
+def _ensure_material(
+    mats: dict[str, G4Material],
+    nist: G4NistManager,
+    key: str,
+    spec,
+) -> None:
+    """Build (and cache) the material ``key`` used by the source ``spec``.
+
+    NIST materials (``G4_`` prefix) are looked up directly; custom materials
+    are built at the source density (mass/volume when ``mass_g`` is set).
+    """
+    if key in mats:
+        return
+    if key.startswith("G4_"):
+        mats[key] = nist.FindOrBuildMaterial(key)
+        return
+    density = spec.effective_density
+    if density is None:
+        raise RuntimeError(f"no density available for material {key!r}")
+    if key == "K2CO3":
+        mats[key] = build_k2co3(nist, density)
+    elif key == "Lu2O3":
+        mats[key] = build_lu2o3(nist, density)
+    elif key == "Th(NO3)4-5H2O":
+        mats[key] = build_thorium_nitrate_pentahydrate(nist, density)
+    else:
+        raise RuntimeError(f"unknown source material {key!r}")
+
+
 def build_all_materials() -> dict[str, G4Material]:
     """Build every material referenced by the source configurations and the
-    detector.  Returns a dict keyed by the ``SourceSpec.material`` keys and
-    the detector materials."""
+    detector.  Returns a dict keyed by the ``SourceSpec.material`` keys (and
+    the per-layer keys of sandwich sources) plus the detector materials."""
     nist = G4NistManager.Instance()
     mats: dict[str, G4Material] = {}
 
@@ -108,21 +137,10 @@ def build_all_materials() -> dict[str, G4Material]:
     from . import config
 
     for key, spec in config.SOURCES.items():
-        if spec.material.startswith("G4_"):
-            mats[spec.material] = nist.FindOrBuildMaterial(spec.material)
-            continue
-        density = spec.effective_density
-        if density is None:
-            raise RuntimeError(f"no density available for source {key!r}")
-        if spec.material == "K2CO3":
-            mats[spec.material] = build_k2co3(nist, density)
-        elif spec.material == "Lu2O3":
-            mats[spec.material] = build_lu2o3(nist, density)
-        elif spec.material == "Th(NO3)4-5H2O":
-            mats[spec.material] = build_thorium_nitrate_pentahydrate(
-                nist, density)
-        else:
-            raise RuntimeError(f"unknown source material {spec.material!r}")
+        _ensure_material(mats, nist, spec.material, spec)
+        if isinstance(spec.geometry, config.Sandwich):
+            for layer in spec.geometry.layers:
+                _ensure_material(mats, nist, layer.material, spec)
 
     mats["G4_AIR"] = nist.FindOrBuildMaterial("G4_AIR")
 

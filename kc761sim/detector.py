@@ -32,7 +32,9 @@ from geant4_pybind import (
 )
 from .config import (
     Box,
+    Cylinder,
     Disk,
+    Sandwich,
     SourceSpec,
     Sphere,
     Tube,
@@ -141,40 +143,99 @@ class DetectorConstruction(G4VUserDetectorConstruction):
 
     def _construct_source(self, world_lv: G4LogicalVolume):
         spec = self.source
-        material = self.materials[spec.material]
         center_z = source_center_z(spec, DETECTOR_FRONT_Z)
         position = G4ThreeVector(0.0, 0.0, center_z * mm)
         self.source_center = position
 
-        # The container tube (when present) and the active source volume are
-        # both placed in the world as siblings: the source sits in the tube's
+        # The container tube (when present) and the source volumes are all
+        # placed in the world as siblings: the source sits in the tube's
         # hollow, which is not part of the tube solid, so nesting it as a
         # daughter of the tube would put it outside its mother's solid.
         if spec.container is not None:
+            container_position = position
+            offset = spec.container_offset
+            if offset is not None:
+                container_position = G4ThreeVector(
+                    position.x - offset[0] * mm,
+                    position.y - offset[1] * mm,
+                    position.z - offset[2] * mm,
+                )
             self._construct_container(
-                spec.container, position=position, world_lv=world_lv
+                spec.container,
+                position=container_position,
+                world_lv=world_lv,
             )
 
         geometry = spec.geometry
+        if isinstance(geometry, Sandwich):
+            # GPS samples the active layer(s) directly: the sampling centre is
+            # the centroid of the active material, which may differ from the
+            # sandwich centre.
+            self.source_center = G4ThreeVector(
+                position.x,
+                position.y,
+                position.z + geometry.active_center_offset * mm,
+            )
+            self._construct_sandwich(geometry, position, world_lv)
+            return
+
+        material = self.materials[spec.material]
+        solid = self._build_source_solid(geometry)
+        source_lv = G4LogicalVolume(solid, material, "Source")
+
+        # A source cylinder with axis "y" is built as a (z-axis) G4Tubs and
+        # rotated the same way as its container tube.
+        if isinstance(geometry, Cylinder) and geometry.axis == "y":
+            rot = G4RotationMatrix()
+            rot.rotateX(90.0 * deg)
+            transform = G4Transform3D(rot, position)
+            G4PVPlacement(
+                transform,
+                source_lv,
+                "Source",
+                world_lv,
+                False,
+                0,
+                self.check_overlaps,
+            )
+        else:
+            G4PVPlacement(
+                None,
+                position,
+                source_lv,
+                "Source",
+                world_lv,
+                False,
+                0,
+                self.check_overlaps,
+            )
+
+    def _build_source_solid(self, geometry):
+        """Solid for a single (non-sandwich) source geometry.
+
+        Solids are built in local coordinates (centred on the origin, G4Tubs
+        along z); the rotation to the world frame happens at placement time.
+        """
+        name = f"Source{geometry.kind.capitalize()}"
         if isinstance(geometry, Box):
-            solid = G4Box(
-                "SourceBox",
+            return G4Box(
+                name,
                 0.5 * geometry.size_x * mm,
                 0.5 * geometry.size_y * mm,
                 0.5 * geometry.size_z * mm,
             )
-        elif isinstance(geometry, Disk):
-            solid = G4Tubs(
-                "SourceDisk",
+        if isinstance(geometry, Disk):
+            return G4Tubs(
+                name,
                 0.0,
                 geometry.radius * mm,
                 0.5 * geometry.thickness * mm,
                 0.0,
                 twopi,
             )
-        elif isinstance(geometry, Sphere):
-            solid = G4Sphere(
-                "SourceSphere",
+        if isinstance(geometry, Sphere):
+            return G4Sphere(
+                name,
                 0.0,
                 geometry.radius * mm,
                 0.0,
@@ -182,20 +243,61 @@ class DetectorConstruction(G4VUserDetectorConstruction):
                 0.0,
                 math.pi,
             )
-        else:
-            raise ValueError(f"unsupported source geometry: {geometry!r}")
+        if isinstance(geometry, Cylinder):
+            return G4Tubs(
+                name,
+                0.0,
+                geometry.radius * mm,
+                geometry.half_length * mm,
+                0.0,
+                twopi,
+            )
+        raise ValueError(f"unsupported source geometry: {geometry!r}")
 
-        source_lv = G4LogicalVolume(solid, material, "Source")
-        G4PVPlacement(
-            None,
-            position,
-            source_lv,
-            "Source",
-            world_lv,
-            False,
-            0,
-            self.check_overlaps,
-        )
+    def _construct_sandwich(
+        self,
+        sandwich: Sandwich,
+        position: G4ThreeVector,
+        world_lv: G4LogicalVolume,
+    ):
+        """Build and place the layers of a sandwich source, stacked along z.
+
+        Layers are ordered front-to-back: the first layer faces the detector
+        (smaller z).  Layers carrying the decaying nuclide are named ``Source``;
+        the inert front/back cladding layers are named ``SourceCladFront`` /
+        ``SourceCladBack``.
+        """
+        n_layers = len(sandwich.layers)
+        z = position.z - 0.5 * sandwich.total_thickness * mm
+        for i, layer in enumerate(sandwich.layers):
+            half_thickness = 0.5 * layer.thickness * mm
+            layer_center = G4ThreeVector(
+                position.x, position.y, z + half_thickness
+            )
+            if layer.active:
+                name = "Source"
+            elif i == 0:
+                name = "SourceCladFront"
+            elif i == n_layers - 1:
+                name = "SourceCladBack"
+            else:
+                name = f"SourceClad{i}"
+            solid = G4Tubs(
+                name, 0.0, sandwich.radius * mm, half_thickness, 0.0, twopi
+            )
+            layer_lv = G4LogicalVolume(
+                solid, self.materials[layer.material], name)
+            G4PVPlacement(
+                None,
+                layer_center,
+                layer_lv,
+                name,
+                world_lv,
+                False,
+                0,
+                self.check_overlaps,
+            )
+            z += layer.thickness * mm
 
     def _construct_container(
         self,

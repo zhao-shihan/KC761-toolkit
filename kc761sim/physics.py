@@ -94,14 +94,15 @@ def configure_gps(source, detector) -> None:
     """Configure the general particle source (GPS) for the selected source.
 
     One ion of the source nuclide (at rest) is shot per event, at a position
-    sampled uniformly inside the source volume.  Uniform sampling is achieved
-    with the GPS volume distribution combined with ``/gps/pos/confine``, which
-    rejects any point not located inside the physical volume ``Source``.
+    sampled uniformly inside the source volume.  The GPS volume distribution
+    is shaped to coincide exactly with the active region of the source (the
+    whole geometry for simple sources, the active layer(s) for a
+    :class:`~kc761sim.config.Sandwich`), so every sampled vertex lies inside
+    the source material and no ``/gps/pos/confine`` volume check is needed.
 
     The ``/gps`` messenger is created when the primary-generator action (and
     with it the G4GeneralParticleSource) is built during run initialization,
-    and the confined volume must exist, so this function must be called after
-    ``G4RunManager::Initialize``.
+    so this function must be called after ``G4RunManager::Initialize``.
     """
     ui = G4UImanager.GetUIpointer()
     z, a = source.nuclide
@@ -120,6 +121,26 @@ def configure_gps(source, detector) -> None:
         ui.ApplyCommand(f"/gps/pos/halfx {0.5 * geometry.size_x} mm")
         ui.ApplyCommand(f"/gps/pos/halfy {0.5 * geometry.size_y} mm")
         ui.ApplyCommand(f"/gps/pos/halfz {0.5 * geometry.size_z} mm")
+    elif geometry.kind == "cylinder":
+        ui.ApplyCommand("/gps/pos/shape Cylinder")
+        ui.ApplyCommand(f"/gps/pos/radius {geometry.radius} mm")
+        ui.ApplyCommand(f"/gps/pos/halfz {geometry.half_length} mm")
+        if geometry.axis == "y":
+            # The GPS sampling cylinder is defined along its local z; rotate it
+            # so that the axis runs along world y (x' = z, z' = y), matching
+            # the source cylinder orientation.
+            ui.ApplyCommand("/gps/pos/rot1 0 0 1")
+            ui.ApplyCommand("/gps/pos/rot2 1 0 0")
+    elif geometry.kind == "sandwich":
+        # Sample exactly the active layer(s): a cylinder matching the active
+        # region (radius, active thickness), centred on the active centroid
+        # (see detector.source_center).  Every vertex is therefore generated
+        # directly in the active material, no confinement rejection needed.
+        ui.ApplyCommand("/gps/pos/shape Cylinder")
+        ui.ApplyCommand(f"/gps/pos/radius {geometry.radius} mm")
+        ui.ApplyCommand(
+            f"/gps/pos/halfz {0.5 * geometry.active_thickness} mm"
+        )
     elif geometry.kind == "disk":
         ui.ApplyCommand("/gps/pos/shape Cylinder")
         ui.ApplyCommand(f"/gps/pos/radius {geometry.radius} mm")
@@ -132,4 +153,3 @@ def configure_gps(source, detector) -> None:
     ui.ApplyCommand(
         f"/gps/pos/centre {center.x / mm} {center.y / mm} {center.z / mm} mm"
     )
-    ui.ApplyCommand("/gps/pos/confine Source")

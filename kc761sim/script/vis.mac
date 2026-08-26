@@ -41,6 +41,8 @@
 /vis/geometry/set/colour Housing 0 1 1 0 0.5
 /vis/geometry/set/colour Crystal 0 1 1 0 1
 /vis/geometry/set/colour Source 0 1 1 1 0.5
+/vis/geometry/set/colour SourceCladFront 0 1 0.84 0 0.5
+/vis/geometry/set/colour SourceCladBack 0 1 0.84 0 0.5
 /vis/geometry/set/colour SourceTube 0 0 1 1 0.5
 #
 # Re-establish auto refreshing and verbosity

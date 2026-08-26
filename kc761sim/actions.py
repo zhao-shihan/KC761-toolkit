@@ -45,9 +45,9 @@ class PrimaryGeneratorAction(G4VUserPrimaryGeneratorAction):
     """One source nucleus (ion at rest) per event.
 
     The vertex is produced by the general particle source (G4GeneralParticleSource),
-    which has been configured with the ``/gps/pos/confine`` command to sample
-    uniformly inside the source volume (see :func:`kc761sim.physics.configure_gps`);
-    the radioactive-decay process then emits the gammas.
+    whose volume distribution is shaped to coincide exactly with the active
+    source volume (see :func:`kc761sim.physics.configure_gps`); the
+    radioactive-decay process then emits the gammas.
     """
 
     def __init__(self, source):
