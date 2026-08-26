@@ -44,12 +44,26 @@ INIT_X = np.array([160.0, 500.0, 900.0, 1350.0])
 # of hitting a hard inf wall.
 MONOTONICITY_PENALTY = 10.0
 
+# Condition-number ceiling of the 4x4 Vandermonde system solved in
+# ``channels_to_c``: above this the coefficients are numerically meaningless
+# (near-coincident calibration channels) and NaN is returned instead.
+_MAX_COND = 1e14
+
 
 def poly3(c: np.ndarray | list[float], x: np.ndarray | float) -> np.ndarray:
     """Evaluate the calibration polynomial E(x) = c3 x^3 + c2 x^2 + c1 x + c0."""
     c0, c1, c2, c3 = np.asarray(c, dtype=float)
     x = np.asarray(x, dtype=float)
     return c3 * x**3 + c2 * x**2 + c1 * x + c0
+
+
+def _nan_c(jacobian: bool):
+    """NaN calibration coefficients (singular / ill-conditioned Vandermonde),
+    with a NaN Jacobian when requested."""
+    c = np.full(4, np.nan)
+    if jacobian:
+        return c, np.full((4, 4), np.nan)
+    return c
 
 
 def channels_to_c(x: np.ndarray | list[float],
@@ -60,14 +74,32 @@ def channels_to_c(x: np.ndarray | list[float],
 
     With ``jacobian=True`` also returns the 4x4 Jacobian dc/dx, used to
     propagate the channel-fit uncertainties to the reported coefficients.
+
+    Coincident calibration channels make the Vandermonde singular; a
+    near-coincident pair is ill-conditioned enough to produce wildly
+    oscillating coefficients.  The objective must stay finite for *every*
+    point the optimizer evaluates (a bounded Nelder-Mead simplex can
+    legitimately clip two channels onto the same bound), so instead of
+    raising, NaN coefficients are returned and the forward models' isfinite
+    guards turn the point into an inf objective.
     """
     x = np.asarray(x, dtype=float)
     e = np.asarray(energies, dtype=float)
     v = np.stack([np.ones_like(x), x, x**2, x**3], axis=1)
-    c = np.linalg.solve(v, e)
+    if not np.isfinite(x).all():
+        return _nan_c(jacobian)
+    try:
+        if np.linalg.cond(v) > _MAX_COND:
+            return _nan_c(jacobian)
+        c = np.linalg.solve(v, e)
+    except np.linalg.LinAlgError:
+        return _nan_c(jacobian)
     if not jacobian:
         return c
-    v_inv = np.linalg.inv(v)
+    try:
+        v_inv = np.linalg.inv(v)
+    except np.linalg.LinAlgError:
+        return _nan_c(jacobian)
     jac = np.empty((4, 4))
     dv = np.zeros_like(v)
     for j in range(4):

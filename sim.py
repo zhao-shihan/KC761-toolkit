@@ -2,8 +2,12 @@
 """kc761sim gamma-spectrometry simulation.
 
 Geant4 (via geant4_pybind) Monte Carlo of a CsI(Tl) probe with one of five
-fixed radioactive sources.  Per-event energy deposition in the CsI(Tl)
-crystal is written to a ROOT ntuple (``edep`` as float32 in MeV).
+fixed radioactive sources.  The energy deposited in the CsI(Tl) crystal is
+merged into detector "pulses" (see :mod:`kc761sim.actions`) and written to a
+ROOT ntuple: one row per pulse, ``edep`` as float32 in **keV** (NOT MeV) and
+``time`` (global time of the first deposit of the pulse) as float64 in
+seconds.  A chain source (e.g. th232, ra226) can produce several rows per
+event; events without any crystal deposit produce no row.
 
 Usage
 -----
@@ -38,6 +42,7 @@ from kc761sim import (
     physics,
     runner,
 )
+from kc761sim.paths import final_output_path, output_stem
 
 _SCRIPT_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "kc761sim", "script"
@@ -119,7 +124,7 @@ def interactive_mode(args: argparse.Namespace, source_key: str, verbose: int) ->
     run_manager.SetUserInitialization(physics.PhysicsList())
     run_manager.SetUserInitialization(
         actions.ActionInitialization(
-            spec, det, runner._output_stem(args.output), 0, verbose
+            spec, det, output_stem(args.output), 0, verbose
         )
     )
     G4Random.setTheSeed(args.seed)
@@ -154,7 +159,7 @@ def batch_mode(args: argparse.Namespace, source_key: str, verbose: int) -> None:
         1, os.cpu_count() or 1)
     runner.run_batch(source_key, args.output, args.events,
                      threads, args.seed, verbose)
-    print(f"Simulation finished: {runner._final_output_path(args.output)}")
+    print(f"Simulation finished: {final_output_path(args.output)}")
 
 
 def main(argv: list[str] | None = None) -> None:

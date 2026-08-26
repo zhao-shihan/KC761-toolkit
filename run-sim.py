@@ -10,18 +10,22 @@ sources run.  Each run invokes ``sim.py --<key> -n <events> -t <threads>``
 and writes ``data/sim/<key>-simulation-<count>.root`` (no date tag).  Sources
 are executed one after another, each using all CPU cores by default.
 Existing output files are skipped, so re-running resumes where the previous
-run stopped.
+run stopped.  An existing file that is empty or corrupt is not trusted: it is
+deleted and the source re-run.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+from kc761sim.paths import NTUPLE_NAME, output_stem, temp_work_dir  # noqa: E402
+
 SIM = os.path.join(ROOT, "sim.py")
 OUT_DIR = os.path.join(ROOT, "data", "sim")
 
@@ -43,6 +47,20 @@ def count_label(n: int) -> str:
 
 def output_path(key: str, n: int) -> str:
     return os.path.join(OUT_DIR, f"{key}-simulation-{count_label(n)}.root")
+
+
+def valid_output(path: str) -> bool:
+    """True if ``path`` is a readable ROOT file with a non-empty ntuple.
+
+    Used by the resume logic to avoid treating a truncated/partial output
+    (e.g. from a killed run or an interrupted merge) as "already done".
+    """
+    try:
+        import uproot
+        with uproot.open(path) as f:
+            return f[NTUPLE_NAME].num_entries > 0
+    except Exception:
+        return False
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -92,8 +110,13 @@ def main(argv: list[str] | None = None) -> int:
         n_events = RUNS[key]
         out = output_path(key, n_events)
         if os.path.exists(out):
-            print(f"[skip] {out} already exists", flush=True)
-            continue
+            if valid_output(out):
+                print(f"[skip] {out} already exists", flush=True)
+                continue
+            print(f"[warn] {out} exists but is empty/corrupt; re-running",
+                  flush=True)
+            os.remove(out)
+
         cmd = [
             sys.executable, SIM,
             f"--{key}", "-n", str(n_events), "-t", str(args.threads),
@@ -106,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         t0 = time.time()
         ret = subprocess.run(cmd, cwd=ROOT).returncode
         dt_min = (time.time() - t0) / 60.0
-        if ret == 0 and os.path.exists(out):
+        if ret == 0 and os.path.exists(out) and valid_output(out):
             size_mb = os.path.getsize(out) / 2**20
             print(f"[done] {key}: {n_events} events -> {out} "
                   f"({size_mb:.1f} MB) in {dt_min:.1f} min", flush=True)
@@ -114,6 +137,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[FAIL] {key}: exit code {ret} after {dt_min:.1f} min",
                   flush=True)
             failures.append(key)
+            # Drop any partial/corrupt output and the worker scratch dir so
+            # that a re-run actually redoes the simulation.
+            if os.path.exists(out):
+                os.remove(out)
+            wip = temp_work_dir(output_stem(out))
+            if os.path.isdir(wip):
+                shutil.rmtree(wip, ignore_errors=True)
 
     if args.dry_run:
         print("--dry-run: nothing executed")

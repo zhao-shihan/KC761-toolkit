@@ -25,8 +25,10 @@ Panels:
 """
 
 from __future__ import annotations
+from pathlib import Path
+
 from .resolution import RESOL_ENERGIES, sigma_model
-from .fitmodel import PARAM_NAMES_A, PARAM_NAMES_C
+from .params import PARAM_NAMES_A, PARAM_NAMES_C
 from .calibration import CALIB_ENERGIES, poly3
 import numpy as np
 from matplotlib.gridspec import GridSpecFromSubplotSpec
@@ -35,6 +37,20 @@ import matplotlib.pyplot as plt
 import matplotlib
 
 matplotlib.use("Agg")
+
+
+def _save_fig(fig, out_pdf: str) -> None:
+    """Save the figure as a PDF, creating the output directory as needed.
+
+    The output is enforced to be a PDF (a non-empty non-``.pdf`` suffix is
+    replaced), so a missing ``-o out`` never silently produces a PNG.
+    """
+    out = Path(out_pdf)
+    if not out.suffix.lower().endswith(".pdf"):
+        out = out.with_suffix(".pdf")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(str(out), bbox_inches="tight")
+    plt.close(fig)
 
 
 def _cap(s: str) -> str:
@@ -59,7 +75,7 @@ def _figure_grid(n_datasets: int):
     fig = plt.figure(figsize=(15.0, 3.5 * n_datasets + 5.0))
     gs = fig.add_gridspec(
         n_rows, 1,
-        height_ratios=[0.0] + [3.0] * n_datasets + [5.0],
+        height_ratios=[0.5] + [3.0] * n_datasets + [5.0],
         hspace=0.5,
     )
     return fig, gs
@@ -118,8 +134,8 @@ def _parameter_panel(ax, txt: str) -> None:
             bbox=dict(boxstyle="round", fc="#f8f8f8", ec="gray", alpha=0.9))
 
 
-def _spectrum_panel(ax, mu, d, err, m, m_i, s_i, elow, ehigh,
-                    title: str | None) -> None:
+def _spectrum_panel(ax, mu, d, err, m, m_raw_unsmeared, grid_edges,
+                    s_i, elow, ehigh, title: str | None) -> None:
     """One dataset's spectrum panel (log scale, x = energy).
 
     Data points are drawn at 60% opacity so the model curves stay readable
@@ -128,7 +144,7 @@ def _spectrum_panel(ax, mu, d, err, m, m_i, s_i, elow, ehigh,
             label="Best-fit model (smeared sim.)")
     ax.errorbar(mu, d, yerr=err, fmt="o", ms=1.5, lw=0.8, alpha=0.6,
                 color="tab:blue", label="Data (-bkg, calibrated)")
-    ax.stairs(s_i * m_i.raw_model_counts(), m_i.grid_edges,
+    ax.stairs(s_i * m_raw_unsmeared, grid_edges,
               color="tab:gray", lw=0.8,
               label="Raw sim. (perfect res., scaled)")
     ax.set_yscale("log")
@@ -142,18 +158,29 @@ def _spectrum_panel(ax, mu, d, err, m, m_i, s_i, elow, ehigh,
 
 
 def _residual_panel(ax, mu, d, err, m, elow, ehigh, title: str) -> None:
-    """One dataset's relative-residual panel (x = energy)."""
+    """One dataset's relative-residual panel (x = energy).
+
+    The y range is auto-scaled to the residual spread (3 x the 95th
+    percentile of |residual|, capped at +/-0.6) so a good fit's few-percent
+    residuals are not compressed into the middle of the panel; the nominal
+    +/-30% guide lines are drawn only when they fit in the range.
+    """
     ok = m > 0
     rel = (d[ok] - m[ok]) / m[ok]
     ax.errorbar(mu[ok], rel, yerr=err[ok] / m[ok], fmt="o",
                 ms=1.5, lw=0.8, color="tab:green")
     ax.axhline(0, color="k", lw=0.8)
-    ax.axhline(0.3, color="tab:red", lw=0.6, ls=":")
-    ax.axhline(-0.3, color="tab:red", lw=0.6, ls=":")
+    if len(rel):
+        lim = float(min(0.6, max(0.05, 3.0 * np.percentile(np.abs(rel), 95))))
+    else:
+        lim = 0.6
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Relative residual $(d-m)/m$")
     ax.set_xlim(elow, ehigh)
-    ax.set_ylim(-0.6, 0.6)
+    ax.set_ylim(-lim, lim)
+    if lim >= 0.3:
+        ax.axhline(0.3, color="tab:red", lw=0.6, ls=":")
+        ax.axhline(-0.3, color="tab:red", lw=0.6, ls=":")
     ax.set_title(title, fontsize=9)
 
 
@@ -238,92 +265,62 @@ def _resolution_panel(ax, a, r_anchors, e_max: float, cov_a=None,
     ax.legend(fontsize=8, loc="upper right")
 
 
-def plot_fit(model, result, out_pdf: str, elow: float, ehigh: float) -> None:
-    """PDF of a single-dataset fit.
+def plot_fit(model, result, out_pdf: str) -> None:
+    """PDF of a fit (single- or multi-dataset).
 
-    Layout: one (spectrum | relative residual) row, and a single last row
-    with the calibration curve, the resolution curve and the parameter list
-    side by side (never on top of the spectrum).
+    Layout: one (spectrum | relative residual) row per dataset, then a single
+    last row with the calibration curve, the resolution curve and the
+    parameter list side by side (never on top of a spectrum).  The figure
+    height grows with the number of datasets.  A single-dataset fit is the
+    N = 1 case of the same layout.
     """
     det = result.detail
     p = result.params
     c, a = result.params_c, result.params_a
-    x_anchors = p[:4]
-    r_anchors = p[4:7]
-
-    fig, gs = _figure_grid(1)
-    _title_panel(fig.add_subplot(gs[0]),
-                 f"KC761 fit  |  $\\chi^2/\\mathrm{{ndof}} = {result.chi2:.1f}"
-                 f"/{result.ndof} = {result.reduced_chi2:.2f}$   "
-                 f"$s = {det['s']:.4f}$")
-    ax_spec, ax_pull = _dataset_row(fig, gs, 1)
-    ax_cal, ax_res, ax_params = _footer_row(fig, gs, 2)
-
-    _spectrum_panel(ax_spec, det["mu"], det["d"], det["err"], det["m"],
-                    model, det["s"], elow, ehigh, title=None)
-    _residual_panel(ax_pull, det["mu"], det["d"], det["err"], det["m"],
-                    elow, ehigh, title="Relative residual")
-    _calibration_panel(ax_cal, c, x_anchors, x_max=model.data.edges[-1],
-                       cov_c=result.cov_c)
-    _resolution_panel(ax_res, a, r_anchors,
-                      e_max=float(poly3(c, model.data.edges[-1])),
-                      cov_a=result.cov_a)
-    _parameter_panel(ax_params, _parameter_text(result))
-
-    fig.savefig(out_pdf, bbox_inches="tight")
-    plt.close(fig)
-
-
-def plot_global_fit(model, result, out_pdf: str) -> None:
-    """PDF of a global (multi-dataset) fit.
-
-    One (spectrum | relative residual) row per dataset, then a single last
-    row with the global-fit calibration, the global-fit resolution and the
-    parameter list (global-fit params + derived coefficients + per-dataset
-    scales) side by side.  The figure height grows with the number of
-    datasets.
-    """
-    det = result.detail
-    p = result.params
-    c, a = result.params_c, result.params_a
-    x_anchors = p[:4]
-    r_anchors = p[4:7]
+    space = model.space
+    x_anchors = p[space.channels]
+    r_anchors = p[space.resolutions]
     n = model.n_datasets
-    labels = model.labels
 
     fig, gs = _figure_grid(n)
-    _title_panel(fig.add_subplot(gs[0]),
-                 f"KC761 global fit  |  $\\chi^2/\\mathrm{{ndof}} = "
-                 f"{result.chi2:.1f}/{result.ndof} = {result.reduced_chi2:.2f}$  "
-                 f"({n} datasets, global-fit calibration + resolution)")
+    if n > 1:
+        title = (f"KC761 global fit  |  $\\chi^2/\\mathrm{{ndof}} = "
+                 f"{result.chi2:.1f}/{result.ndof} = {result.reduced_chi2:.2f}$"
+                 f"  ({n} datasets, global-fit calibration + resolution)")
+    else:
+        title = (f"KC761 fit  |  $\\chi^2/\\mathrm{{ndof}} = "
+                 f"{result.chi2:.1f}/{result.ndof} = {result.reduced_chi2:.2f}$"
+                 f"   $s = {det.datasets[0].s:.4f}$")
+    _title_panel(fig.add_subplot(gs[0]), title)
 
-    for i, entry in enumerate(det["datasets"]):
+    for i, entry in enumerate(det.datasets):
         ax_spec, ax_pull = _dataset_row(fig, gs, i + 1)
-        m_i = model.models[i]
-        label = _cap(labels[i])
-        title = (f"{label}  [{m_i.elow:g}-{m_i.ehigh:g} keV]  "
-                 f"$\\chi^2 = {entry['chi2']:.1f}$, {entry['bins']} bins, "
-                 f"$s = {entry['s']:.4f}$")
-        _spectrum_panel(ax_spec, entry["mu"], entry["d"], entry["err"],
-                        entry["m"], m_i, entry["s"], m_i.elow, m_i.ehigh,
-                        title)
-        _residual_panel(ax_pull, entry["mu"], entry["d"], entry["err"],
-                        entry["m"], m_i.elow, m_i.ehigh,
-                        f"{label} relative residual")
+        label = _cap(entry.label)
+        if n > 1:
+            spec_title = (f"{label}  [{entry.elow:g}-{entry.ehigh:g} keV]  "
+                          f"$\\chi^2 = {entry.chi2:.1f}$, "
+                          f"{entry.n_bins} bins, $s = {entry.s:.4f}$")
+            pull_title = f"{label} relative residual"
+        else:
+            spec_title = None
+            pull_title = "Relative residual"
+        _spectrum_panel(ax_spec, entry.mu, entry.d, entry.err, entry.m,
+                        entry.m_raw_unsmeared, entry.grid_edges, entry.s,
+                        entry.elow, entry.ehigh, spec_title)
+        _residual_panel(ax_pull, entry.mu, entry.d, entry.err, entry.m,
+                        entry.elow, entry.ehigh, pull_title)
 
-    # Last row: global-fit calibration | global-fit resolution | parameter
-    # list.  The calibration is drawn over the channel range valid for *every*
-    # dataset (min n_bins); the resolution curve extends to the energy of the
-    # last channel of the largest dataset (max channel count).
-    min_n_bins = min(m.data.n_bins for m in model.models)
-    max_channel = max(m.data.edges[-1] for m in model.models)
+    # Last row: calibration | resolution | parameter list.  The calibration is
+    # drawn over the channel range valid for *every* dataset; the resolution
+    # curve extends to the energy of the last channel of the largest dataset.
+    cal_title = "Energy calibration" if n == 1 else "Energy calibration (global)"
+    res_title = "Energy resolution" if n == 1 else "Energy resolution (global)"
     ax_cal, ax_res, ax_params = _footer_row(fig, gs, n + 1)
-    _calibration_panel(ax_cal, c, x_anchors, x_max=min_n_bins,
-                       cov_c=result.cov_c, title="Energy calibration (global)")
+    _calibration_panel(ax_cal, c, x_anchors, x_max=model.n_channel_bins,
+                       cov_c=result.cov_c, title=cal_title)
     _resolution_panel(ax_res, a, r_anchors,
-                      e_max=float(poly3(c, max_channel)),
-                      cov_a=result.cov_a, title="Energy resolution (global)")
+                      e_max=float(poly3(c, model.channel_max)),
+                      cov_a=result.cov_a, title=res_title)
     _parameter_panel(ax_params, _parameter_text(result))
 
-    fig.savefig(out_pdf, bbox_inches="tight")
-    plt.close(fig)
+    _save_fig(fig, out_pdf)

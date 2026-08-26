@@ -3,10 +3,10 @@
 Coordinate system
 -----------------
 * The world is a 30 cm x 30 cm x 30 cm air cube centred on the origin.
-* The CsI(Tl) crystal (10 x 10 x 25.4 mm) is wrapped in a 0.5 mm ABS housing
-  (11 x 11 x 26.4 mm).  The assembly is centred on the origin with the crystal
+* The CsI(Tl) crystal (10 x 10 x 25.4 mm) is wrapped in a 1 mm ABS housing
+  (12 x 12 x 27.4 mm).  The assembly is centred on the origin with the crystal
   long axis along **z**; the 10 x 10 mm end faces are the detection faces.
-* The housing front face facing the sources is at z = +13.2 mm.  Every source
+* The housing front face facing the sources is at z = +13.7 mm.  Every source
   is placed on the +z side with a 1 mm face-to-face gap along z.
 """
 
@@ -49,10 +49,10 @@ CRYSTAL_HALF_X = 5.0 * mm
 CRYSTAL_HALF_Y = 5.0 * mm
 CRYSTAL_HALF_Z = 12.7 * mm
 
-#: ABS housing half dimensions (mm): crystal + 0.5 mm wall on every side.
-HOUSING_HALF_X = CRYSTAL_HALF_X + 0.5 * mm
-HOUSING_HALF_Y = CRYSTAL_HALF_Y + 0.5 * mm
-HOUSING_HALF_Z = CRYSTAL_HALF_Z + 0.5 * mm
+#: ABS housing half dimensions (mm): crystal + 1 mm wall on every side.
+HOUSING_HALF_X = CRYSTAL_HALF_X + 1.0 * mm
+HOUSING_HALF_Y = CRYSTAL_HALF_Y + 1.0 * mm
+HOUSING_HALF_Z = CRYSTAL_HALF_Z + 1.0 * mm
 
 #: z of the housing front face (towards the sources), mm.
 DETECTOR_FRONT_Z = HOUSING_HALF_Z
@@ -184,10 +184,12 @@ class DetectorConstruction(G4VUserDetectorConstruction):
         source_lv = G4LogicalVolume(solid, material, "Source")
 
         # A source cylinder with axis "y" is built as a (z-axis) G4Tubs and
-        # rotated the same way as its container tube.
+        # rotated the same way as its container tube: rotateX(-90 deg) maps
+        # the local +z axis to world +y, matching the GPS sampling-cylinder
+        # rotation configured in physics.configure_gps.
         if isinstance(geometry, Cylinder) and geometry.axis == "y":
             rot = G4RotationMatrix()
-            rot.rotateX(90.0 * deg)
+            rot.rotateX(-90.0 * deg)
             transform = G4Transform3D(rot, position)
             G4PVPlacement(
                 transform,
@@ -325,9 +327,10 @@ class DetectorConstruction(G4VUserDetectorConstruction):
         tube_lv = G4LogicalVolume(tube_solid, material, "SourceTube")
 
         if tube.axis == "y":
-            # rotate the (z-axis) tube so its axis points along y
+            # rotate the (z-axis) tube so its axis points along +y (matching
+            # the source cylinder and the GPS sampling rotation)
             rot = G4RotationMatrix()
-            rot.rotateX(90.0 * deg)
+            rot.rotateX(-90.0 * deg)
             transform = G4Transform3D(rot, position)
             G4PVPlacement(
                 transform,

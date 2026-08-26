@@ -127,8 +127,9 @@ def configure_gps(source, detector) -> None:
         ui.ApplyCommand(f"/gps/pos/halfz {geometry.half_length} mm")
         if geometry.axis == "y":
             # The GPS sampling cylinder is defined along its local z; rotate it
-            # so that the axis runs along world y (x' = z, z' = y), matching
-            # the source cylinder orientation.
+            # so that the axis runs along world +y (x' = z, z' = y), matching
+            # the source cylinder orientation (detector.py rotates G4Tubs with
+            # rotateX(-90 deg), which maps local +z to world +y as well).
             ui.ApplyCommand("/gps/pos/rot1 0 0 1")
             ui.ApplyCommand("/gps/pos/rot2 1 0 0")
     elif geometry.kind == "sandwich":

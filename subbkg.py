@@ -17,9 +17,6 @@ import argparse
 import sys
 from pathlib import Path
 
-# Allow running from any working directory.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 from kc761util.frontend import add_root_option, run_macro  # noqa: E402
 
 
@@ -53,7 +50,8 @@ def main(argv: list[str] | None = None) -> int:
     bkg = args.background.expanduser().resolve()
     for label, path in (("signal", sig), ("background", bkg)):
         if not path.is_file():
-            print(f"[subbkg] error: {label} file not found: {path}", file=sys.stderr)
+            print(
+                f"[subbkg] error: {label} file not found: {path}", file=sys.stderr)
             return 1
 
     if args.output is None:

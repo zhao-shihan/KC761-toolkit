@@ -18,9 +18,6 @@ import argparse
 import sys
 from pathlib import Path
 
-# Allow running from any working directory.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 from kc761util.frontend import add_root_option, run_macro  # noqa: E402
 
 
@@ -45,7 +42,8 @@ def main(argv: list[str] | None = None) -> int:
 
     input_file = args.input.expanduser().resolve()
     if not input_file.is_file():
-        print(f"[csv2root] error: input file not found: {input_file}", file=sys.stderr)
+        print(
+            f"[csv2root] error: input file not found: {input_file}", file=sys.stderr)
         return 1
 
     output_file = (input_file.with_suffix(".root")

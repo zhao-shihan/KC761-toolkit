@@ -30,32 +30,10 @@ from . import (
     materials,
     physics,
 )
+from .paths import final_output_path, output_stem, temp_work_dir
 
 #: default random seed used when --seed is not given (worker i uses seed + i + 1)
 DEFAULT_SEED = 908136382
-
-
-def _output_stem(path: str) -> str:
-    """Strip a trailing ``.root`` (case-insensitive) for G4Analysis, which
-    appends the file-type extension itself."""
-    lower = path.lower()
-    if lower.endswith(".root"):
-        return path[:-5]
-    return path
-
-
-def _final_output_path(path: str) -> str:
-    return _output_stem(path) + ".root"
-
-
-def _temp_work_dir(stem: str) -> str:
-    """Temporary directory that holds the per-worker ROOT files.
-
-    The directory is hidden (leading dot) and derived from the output file
-    name, e.g. ``sim_output.root`` -> ``.sim_output-kc761sim_wip``.
-    """
-    dirname, basename = os.path.split(stem)
-    return os.path.join(dirname, f".{basename}-kc761sim_wip")
 
 
 def apply_verbosity(run_manager, verbose: int) -> None:
@@ -119,32 +97,25 @@ def _split_events(n_events: int, n_parts: int) -> list[int]:
 
 def merge_root_files(output_path: str, input_paths: list[str]) -> None:
     """Merge the per-worker ROOT ntuples (and the spectrum histogram) into a
-    single output file, preserving the float32 energy-deposition column."""
+    single output file, preserving the float32 energy-deposition column (keV).
+
+    The ntuple is merged in bounded-memory chunks (streamed via
+    ``uproot.iterate``) so arbitrarily large per-worker files can be combined
+    without holding all rows of every file in memory at once.  Every worker
+    file is required to carry the spectrum histogram (a missing one aborts
+    the merge instead of silently under-counting the spectrum).
+    """
     import numpy as np
     import uproot
 
     tree_name = actions.NTUPLE_NAME
     hist_name = actions.SPECTRUM_HIST_NAME
 
-    event_ids: list[np.ndarray] = []
-    edeps: list[np.ndarray] = []
-    times: list[np.ndarray] = []
+    if not input_paths:
+        raise ValueError("merge_root_files: no worker files to merge")
+
     hist_values = None
     hist_edges = None
-
-    for path in input_paths:
-        with uproot.open(path) as f:
-            tree = f[tree_name]
-            arrays = tree.arrays(library="np")
-            event_ids.append(arrays["event_id"])
-            edeps.append(arrays["edep"])
-            times.append(arrays["time"])
-            if hist_name in f:
-                values, edges = f[hist_name].to_numpy()
-                hist_values = (
-                    values if hist_values is None else hist_values + values
-                )
-                hist_edges = edges
 
     with uproot.recreate(output_path) as f:
         # uproot >= 5.7 writes RNTuples by default; use mktree so the merged
@@ -156,15 +127,27 @@ def merge_root_files(output_path: str, input_paths: list[str]) -> None:
                 "edep": np.float32,
                 "time": np.float64,
             },
-            title="kc761_data - per-event energy deposition",
+            title="kc761_data - per-pulse energy deposition",
         )
-        tree.extend(
-            {
-                "event_id": np.concatenate(event_ids),
-                "edep": np.concatenate(edeps),
-                "time": np.concatenate(times),
-            }
-        )
+        for path in input_paths:
+            with uproot.open(path) as src:
+                src_tree = src[tree_name]
+                for batch in src_tree.iterate(
+                    ["event_id", "edep", "time"],
+                    library="np",
+                    step_size="10 MB",
+                ):
+                    tree.extend(batch)
+                if hist_name not in src:
+                    raise RuntimeError(
+                        f"spectrum histogram {hist_name!r} missing in worker "
+                        f"file {path!r}"
+                    )
+                values, edges = src[hist_name].to_numpy()
+                hist_values = (
+                    values if hist_values is None else hist_values + values
+                )
+                hist_edges = edges
         if hist_values is not None:
             f[hist_name] = (hist_values, hist_edges)
 
@@ -179,8 +162,8 @@ def run_batch(
 ) -> None:
     """Run ``n_events`` events for ``source_key`` using ``threads`` processes
     and write the merged result to ``output_path``."""
-    stem = _output_stem(output_path)
-    final_path = _final_output_path(output_path)
+    stem = output_stem(output_path)
+    final_path = final_output_path(output_path)
 
     if threads <= 1:
         run_simulation(source_key, stem, n_events, seed, 0, verbose)
@@ -197,7 +180,7 @@ def run_batch(
     # (".<stem>-kc761sim_wip") under the name "<stem>-kc761sim_w<i>_wip.root";
     # the chunks are merged into the final output only after every worker has
     # finished, and the temporary directory is then removed.
-    work_dir = _temp_work_dir(stem)
+    work_dir = temp_work_dir(stem)
     if os.path.isdir(work_dir):
         shutil.rmtree(work_dir)  # drop stale files from an earlier failed run
     os.makedirs(work_dir)

@@ -8,6 +8,24 @@ iteration continues with the next deposit.  This separates the decays of a
 cascade chain (e.g. Th-232 / Ra-226) that are far apart in time into distinct
 pulses instead of piling them up into one.
 
+Note on the recorded ``time`` column: it stores the absolute global time of
+the first deposit of each pulse, which for a chain source is dominated by the
+exponentially sampled decay time of the (long-lived) parent nucleus and is
+therefore NOT a detector clock.  In addition, Geant4 accumulates decay times
+on the parent's absolute time scale (G4double in ns); for Th-232 the parent
+mean life is ~2e10 yr, so the floating-point resolution at the relevant time
+is ~100 s and the decay time of Tl-208 (mean life 264 s) collapses to the
+same double as Bi-212 in ~16% of events.  The 10 us pulse merge is unaffected
+(the Bi-212 alpha branch deposits no crystal energy, so the merged pulse
+energy is the same as without the collapse), but the ``time`` column for
+Th-232 is quantized to ~70-140 s steps and carries a mislabelled time for
+those Tl-208 pulses; it should not be used for time-resolved analysis of
+Th-232 data.
+
+Note on the spectrum histogram: pulses whose summed energy exceeds the
+4096 keV axis ceiling are clipped into the histogram overflow bin while the
+ntuple retains the true value, so the two can diverge above 4096 keV.
+
 All arithmetic uses ``double``; values are only converted to ``float``
 (``edep``, keV) at storage time.
 """
@@ -26,12 +44,10 @@ from geant4_pybind import (
     s,
     us,
 )
+from .paths import NTUPLE_NAME, SPECTRUM_HIST_NAME
 
 G4AnalysisManager = G4RootAnalysisManager
 
-#: ROOT ntuple / spectrum-histogram names and energy range.
-NTUPLE_NAME = "kc761_data"
-SPECTRUM_HIST_NAME = "kc761_spectrum"
 #: number of bins and upper edge of the deposited-energy histogram (keV);
 #: 4096 bins of 1 keV each.
 _EDEP_HISTOGRAM_BINS = 4096
@@ -73,12 +89,16 @@ class RunAction(G4UserRunAction):
         am.CreateNtupleIColumn("event_id")
         # total energy of the pulse, keV (float)
         am.CreateNtupleFColumn("edep")
-        # global time of the pulse (first deposit of the group), seconds
+        # global time of the pulse (first deposit of the group), seconds.
+        # Absolute decay-chain time (see the module docstring); NOT a detector
+        # clock, and for Th-232 quantized to ~70-140 s steps.
         am.CreateNtupleDColumn("time")
         am.FinishNtuple()
         # Note: xmin/xmax of G4AnalysisManager::CreateH1 are in Geant4 internal
         # units (MeV here); unitName only selects the axis unit.  Passing
         # xmax = 4096*keV therefore yields a 0-4096 keV axis with 1 keV/bin.
+        # Pulses above 4096 keV are clipped into the overflow bin (the ntuple
+        # keeps the true value); see the module docstring.
         am.CreateH1(
             SPECTRUM_HIST_NAME,
             "Energy deposited in CsI crystal per pulse",
@@ -115,10 +135,15 @@ class EventAction(G4UserEventAction):
     def _merge_pulses(self):
         """Merge the deposits into detector pulses with the resolution time.
 
-        Starting from the first deposit, all deposits whose global time falls
-        within ``RESOLUTION_TIME`` of it are summed into one pulse; the
-        iteration then continues with the next unmerged deposit until the
-        (time-sorted) sequence is exhausted.  Returns (pulse_time, edep).
+        Fixed-window pile-up model: starting from the first deposit, all
+        deposits whose global time falls within ``RESOLUTION_TIME`` of it are
+        summed into one pulse; the iteration then continues with the next
+        unmerged deposit until the (time-sorted) sequence is exhausted.
+        (A chained window - merge anything within the resolution time of any
+        already-merged deposit - would give identical pulses for the five
+        configured sources, because intra-decay gammas arrive within ns while
+        inter-decay chain gaps are either >> 10 us or alpha-only.)  Returns
+        (pulse_time, edep).
         """
         deposits = sorted(self.deposits, key=lambda d: d[0])
         pulses: list[tuple[float, float]] = []

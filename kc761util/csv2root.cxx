@@ -38,8 +38,7 @@ namespace {
 
 // Parse an acquisition-time token of the form "#0d22h41m31s"
 // (days / hours / minutes / seconds) and return it in hours.
-double ParseDaqTimeHours(const std::string& header)
-{
+double ParseDaqTimeHours(const std::string& header) {
     size_t pos = header.find('#');
     if (pos == std::string::npos) {
         std::cerr << "[csv2root] warning: no '#<D>d<H>h<M>m<S>s' acquisition-time "
@@ -54,13 +53,17 @@ double ParseDaqTimeHours(const std::string& header)
         if (std::isdigit(static_cast<unsigned char>(c)) || c == '.') {
             num.push_back(c);
         } else if (c == 'd') {
-            days = std::atof(num.c_str()); num.clear();
+            days = std::atof(num.c_str());
+            num.clear();
         } else if (c == 'h') {
-            hours = std::atof(num.c_str()); num.clear();
+            hours = std::atof(num.c_str());
+            num.clear();
         } else if (c == 'm') {
-            minutes = std::atof(num.c_str()); num.clear();
+            minutes = std::atof(num.c_str());
+            num.clear();
         } else if (c == 's') {
-            seconds = std::atof(num.c_str()); num.clear();
+            seconds = std::atof(num.c_str());
+            num.clear();
             break;
         } else {
             break; // unexpected char -> stop parsing
@@ -71,8 +74,7 @@ double ParseDaqTimeHours(const std::string& header)
 
 } // namespace
 
-void csv2root(const std::string& input, const std::string& output = "")
-{
+void csv2root(const std::string& input, const std::string& output = "") {
     // Default output name: input filename with extension replaced by ".root".
     std::string outName = output;
     if (outName.empty()) {

@@ -36,8 +36,7 @@
 #include <string>
 
 void subbkg(const std::string& sigFile, const std::string& bkgFile,
-            const std::string& outFile = "")
-{
+            const std::string& outFile = "") {
     // Default output name: signal filename with "_subbkg" before the extension.
     std::string outName = outFile;
     if (outName.empty()) {
