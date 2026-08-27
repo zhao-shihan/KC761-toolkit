@@ -126,7 +126,7 @@ def _fit_passes(model, x0, bounds, maxiter, n_passes, verbose):
         raise ValueError("fit starting point x0 contains NaN/inf")
     x0 = np.clip(x0, [b[0] for b in bounds], [b[1] for b in bounds])
     if not model.is_valid(x0):
-        print("[fit] warning: the starting point is degenerate (insufficient "
+        print("[calib] warning: the starting point is degenerate (insufficient "
               "data coverage); the fit may not be meaningful", file=sys.stderr)
     n_passes = max(1, int(n_passes))
 
@@ -145,7 +145,7 @@ def _fit_passes(model, x0, bounds, maxiter, n_passes, verbose):
                else "grid from fitted calibration")
         n_bins = sum(len(mm.grid_centers) for mm in m.models)
         if verbose:
-            print(f"[fit] pass {k}: {n_bins} bins ({tag}), "
+            print(f"[calib] pass {k}: {n_bins} bins ({tag}), "
                   f"best chi2 = {best.fun:.2f}, nfev = {best.nfev}")
     return m, best, nfev_total
 

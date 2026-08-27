@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Fit simulated spectra to background-subtracted experimental data."""
+"""Calibrate the KC761 gamma spectrometer by fitting simulated spectra to
+background-subtracted experimental data."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-from kc761fit.cli import parse_args
-from kc761fit.fitter import make_x0, run_fit
-from kc761fit.globalfit import DatasetSpec, GlobalFitModel
-from kc761fit.io import load_data_spectrum, load_sim_spectrum
-from kc761fit.params import DEFAULT_SYS_FRAC, broadcast
-from kc761fit.plot import plot_fit
-from kc761fit.report import print_summary
+from kc761calib.cli import parse_args
+from kc761calib.fitter import make_x0, run_fit
+from kc761calib.globalfit import DatasetSpec, GlobalFitModel
+from kc761calib.io import load_data_spectrum, load_sim_spectrum
+from kc761calib.params import DEFAULT_SYS_FRAC, broadcast
+from kc761calib.plot import plot_fit
+from kc761calib.report import print_summary
 
 
 def _default_label(path: Path) -> str:
@@ -28,17 +29,17 @@ def _broadcast(values, default, n: int, name: str):
         return broadcast(values, n, name, default=default)
     except ValueError:
         n_vals = 0 if values is None else len(values)
-        print(f"[fit] error: {name} must have 1 value or one per dataset "
+        print(f"[calib] error: {name} must have 1 value or one per dataset "
               f"({n} datasets), got {n_vals}", file=sys.stderr)
         sys.exit(1)
 
 
-def _run_fit(args) -> int:
+def _run_calib(args) -> int:
     n = len(args.data_multi)
     for name, lst in (("--sim", args.sim_multi), ("--elow", args.elow_multi),
                       ("--ehigh", args.ehigh_multi)):
         if lst is None or len(lst) != n:
-            print(f"[fit] error: {name} must be given once per --data "
+            print(f"[calib] error: {name} must be given once per --data "
                   f"({n} datasets, got {len(lst) if lst else 0})",
                   file=sys.stderr)
             return 1
@@ -50,13 +51,13 @@ def _run_fit(args) -> int:
         labels = [_default_label(p) for p in args.data_multi]
     else:
         if len(args.label) != n:
-            print(f"[fit] error: --label must be given once per --data "
+            print(f"[calib] error: --label must be given once per --data "
                   f"({n} datasets, got {len(args.label)})", file=sys.stderr)
             return 1
         labels = args.label
 
     specs = []
-    print(f"[fit] fitting {n} dataset(s): shared calibration and resolution, "
+    print(f"[calib] fitting {n} dataset(s): shared calibration and resolution, "
           f"per-dataset scale")
     for i in range(n):
         data_file = args.data_multi[i].expanduser().resolve()
@@ -64,30 +65,30 @@ def _run_fit(args) -> int:
         elow, ehigh = args.elow_multi[i], args.ehigh_multi[i]
         for role, path in (("data", data_file), ("simulation", sim_file)):
             if not path.is_file():
-                print(f"[fit] error: {role} file not found: {path}",
+                print(f"[calib] error: {role} file not found: {path}",
                       file=sys.stderr)
                 return 1
         if elow >= ehigh:
-            print(f"[fit] error: elow ({elow}) must be < ehigh ({ehigh}) "
+            print(f"[calib] error: elow ({elow}) must be < ehigh ({ehigh}) "
                   f"for dataset {labels[i]}", file=sys.stderr)
             return 1
         data = load_data_spectrum(str(data_file))
         sim = load_sim_spectrum(str(sim_file))
         specs.append(DatasetSpec(data=data, sim=sim, elow=elow, ehigh=ehigh,
                                  width=widths[i]))
-        print(f"[fit]   [{labels[i]}] range {elow:g}-{ehigh:g} keV, "
+        print(f"[calib]   [{labels[i]}] range {elow:g}-{ehigh:g} keV, "
               f"sys {syss[i]:g}, data={data_file}, sim={sim_file}")
 
     gmodel = GlobalFitModel(specs, sys_frac=syss, labels=labels)
 
     x0 = make_x0(gmodel, s_inits)
-    print(f"[fit] x0={x0}")
+    print(f"[calib] x0={x0}")
 
     result = run_fit(gmodel, x0=x0, maxiter=args.maxiter,
                      n_passes=args.passes)
 
     dataset_lines = [
-        f"[fit]   {label}: chi2 = {result.chi2_per_dataset[i]:.2f}, "
+        f"[calib]   {label}: chi2 = {result.chi2_per_dataset[i]:.2f}, "
         f"{result.detail.bins_per_dataset[i]} bins, "
         f"scale s = {result.scales[i]:.6g} +/- {result.scale_errors[i]:.3g}"
         for i, label in enumerate(gmodel.labels)
@@ -97,19 +98,19 @@ def _run_fit(args) -> int:
     if args.output is not None:
         out_pdf = args.output.expanduser().resolve()
     else:
-        out_pdf = Path.cwd() / ("-".join(labels) + "-fit.pdf")
+        out_pdf = Path.cwd() / ("-".join(labels) + "-calib.pdf")
     plot_fit(result, str(out_pdf))
-    print(f"[fit] wrote {out_pdf}")
+    print(f"[calib] wrote {out_pdf}")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.data_multi is None:
-        print("[fit] error: give at least one --data/--sim/--elow/--ehigh "
+        print("[calib] error: give at least one --data/--sim/--elow/--ehigh "
               "group (repeat the groups once per dataset)", file=sys.stderr)
         return 1
-    return _run_fit(args)
+    return _run_calib(args)
 
 
 if __name__ == "__main__":

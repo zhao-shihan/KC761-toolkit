@@ -14,9 +14,24 @@ from geant4_pybind import (
     s,
     us,
 )
-from .paths import NTUPLE_NAME, SPECTRUM_HIST_NAME
+from .config import SourceSpec
+from .paths import (
+    NTUPLE_COLUMNS,
+    NTUPLE_NAME,
+    SPECTRUM_HIST_NAME,
+    ntuple_title,
+)
 
 G4AnalysisManager = G4RootAnalysisManager
+
+#: Geant4 root-manager column method, chosen by the numpy dtype *name* in
+#: ``paths.NTUPLE_COLUMNS`` (int32/float32/float64).  Note ``dtype.kind`` is
+#: not usable here: both float32 and float64 report kind ``'f'``.
+_NTUPLE_COLUMN_CREATORS = {
+    "int32": "CreateNtupleIColumn",
+    "float32": "CreateNtupleFColumn",
+    "float64": "CreateNtupleDColumn",
+}
 
 _EDEP_HISTOGRAM_BINS = 4096
 _EDEP_HISTOGRAM_MAX_KEV = 4096.0
@@ -24,28 +39,28 @@ RESOLUTION_TIME = 10 * us
 
 
 class PrimaryGeneratorAction(G4VUserPrimaryGeneratorAction):
-    def __init__(self, source):
+    def __init__(self, source: SourceSpec):
         super().__init__()
         self.source = source
         self.gps = G4GeneralParticleSource()
 
-    def GeneratePrimaries(self, event):
+    def GeneratePrimaries(self, event) -> None:
         self.gps.GeneratePrimaryVertex(event)
 
 
 class RunAction(G4UserRunAction):
+    """Opens the output file and declares the ntuple/spectrum schema."""
+
     def __init__(self, output_stem: str, source_name: str, verbose: int = 0):
         super().__init__()
         self.output_stem = output_stem
         am = G4AnalysisManager.Instance()
         am.SetVerboseLevel(verbose)
-        am.CreateNtuple(
-            NTUPLE_NAME,
-            f"{NTUPLE_NAME} - {source_name} - per-pulse energy deposition",
-        )
-        am.CreateNtupleIColumn("event_id")
-        am.CreateNtupleFColumn("edep")
-        am.CreateNtupleDColumn("time")
+        am.CreateNtuple(NTUPLE_NAME, ntuple_title(source_name))
+        # Column set is driven by the canonical NTUPLE_COLUMNS spec so the
+        # worker ntuple and the merged tree can never drift apart.
+        for name, dtype in NTUPLE_COLUMNS.items():
+            getattr(am, _NTUPLE_COLUMN_CREATORS[dtype.name])(name)
         am.FinishNtuple()
         am.CreateH1(
             SPECTRUM_HIST_NAME,
@@ -56,29 +71,32 @@ class RunAction(G4UserRunAction):
             "keV",
         )
 
-    def BeginOfRunAction(self, run):
+    def BeginOfRunAction(self, run) -> None:
         am = G4AnalysisManager.Instance()
         am.OpenFile(self.output_stem)
 
-    def EndOfRunAction(self, run):
+    def EndOfRunAction(self, run) -> None:
         am = G4AnalysisManager.Instance()
         am.Write()
         am.CloseFile()
 
 
 class EventAction(G4UserEventAction):
+    """Accumulates per-step crystal deposits and merges them into pulses."""
+
     def __init__(self, event_offset: int = 0):
         super().__init__()
         self.event_offset = event_offset
         self.deposits: list[tuple[float, float]] = []
 
-    def BeginOfEventAction(self, event):
+    def BeginOfEventAction(self, event) -> None:
         self.deposits = []
 
-    def AddDeposit(self, global_time: float, edep: float):
+    def AddDeposit(self, global_time: float, edep: float) -> None:
         self.deposits.append((global_time, edep))
 
-    def _merge_pulses(self):
+    def _merge_pulses(self) -> list[tuple[float, float]]:
+        """Merge deposits within one scintillator resolution time."""
         deposits = sorted(self.deposits, key=lambda d: d[0])
         pulses: list[tuple[float, float]] = []
         i, n = 0, len(deposits)
@@ -92,7 +110,7 @@ class EventAction(G4UserEventAction):
             pulses.append((t0, edep))
         return pulses
 
-    def EndOfEventAction(self, event):
+    def EndOfEventAction(self, event) -> None:
         if not self.deposits:
             return
         am = G4AnalysisManager.Instance()
@@ -112,7 +130,7 @@ class SteppingAction(G4UserSteppingAction):
         self.event_action = event_action
         self._crystal_lv = None
 
-    def UserSteppingAction(self, step):
+    def UserSteppingAction(self, step) -> None:
         if self._crystal_lv is None:
             self._crystal_lv = self.detector.crystal_lv
         volume = step.GetPreStepPoint().GetTouchable().GetVolume()
@@ -130,7 +148,7 @@ class SteppingAction(G4UserSteppingAction):
 class ActionInitialization(G4VUserActionInitialization):
     def __init__(
         self,
-        source,
+        source: SourceSpec,
         detector,
         output_stem: str,
         event_offset: int = 0,
@@ -143,12 +161,12 @@ class ActionInitialization(G4VUserActionInitialization):
         self.event_offset = event_offset
         self.verbose = verbose
 
-    def BuildForMaster(self):
+    def BuildForMaster(self) -> None:
         self.SetUserAction(
             RunAction(self.output_stem, self.source.name, self.verbose)
         )
 
-    def Build(self):
+    def Build(self) -> None:
         self.SetUserAction(PrimaryGeneratorAction(self.source))
         self.SetUserAction(
             RunAction(self.output_stem, self.source.name, self.verbose)

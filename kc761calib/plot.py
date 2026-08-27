@@ -183,11 +183,11 @@ def plot_fit(result, out_pdf: str) -> None:
     n = len(det.datasets)
 
     fig, gs = _figure_grid(n)
-    scale_note = (f"({n} datasets, global-fit calibration + resolution)"
+    scale_note = (f"({n} datasets)"
                   if n > 1 else f"$s = {det.datasets[0].s:.4f}$")
     _title_panel(
         fig.add_subplot(gs[0]),
-        f"KC761 {'global ' if n > 1 else ''}fit  |  "
+        f"KC761 calibration  |  "
         f"$\\chi^2/\\mathrm{{ndof}} = {result.chi2:.1f}/{result.ndof} "
         f"= {result.reduced_chi2:.2f}$  {scale_note}")
 

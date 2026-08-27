@@ -55,8 +55,8 @@ class GlobalFitModel:
         n_bins = {m.data.n_bins for m in self.models}
         if len(n_bins) != 1:
             raise ValueError(
-                "all datasets must have the same channel count (the "
-                f"global-fit calibration is shared): got {sorted(n_bins)}")
+                "all datasets must have the same channel count (a "
+                f"global calibration is shared): got {sorted(n_bins)}")
 
         self.channel_max = float(max(m.data.edges[-1] for m in self.models))
         self.space = Space(tuple(self.labels),

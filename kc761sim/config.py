@@ -1,4 +1,4 @@
-"""Source configurations for the KC761 simulation."""
+"""Source specifications for the KC761 simulation (pure data, no Geant4)."""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ from typing import Optional, Tuple
 
 @dataclass(frozen=True)
 class Box:
-    kind: str = "box"
-    size_x: float = 0.0
-    size_y: float = 0.0
-    size_z: float = 0.0
+    """Axis-aligned rectangular source with full edge lengths in mm."""
+
+    size_x: float
+    size_y: float
+    size_z: float
 
     def volume_cm3(self) -> float:
         return self.size_x / 10.0 * (self.size_y / 10.0) * (self.size_z / 10.0)
@@ -20,20 +21,24 @@ class Box:
 
 @dataclass(frozen=True)
 class Cylinder:
-    kind: str = "cylinder"
-    radius: float = 0.0
-    half_length: float = 0.0
+    """Cylinder with dimensions in mm; ``axis`` is the symmetry axis."""
+
+    radius: float
+    half_length: float
     axis: str = "z"
 
     def volume_cm3(self) -> float:
-        return math.pi * (self.radius / 10.0) ** 2 * (2.0 * self.half_length / 10.0)
+        return math.pi * (self.radius / 10.0) ** 2 * (
+            2.0 * self.half_length / 10.0
+        )
 
 
 @dataclass(frozen=True)
 class Disk:
-    kind: str = "disk"
-    radius: float = 0.0
-    thickness: float = 0.0
+    """Flat circular slab in mm, symmetric axis along z."""
+
+    radius: float
+    thickness: float
 
     def volume_cm3(self) -> float:
         return math.pi * (self.radius / 10.0) ** 2 * (self.thickness / 10.0)
@@ -41,6 +46,8 @@ class Disk:
 
 @dataclass(frozen=True)
 class Layer:
+    """Single planar layer of a :class:`Sandwich`, thickness in mm."""
+
     material: str
     thickness: float
     active: bool = False
@@ -48,9 +55,10 @@ class Layer:
 
 @dataclass(frozen=True)
 class Sandwich:
-    kind: str = "sandwich"
-    radius: float = 0.0
-    layers: Tuple[Layer, ...] = ()
+    """Stack of cylindrical layers in mm along z (e.g. foil sources)."""
+
+    radius: float
+    layers: Tuple[Layer, ...]
 
     @property
     def active_layers(self) -> Tuple[Layer, ...]:
@@ -66,6 +74,7 @@ class Sandwich:
 
     @property
     def active_center_offset(self) -> float:
+        """z of the active-layer centroid relative to the stack center."""
         active = self.active_layers
         if not active:
             return 0.0
@@ -86,8 +95,9 @@ class Sandwich:
 
 @dataclass(frozen=True)
 class Sphere:
-    kind: str = "sphere"
-    radius: float = 0.0
+    """Full sphere with outer radius in mm."""
+
+    radius: float
 
     def volume_cm3(self) -> float:
         return 4.0 / 3.0 * math.pi * (self.radius / 10.0) ** 3
@@ -95,15 +105,24 @@ class Sphere:
 
 @dataclass(frozen=True)
 class Tube:
-    kind: str = "tube"
-    inner_radius: float = 0.0
-    outer_radius: float = 0.0
-    half_length: float = 0.0
+    """Hollow cylinder (shell) surrounding a source, dimensions in mm."""
+
+    inner_radius: float
+    outer_radius: float
+    half_length: float
     axis: str = "z"
 
 
 @dataclass(frozen=True)
 class SourceSpec:
+    """Complete description of one radioactive source.
+
+    Lengths are in mm. Density resolution: an explicit ``density``
+    (g/cm^3) takes precedence; otherwise a ``mass_g`` divided by the
+    geometry volume is used. Exactly one of the two may be set; leaving
+    both undefined is only valid for NIST materials.
+    """
+
     key: str
     name: str
     nuclide: Tuple[int, int]
@@ -112,9 +131,27 @@ class SourceSpec:
     density: Optional[float] = None
     mass_g: Optional[float] = None
     container: Optional[Tube] = None
+    container_material: Optional[str] = None
     container_offset: Optional[Tuple[float, float, float]] = None
     nucleus_limits: Optional[Tuple[int, int, int, int]] = None
     threshold_years: float = 1.0e60
+
+    def __post_init__(self) -> None:
+        if (self.container is None) != (self.container_material is None):
+            raise ValueError(
+                f"source {self.key!r}: 'container' and 'container_material' "
+                f"must be given together"
+            )
+        if self.container is None and self.container_offset is not None:
+            raise ValueError(
+                f"source {self.key!r}: 'container_offset' requires a "
+                f"'container'"
+            )
+        if self.density is not None and self.mass_g is not None:
+            raise ValueError(
+                f"source {self.key!r}: 'density' and 'mass_g' are mutually "
+                f"exclusive"
+            )
 
     @property
     def effective_density(self) -> Optional[float]:
@@ -123,52 +160,6 @@ class SourceSpec:
         if self.mass_g is not None:
             return self.mass_g / self.geometry.volume_cm3()
         return None
-
-
-def _tube_center_z(tube: Tube, near_z: float) -> float:
-    if tube.axis == "y":
-        return near_z + tube.outer_radius
-    if tube.axis == "z":
-        return near_z + tube.half_length
-    raise ValueError(f"unsupported tube axis: {tube.axis!r}")
-
-
-DETECTOR_GAP_MM = 1.0
-
-
-def container_center_z(spec: SourceSpec, detector_front_z: float) -> Optional[float]:
-    if spec.container is None:
-        return None
-    return _tube_center_z(spec.container, detector_front_z + DETECTOR_GAP_MM)
-
-
-def source_center_z(spec: SourceSpec, detector_front_z: float) -> float:
-    near_z = detector_front_z + DETECTOR_GAP_MM
-    g = spec.geometry
-
-    if spec.container is not None:
-        z = _tube_center_z(spec.container, near_z)
-        offset = spec.container_offset
-        if offset is not None:
-            z += offset[2]
-        return z
-
-    if isinstance(g, Box):
-        return near_z + g.size_z / 2.0
-    if isinstance(g, Disk):
-        return near_z + g.thickness / 2.0
-    if isinstance(g, Sandwich):
-        return near_z + g.total_thickness / 2.0
-    if isinstance(g, Sphere):
-        return near_z + g.radius
-    if isinstance(g, Cylinder):
-        if g.axis != "z":
-            raise ValueError(
-                f"a {g.axis}-axis source cylinder outside a container is not "
-                f"supported (axis must be 'z' to face the detector)"
-            )
-        return near_z + g.half_length
-    raise ValueError(f"unknown geometry {g!r}")
 
 
 SOURCES: dict[str, SourceSpec] = {
@@ -214,6 +205,7 @@ SOURCES: dict[str, SourceSpec] = {
         mass_g=10.0,
         container=Tube(inner_radius=10.0, outer_radius=11.0,
                        half_length=25.0, axis="y"),
+        container_material="G4_Pyrex_Glass",
         container_offset=(0.0, 0.0, -1.3),
     ),
     "ra226": SourceSpec(
@@ -224,5 +216,6 @@ SOURCES: dict[str, SourceSpec] = {
         material="G4_GLASS_PLATE",
         container=Tube(inner_radius=2.5, outer_radius=3.0,
                        half_length=2.5, axis="z"),
+        container_material="G4_STAINLESS-STEEL",
     ),
 }

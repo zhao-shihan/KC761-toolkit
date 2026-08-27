@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from geant4_pybind import (
-    G4Material,
-    G4NistManager,
-    cm3,
-    g,
-)
+from typing import Any
+
+from geant4_pybind import G4Material, G4NistManager, cm3, g
+
+from .config import Sandwich, SourceSpec
 
 ABS_DENSITY_G_CM3 = 1.05
 
 CSI_TL_DENSITY_G_CM3 = 4.51
 
 
-def _element(nist: G4NistManager, name: str):
+def _element(nist: G4NistManager, name: str) -> Any:
     el = nist.FindOrBuildElement(name)
     if el is None:
         raise RuntimeError(f"failed to build NIST element {name!r}")
@@ -22,6 +21,7 @@ def _element(nist: G4NistManager, name: str):
 
 
 def build_csi_tl(nist: G4NistManager) -> G4Material:
+    """CsI(Tl) scintillator crystal (Tl at 1000 ppm molar)."""
     molar_mass = {"Cs": 132.90545, "I": 126.90447, "Tl": 204.3833}
     mol = {"Cs": 999.5, "I": 999.5, "Tl": 1.0}
     total_mass = sum(molar_mass[k] * mol[k] for k in mol)
@@ -39,6 +39,7 @@ def build_csi_tl(nist: G4NistManager) -> G4Material:
 
 
 def build_abs(nist: G4NistManager) -> G4Material:
+    """ABS plastic used for the detector housing."""
     mat = G4Material("ABS", ABS_DENSITY_G_CM3 * g / cm3, 3)
     mat.AddElementByMassFraction(_element(nist, "C"), 0.865)
     mat.AddElementByMassFraction(_element(nist, "H"), 0.082)
@@ -61,7 +62,9 @@ def build_lu2o3(nist: G4NistManager, density: float) -> G4Material:
     return mat
 
 
-def build_thorium_nitrate_pentahydrate(nist: G4NistManager, density: float) -> G4Material:
+def build_thorium_nitrate_pentahydrate(
+    nist: G4NistManager, density: float
+) -> G4Material:
     mat = G4Material("Th(NO3)4-5H2O", density * g / cm3, 4)
     mat.AddElementByNumberOfAtoms(_element(nist, "Th"), 1)
     mat.AddElementByNumberOfAtoms(_element(nist, "N"), 4)
@@ -70,47 +73,75 @@ def build_thorium_nitrate_pentahydrate(nist: G4NistManager, density: float) -> G
     return mat
 
 
-def _ensure_material(
+# Builders for custom source materials; each receives (nist, density).
+_CUSTOM_MATERIAL_BUILDERS = {
+    "K2CO3": build_k2co3,
+    "Lu2O3": build_lu2o3,
+    "Th(NO3)4-5H2O": build_thorium_nitrate_pentahydrate,
+}
+
+
+def _require_material(
     mats: dict[str, G4Material],
     nist: G4NistManager,
-    key: str,
-    spec,
+    densities: dict[str, float],
+    name: str,
+    density: float | None,
 ) -> None:
-    if key in mats:
+    """Make sure material ``name`` exists in ``mats``.
+
+    ``density`` (g/cm^3) must be supplied when a custom (non-NIST) material
+    is requested; requesting the same custom material with a conflicting
+    density is an error.
+    """
+    if name.startswith("G4_"):
+        if name not in mats:
+            mats[name] = nist.FindOrBuildMaterial(name)
         return
-    if key.startswith("G4_"):
-        mats[key] = nist.FindOrBuildMaterial(key)
-        return
-    density = spec.effective_density
+
+    if name not in _CUSTOM_MATERIAL_BUILDERS:
+        raise RuntimeError(f"unknown custom source material {name!r}")
     if density is None:
-        raise RuntimeError(f"no density available for material {key!r}")
-    if key == "K2CO3":
-        mats[key] = build_k2co3(nist, density)
-    elif key == "Lu2O3":
-        mats[key] = build_lu2o3(nist, density)
-    elif key == "Th(NO3)4-5H2O":
-        mats[key] = build_thorium_nitrate_pentahydrate(nist, density)
-    else:
-        raise RuntimeError(f"unknown source material {key!r}")
+        raise RuntimeError(
+            f"custom material {name!r} requires a density; only the primary "
+            f"source material can derive one from 'mass_g' or 'density'"
+        )
+
+    # Check the density for consistency up front, otherwise a conflicting
+    # request is silently swallowed by the ``name in mats`` early return.
+    previous = densities.get(name)
+    if previous is not None and abs(previous - density) > 1e-9:
+        raise RuntimeError(
+            f"material {name!r} requested with conflicting densities "
+            f"{previous:.6g} and {density:.6g} g/cm^3"
+        )
+    if name in mats:
+        return
+    densities[name] = density
+    mats[name] = _CUSTOM_MATERIAL_BUILDERS[name](nist, density)
 
 
-def build_all_materials() -> dict[str, G4Material]:
+def build_all_materials(*specs: SourceSpec) -> dict[str, G4Material]:
+    """Build every material needed by the detector and the given sources."""
     nist = G4NistManager.Instance()
-    mats: dict[str, G4Material] = {}
+    mats: dict[str, G4Material] = {
+        "CsI_Tl": build_csi_tl(nist),
+        "ABS": build_abs(nist),
+    }
+    densities: dict[str, float] = {}
 
-    mats["CsI_Tl"] = build_csi_tl(nist)
-    mats["ABS"] = build_abs(nist)
-
-    from . import config
-
-    for key, spec in config.SOURCES.items():
-        _ensure_material(mats, nist, spec.material, spec)
-        if isinstance(spec.geometry, config.Sandwich):
-            for layer in spec.geometry.layers:
-                _ensure_material(mats, nist, layer.material, spec)
-
+    # Detector-facing world volume.
     mats["G4_AIR"] = nist.FindOrBuildMaterial("G4_AIR")
 
-    mats["G4_Pyrex_Glass"] = nist.FindOrBuildMaterial("G4_Pyrex_Glass")
-    mats["G4_STAINLESS-STEEL"] = nist.FindOrBuildMaterial("G4_STAINLESS-STEEL")
+    for spec in specs:
+        _require_material(mats, nist, densities, spec.material,
+                          spec.effective_density)
+        geometry = spec.geometry
+        if isinstance(geometry, Sandwich):
+            for layer in geometry.layers:
+                _require_material(mats, nist, densities, layer.material, None)
+        if spec.container_material is not None:
+            _require_material(mats, nist, densities, spec.container_material,
+                              None)
+
     return mats

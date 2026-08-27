@@ -7,22 +7,8 @@ import argparse
 import os
 import sys
 
-from geant4_pybind import (
-    G4Random,
-    G4RunManagerFactory,
-    G4RunManagerType,
-    G4UIExecutive,
-    G4UImanager,
-    G4VisExecutive,
-)
-from kc761sim import (
-    actions,
-    config,
-    detector,
-    materials,
-    physics,
-    runner,
-)
+from geant4_pybind import G4UIExecutive, G4UImanager, G4VisExecutive
+from kc761sim import config, runner
 from kc761sim.paths import final_output_path, output_stem
 
 _SCRIPT_DIR = os.path.join(
@@ -95,24 +81,11 @@ def _selected_source(args: argparse.Namespace) -> str:
     raise SystemExit("error: no source selected")
 
 
-def interactive_mode(args: argparse.Namespace, source_key: str, verbose: int) -> None:
-    spec = config.SOURCES[source_key]
-    mats = materials.build_all_materials()
-    det = detector.DetectorConstruction(spec, mats, check_overlaps=verbose > 0)
-
-    run_manager = G4RunManagerFactory.CreateRunManager(G4RunManagerType.Serial)
-    run_manager.SetUserInitialization(det)
-    run_manager.SetUserInitialization(physics.PhysicsList())
-    run_manager.SetUserInitialization(
-        actions.ActionInitialization(
-            spec, det, output_stem(args.output), 0, verbose
-        )
+def interactive_mode(source_key: str, seed: int, verbose: int, output_stem_: str) -> None:
+    """Start an initialized Geant4 UI/visualization session."""
+    run_manager = runner.prepare_run_manager(
+        config.SOURCES[source_key], output_stem_, seed=seed, verbose=verbose
     )
-    G4Random.setTheSeed(args.seed)
-    runner.apply_verbosity(run_manager, verbose)
-    run_manager.Initialize()
-    physics.configure_radioactive_decay(spec)
-    physics.configure_gps(spec, det)
 
     vis_manager = G4VisExecutive("quiet")
     vis_manager.Initialize()
@@ -145,7 +118,8 @@ def main(argv: list[str] | None = None) -> None:
         if args.output is None:
             args.output = "sim_vis_output.root"
         verbose = args.verbose if args.verbose is not None else 1
-        interactive_mode(args, source_key, verbose)
+        interactive_mode(source_key, args.seed, verbose,
+                         output_stem(args.output))
     else:
         if args.events <= 0:
             raise SystemExit("error: --events must be a positive integer")

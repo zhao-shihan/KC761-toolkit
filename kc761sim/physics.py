@@ -18,6 +18,7 @@ from geant4_pybind import (
     G4VModularPhysicsList,
     mm,
 )
+from .config import Box, Cylinder, Disk, Sandwich, SourceSpec, Sphere
 
 
 class PhysicsList(G4VModularPhysicsList):
@@ -37,7 +38,8 @@ class PhysicsList(G4VModularPhysicsList):
         self.RegisterPhysics(G4RadioactiveDecayPhysics())
 
 
-def configure_radioactive_decay(source) -> None:
+def configure_radioactive_decay(source: SourceSpec) -> None:
+    """Apply radioactive-decay limits for the source's decay chain."""
     ui = G4UImanager.GetUIpointer()
     ui.ApplyCommand(
         f"/process/had/rdm/thresholdForVeryLongDecayTime {source.threshold_years:.6g} year"
@@ -49,7 +51,55 @@ def configure_radioactive_decay(source) -> None:
         )
 
 
-def configure_gps(source, detector) -> None:
+def _gps_volume_commands(geometry) -> list[str]:
+    """GPS commands sampling primary vertices inside the source geometry."""
+    match geometry:
+        case Box():
+            return [
+                "/gps/pos/shape Para",
+                f"/gps/pos/halfx {0.5 * geometry.size_x} mm",
+                f"/gps/pos/halfy {0.5 * geometry.size_y} mm",
+                f"/gps/pos/halfz {0.5 * geometry.size_z} mm",
+            ]
+        case Cylinder():
+            if geometry.axis not in ("y", "z"):
+                raise ValueError(
+                    f"unsupported cylinder axis: {geometry.axis!r}"
+                )
+            commands = [
+                "/gps/pos/shape Cylinder",
+                f"/gps/pos/radius {geometry.radius} mm",
+                f"/gps/pos/halfz {geometry.half_length} mm",
+            ]
+            if geometry.axis == "y":
+                commands += [
+                    "/gps/pos/rot1 0 0 1",
+                    "/gps/pos/rot2 1 0 0",
+                ]
+            return commands
+        case Disk():
+            return [
+                "/gps/pos/shape Cylinder",
+                f"/gps/pos/radius {geometry.radius} mm",
+                f"/gps/pos/halfz {0.5 * geometry.thickness} mm",
+            ]
+        case Sandwich():
+            return [
+                "/gps/pos/shape Cylinder",
+                f"/gps/pos/radius {geometry.radius} mm",
+                f"/gps/pos/halfz {0.5 * geometry.active_thickness} mm",
+            ]
+        case Sphere():
+            return [
+                "/gps/pos/shape Sphere",
+                f"/gps/pos/radius {geometry.radius} mm",
+            ]
+        case _:
+            raise ValueError(f"unsupported source geometry: {geometry!r}")
+
+
+def configure_gps(source: SourceSpec, detector) -> None:
+    """Configure the general particle source to decay the source nuclide."""
     ui = G4UImanager.GetUIpointer()
     z, a = source.nuclide
     ui.ApplyCommand("/gps/particle ion")
@@ -57,36 +107,11 @@ def configure_gps(source, detector) -> None:
     ui.ApplyCommand("/gps/energy 0 eV")
     ui.ApplyCommand("/gps/ang/type iso")
 
-    geometry = source.geometry
-    center = detector.source_center
     ui.ApplyCommand("/gps/pos/type Volume")
-    if geometry.kind == "box":
-        ui.ApplyCommand("/gps/pos/shape Para")
-        ui.ApplyCommand(f"/gps/pos/halfx {0.5 * geometry.size_x} mm")
-        ui.ApplyCommand(f"/gps/pos/halfy {0.5 * geometry.size_y} mm")
-        ui.ApplyCommand(f"/gps/pos/halfz {0.5 * geometry.size_z} mm")
-    elif geometry.kind == "cylinder":
-        ui.ApplyCommand("/gps/pos/shape Cylinder")
-        ui.ApplyCommand(f"/gps/pos/radius {geometry.radius} mm")
-        ui.ApplyCommand(f"/gps/pos/halfz {geometry.half_length} mm")
-        if geometry.axis == "y":
-            ui.ApplyCommand("/gps/pos/rot1 0 0 1")
-            ui.ApplyCommand("/gps/pos/rot2 1 0 0")
-    elif geometry.kind == "sandwich":
-        ui.ApplyCommand("/gps/pos/shape Cylinder")
-        ui.ApplyCommand(f"/gps/pos/radius {geometry.radius} mm")
-        ui.ApplyCommand(
-            f"/gps/pos/halfz {0.5 * geometry.active_thickness} mm"
-        )
-    elif geometry.kind == "disk":
-        ui.ApplyCommand("/gps/pos/shape Cylinder")
-        ui.ApplyCommand(f"/gps/pos/radius {geometry.radius} mm")
-        ui.ApplyCommand(f"/gps/pos/halfz {0.5 * geometry.thickness} mm")
-    elif geometry.kind == "sphere":
-        ui.ApplyCommand("/gps/pos/shape Sphere")
-        ui.ApplyCommand(f"/gps/pos/radius {geometry.radius} mm")
-    else:
-        raise ValueError(f"unsupported source geometry: {geometry!r}")
+    for command in _gps_volume_commands(source.geometry):
+        ui.ApplyCommand(command)
+
+    center = detector.source_center
     ui.ApplyCommand(
         f"/gps/pos/centre {center.x / mm} {center.y / mm} {center.z / mm} mm"
     )

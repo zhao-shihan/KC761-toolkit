@@ -1,4 +1,4 @@
-"""Command-line argument definition for kc761fit."""
+"""Command-line argument definition for kc761calib."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from .params import DEFAULT_SYS_FRAC
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fit simulation(s) to background-subtracted data: energy "
+        description="Calibrate the KC761 gamma spectrometer by fitting "
+                    "simulated spectra to background-subtracted data: energy "
                     "calibration + resolution by chi^2 minimization.  Repeat "
                     "the --data/--sim/--elow/--ehigh groups once per dataset."
     )
@@ -49,7 +50,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "weighted least-squares estimate)")
 
     parser.add_argument("-o", "--output", type=Path, default=None,
-                        help="output PDF (default: <label1>-<label2>-fit.pdf "
+                        help="output PDF (default: <label1>-<label2>-calib.pdf "
                              "in the current directory)")
     parser.add_argument("--maxiter", type=int, default=10000,
                         help="Nelder-Mead iterations per pass (default 10000)")

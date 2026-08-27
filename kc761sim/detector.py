@@ -28,7 +28,6 @@ from .config import (
     SourceSpec,
     Sphere,
     Tube,
-    source_center_z,
 )
 
 WORLD_HALF_SIZE = 15.0 * cm
@@ -43,17 +42,61 @@ HOUSING_HALF_Z = CRYSTAL_HALF_Z + 1.0 * mm
 
 DETECTOR_FRONT_Z = HOUSING_HALF_Z
 
+#: Air gap between the housing front face and the nearest source plane.
+DETECTOR_GAP_MM = 1.0
+
+
+def _rotate_to_y() -> G4RotationMatrix:
+    """Rotation mapping a z-symmetric solid onto a y symmetry axis."""
+    rot = G4RotationMatrix()
+    rot.rotateX(-90.0 * deg)
+    return rot
+
+
+def _tube_center_z(tube: Tube, near_z: float) -> float:
+    """Center z of a source tube so its nearest face sits at ``near_z``."""
+    if tube.axis == "y":
+        return near_z + tube.outer_radius
+    if tube.axis == "z":
+        return near_z + tube.half_length
+    raise ValueError(f"unsupported tube axis: {tube.axis!r}")
+
+
+def _bare_source_center_z(
+    geometry: Box | Cylinder | Disk | Sandwich | Sphere, near_z: float
+) -> float:
+    """Center z of a bare (container-less) source given its near face."""
+    match geometry:
+        case Box():
+            return near_z + geometry.size_z / 2.0
+        case Disk():
+            return near_z + geometry.thickness / 2.0
+        case Sandwich():
+            return near_z + geometry.total_thickness / 2.0
+        case Sphere():
+            return near_z + geometry.radius
+        case Cylinder():
+            if geometry.axis != "z":
+                raise ValueError(
+                    f"a {geometry.axis}-axis source cylinder outside a "
+                    f"container is not supported (axis must be 'z' to face "
+                    f"the detector)"
+                )
+            return near_z + geometry.half_length
+        case _:
+            raise ValueError(f"unknown geometry {geometry!r}")
+
 
 class DetectorConstruction(G4VUserDetectorConstruction):
     def __init__(
         self,
         source: SourceSpec,
-        materials: dict[str, G4Material],
+        mats: dict[str, G4Material],
         check_overlaps: bool = True,
     ):
         super().__init__()
         self.source = source
-        self.materials = materials
+        self.materials = mats
         self.check_overlaps = check_overlaps
         self.crystal_lv: G4LogicalVolume | None = None
         self.source_center: G4ThreeVector | None = None
@@ -112,26 +155,63 @@ class DetectorConstruction(G4VUserDetectorConstruction):
 
         return world_pv
 
-    def _construct_source(self, world_lv: G4LogicalVolume):
+    def _place_volume(
+        self,
+        lv: G4LogicalVolume,
+        name: str,
+        position: G4ThreeVector,
+        mother_lv: G4LogicalVolume,
+        rotate_to_y: bool,
+    ) -> None:
+        """Place ``lv``, optionally rotating its z axis onto y."""
+        if rotate_to_y:
+            transform = G4Transform3D(_rotate_to_y(), position)
+            G4PVPlacement(
+                transform,
+                lv,
+                name,
+                mother_lv,
+                False,
+                0,
+                self.check_overlaps,
+            )
+        else:
+            G4PVPlacement(
+                None,
+                position,
+                lv,
+                name,
+                mother_lv,
+                False,
+                0,
+                self.check_overlaps,
+            )
+
+    def _construct_source(self, world_lv: G4LogicalVolume) -> None:
+        """Place the container (if any) and the source material volume."""
         spec = self.source
-        center_z = source_center_z(spec, DETECTOR_FRONT_Z)
-        position = G4ThreeVector(0.0, 0.0, center_z * mm)
-        self.source_center = position
+        near_z = DETECTOR_FRONT_Z + DETECTOR_GAP_MM
 
         if spec.container is not None:
-            container_position = position
-            offset = spec.container_offset
-            if offset is not None:
-                container_position = G4ThreeVector(
-                    position.x - offset[0] * mm,
-                    position.y - offset[1] * mm,
-                    position.z - offset[2] * mm,
-                )
-            self._construct_container(
-                spec.container,
-                position=container_position,
-                world_lv=world_lv,
+            container_position = G4ThreeVector(
+                0.0, 0.0, _tube_center_z(spec.container, near_z) * mm
             )
+            offset = spec.container_offset
+            if offset is None:
+                offset = (0.0, 0.0, 0.0)
+            position = G4ThreeVector(
+                container_position.x + offset[0] * mm,
+                container_position.y + offset[1] * mm,
+                container_position.z + offset[2] * mm,
+            )
+            self._construct_container(
+                spec.container, container_position, world_lv
+            )
+        else:
+            position = G4ThreeVector(
+                0.0, 0.0, _bare_source_center_z(spec.geometry, near_z) * mm
+            )
+        self.source_center = position
 
         geometry = spec.geometry
         if isinstance(geometry, Sandwich):
@@ -146,77 +226,57 @@ class DetectorConstruction(G4VUserDetectorConstruction):
         material = self.materials[spec.material]
         solid = self._build_source_solid(geometry)
         source_lv = G4LogicalVolume(solid, material, "Source")
-
-        if isinstance(geometry, Cylinder) and geometry.axis == "y":
-            rot = G4RotationMatrix()
-            rot.rotateX(-90.0 * deg)
-            transform = G4Transform3D(rot, position)
-            G4PVPlacement(
-                transform,
-                source_lv,
-                "Source",
-                world_lv,
-                False,
-                0,
-                self.check_overlaps,
-            )
-        else:
-            G4PVPlacement(
-                None,
-                position,
-                source_lv,
-                "Source",
-                world_lv,
-                False,
-                0,
-                self.check_overlaps,
-            )
+        rotate_to_y = isinstance(geometry, Cylinder) and geometry.axis == "y"
+        self._place_volume(
+            source_lv, "Source", position, world_lv, rotate_to_y
+        )
 
     def _build_source_solid(self, geometry):
-        name = f"Source{geometry.kind.capitalize()}"
-        if isinstance(geometry, Box):
-            return G4Box(
-                name,
-                0.5 * geometry.size_x * mm,
-                0.5 * geometry.size_y * mm,
-                0.5 * geometry.size_z * mm,
-            )
-        if isinstance(geometry, Disk):
-            return G4Tubs(
-                name,
-                0.0,
-                geometry.radius * mm,
-                0.5 * geometry.thickness * mm,
-                0.0,
-                twopi,
-            )
-        if isinstance(geometry, Sphere):
-            return G4Sphere(
-                name,
-                0.0,
-                geometry.radius * mm,
-                0.0,
-                twopi,
-                0.0,
-                math.pi,
-            )
-        if isinstance(geometry, Cylinder):
-            return G4Tubs(
-                name,
-                0.0,
-                geometry.radius * mm,
-                geometry.half_length * mm,
-                0.0,
-                twopi,
-            )
-        raise ValueError(f"unsupported source geometry: {geometry!r}")
+        match geometry:
+            case Box():
+                return G4Box(
+                    "SourceBox",
+                    0.5 * geometry.size_x * mm,
+                    0.5 * geometry.size_y * mm,
+                    0.5 * geometry.size_z * mm,
+                )
+            case Disk():
+                return G4Tubs(
+                    "SourceDisk",
+                    0.0,
+                    geometry.radius * mm,
+                    0.5 * geometry.thickness * mm,
+                    0.0,
+                    twopi,
+                )
+            case Sphere():
+                return G4Sphere(
+                    "SourceSphere",
+                    0.0,
+                    geometry.radius * mm,
+                    0.0,
+                    twopi,
+                    0.0,
+                    math.pi,
+                )
+            case Cylinder():
+                return G4Tubs(
+                    "SourceCylinder",
+                    0.0,
+                    geometry.radius * mm,
+                    geometry.half_length * mm,
+                    0.0,
+                    twopi,
+                )
+            case _:
+                raise ValueError(f"unsupported source geometry: {geometry!r}")
 
     def _construct_sandwich(
         self,
         sandwich: Sandwich,
         position: G4ThreeVector,
         world_lv: G4LogicalVolume,
-    ):
+    ) -> None:
         n_layers = len(sandwich.layers)
         z = position.z - 0.5 * sandwich.total_thickness * mm
         for i, layer in enumerate(sandwich.layers):
@@ -255,13 +315,12 @@ class DetectorConstruction(G4VUserDetectorConstruction):
         position: G4ThreeVector,
         world_lv: G4LogicalVolume,
     ) -> G4LogicalVolume:
-        spec = self.source
-        if spec.key == "th232":
-            material = self.materials["G4_Pyrex_Glass"]
-        elif spec.key == "ra226":
-            material = self.materials["G4_STAINLESS-STEEL"]
-        else:
-            raise ValueError(f"no container material defined for {spec.key!r}")
+        material_name = self.source.container_material
+        if material_name is None:  # guarded by SourceSpec.__post_init__
+            raise ValueError(
+                f"no container material defined for {self.source.key!r}"
+            )
+        material = self.materials[material_name]
 
         tube_solid = G4Tubs(
             "SourceTube",
@@ -272,29 +331,11 @@ class DetectorConstruction(G4VUserDetectorConstruction):
             twopi,
         )
         tube_lv = G4LogicalVolume(tube_solid, material, "SourceTube")
-
-        if tube.axis == "y":
-            rot = G4RotationMatrix()
-            rot.rotateX(-90.0 * deg)
-            transform = G4Transform3D(rot, position)
-            G4PVPlacement(
-                transform,
-                tube_lv,
-                "SourceTube",
-                world_lv,
-                False,
-                0,
-                self.check_overlaps,
-            )
-        else:
-            G4PVPlacement(
-                None,
-                position,
-                tube_lv,
-                "SourceTube",
-                world_lv,
-                False,
-                0,
-                self.check_overlaps,
-            )
+        self._place_volume(
+            tube_lv,
+            "SourceTube",
+            position,
+            world_lv,
+            rotate_to_y=tube.axis == "y",
+        )
         return tube_lv

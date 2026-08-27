@@ -3,7 +3,7 @@
 Both halves of the response are parameterized through their values at fixed
 anchor energies and recovered by exact interpolation through those anchors:
 
-  - E(x) = c3 x^3 + c2 x^2 + c1 x + c0 through the channel positions of the
+  - E(x) = c0 + c1 x + c2 x^2 + c3 x^3 through the channel positions of the
     lines in ``CALIB_ENERGIES``;
   - sigma^2(E) = b0 + b1 E + b2 E^2 (noise / Fano / constant term added in
     quadrature) through the relative resolutions at ``RESOL_ENERGIES``.
@@ -71,7 +71,7 @@ def _nan(n: int, jacobian: bool = False):
 def poly3(c: np.ndarray | list[float], x: np.ndarray | float) -> np.ndarray:
     c0, c1, c2, c3 = np.asarray(c, dtype=float)
     x = np.asarray(x, dtype=float)
-    return c3 * x**3 + c2 * x**2 + c1 * x + c0
+    return c0 + (c1 + (c2 + c3 * x) * x) * x
 
 
 def channels_to_c(x: np.ndarray | list[float],
@@ -154,7 +154,7 @@ def sigma_model(b: np.ndarray | list[float], e: np.ndarray | float) -> np.ndarra
     """sigma(E) from variance coefficients; clamped at zero for safety."""
     b0, b1, b2 = np.asarray(b, dtype=float)
     e = np.asarray(e, dtype=float)
-    var = b0 + b1 * e + b2 * e**2
+    var = b0 + (b1 + b2 * e) * e
     return np.sqrt(np.maximum(var, 0.0))
 
 
