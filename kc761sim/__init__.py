@@ -1,1 +1,1 @@
-"""kc761sim gamma-spectrometry Monte Carlo simulation package."""
+"""kc761sim: spectrum simulation package for the KC761 toolkit."""

@@ -281,6 +281,7 @@ def plot_fit(model, result, out_pdf: str) -> None:
     x_anchors = p[space.channels]
     r_anchors = p[space.resolutions]
     n = model.n_datasets
+    models = model.models  # one per-dataset FitModel per row
 
     fig, gs = _figure_grid(n)
     if n > 1:
@@ -293,7 +294,7 @@ def plot_fit(model, result, out_pdf: str) -> None:
                  f"   $s = {det.datasets[0].s:.4f}$")
     _title_panel(fig.add_subplot(gs[0]), title)
 
-    for i, entry in enumerate(det.datasets):
+    for i, (entry, m_i) in enumerate(zip(det.datasets, models)):
         ax_spec, ax_pull = _dataset_row(fig, gs, i + 1)
         label = _cap(entry.label)
         if n > 1:
@@ -305,7 +306,7 @@ def plot_fit(model, result, out_pdf: str) -> None:
             spec_title = None
             pull_title = "Relative residual"
         _spectrum_panel(ax_spec, entry.mu, entry.d, entry.err, entry.m,
-                        entry.m_raw_unsmeared, entry.grid_edges, entry.s,
+                        m_i.raw_model_counts(), entry.grid_edges, entry.s,
                         entry.elow, entry.ehigh, spec_title)
         _residual_panel(ax_pull, entry.mu, entry.d, entry.err, entry.m,
                         entry.elow, entry.ehigh, pull_title)

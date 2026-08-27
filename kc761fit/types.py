@@ -20,14 +20,15 @@ import numpy as np
 
 @dataclass
 class DatasetDetail:
-    """Masked evaluation of one dataset of a (possibly global) fit.
+    """Masked evaluation of one dataset of a fit (N = 1 for a single-dataset
+    fit).
 
     ``d`` / ``err`` are the calibrated, exactly-rebinned data counts and
-    errors; ``m_raw`` the un-scaled resolution-smeared simulation; ``m`` the
-    scaled model (``s * m_raw``); ``mu`` the grid-bin centers.  All arrays are
-    masked to the bins with positive error (``mask``).  ``grid_edges`` and
-    ``m_raw_unsmeared`` (raw, un-convolved simulation on the grid) are carried
-    so the plotting layer does not need to reach into the model internals.
+    total errors; ``m_raw`` the un-scaled resolution-smeared simulation; ``m``
+    the scaled model (``s * m_raw``); ``mu`` the grid-bin centers.  All arrays
+    are masked to the bins with positive statistical error (``mask``).
+    ``grid_edges`` and ``label`` / ``elow`` / ``ehigh`` are display context
+    carried so the plotting layer does not need to reach into the model.
     """
 
     d: np.ndarray
@@ -40,11 +41,9 @@ class DatasetDetail:
     n_bins: int
     mask: np.ndarray
     grid_edges: np.ndarray = field(default_factory=lambda: np.array([]))
-    m_raw_unsmeared: np.ndarray = field(default_factory=lambda: np.array([]))
     label: str = ""
     elow: float = 0.0
     ehigh: float = 0.0
-    model: object = None
 
 
 @dataclass

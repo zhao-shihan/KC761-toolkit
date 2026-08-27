@@ -88,7 +88,7 @@ class ParameterSpace:
 
     # -- construction ------------------------------------------------------
     @classmethod
-    def from_anchors(cls, n_channels: float = float("inf")) -> "ParameterSpace":
+    def from_anchors(cls, n_channels: float) -> "ParameterSpace":
         """Channels (4 reference-line positions) + resolutions (3 relative
         widths), with the constants from calibration.py / resolution.py.
 

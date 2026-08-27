@@ -1,40 +1,22 @@
-"""Global (multi-dataset) chi^2 forward model.
+"""Global (multi-dataset) chi^2 forward model — the only fit model.
 
-A single :class:`~kc761fit.fitmodel.FitModel` fits one experimental spectrum
-against one simulation over one energy range.  A global fit instead fits
-*several* (data, simulation, energy-range) pairs at once: the energy
-calibration and the detector resolution are *global-fit* parameters common
-to all datasets, and each dataset gets its own normalization scale:
+A fit always runs over N >= 1 (data, simulation, energy-range) pairs: the
+energy calibration and the detector resolution are *global-fit* parameters
+common to all datasets, and each dataset gets its own normalization scale:
 
     q = [x60, x609, x1461, x2614, r60, r609, r2614, s0, ..., s_{N-1}]
 
-The total chi^2 is the plain sum of the per-dataset chi^2 values.  Every
-dataset is weighted by its own statistical errors (plus its fractional
-systematic error), so no ad-hoc relative weights are needed.  The soft
-monotonicity penalties of the global-fit calibration / resolution are counted
-*once* — they are properties of the global-fit parameters, not of the
-datasets.
+The total chi^2 is the plain sum of the per-dataset chi^2 values; every
+dataset is weighted by its own statistical + fractional-systematic errors, so
+no ad-hoc relative weights are needed.  The soft monotonicity penalties of the
+global-fit calibration / resolution are counted *once* — they are properties
+of the global-fit parameters, not of the datasets.  A single-dataset fit is
+simply N = 1.
 
-Typical use: fit the Th-232 spectrum over 300-3000 keV (which pins the
-high-energy anchors of the global-fit curves) together with the Am-241
-spectrum over 20-80 keV (which constrains the low-energy region).  Each
-dataset keeps its own native-resolution energy grid (one bin per data
-channel), rebuilt between fit passes from the global-fit fitted calibration,
-so the comparison is always at the actual channel-to-energy density of every
-dataset.
-
-Model evaluation
-----------------
-Per dataset the model is exactly the :class:`~kc761fit.fitmodel.FitModel`
-forward model: the experimental channel spectrum is calibrated with the
-global-fit cubic E(x) and exactly rebinned onto the dataset's fixed energy
-grid; the dataset's simulation is convolved with the global-fit Gaussian
-resolution directly onto the same grid; and chi^2 is summed over grid bins
-with positive error using the statistical + fractional-systematic total
-errors.  A point is degenerate (chi^2 = inf) if *any* dataset lacks
-sufficient data coverage at the global-fit calibration; ordering violations
-of the global-fit channels / resolutions are handled by the soft penalties
-(see :mod:`kc761fit.fitmodel`).
+Each dataset is evaluated by a per-dataset :class:`~kc761fit.fitmodel.FitModel`
+(the comparison grid, the exact rebin of the channel data, and the convolution
+of the simulation); this class owns the parameter space (including the scale
+block), the shared calibration / resolution coefficients, and the sum.
 """
 
 from __future__ import annotations
@@ -45,7 +27,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .calibration import channels_to_c, monotonicity_penalty as calib_penalty
-from .fitmodel import FitModel, degenerate_detail, finish_dataset
+from .fitmodel import FitModel
 from .params import DEFAULT_SYS_FRAC, ParameterSpace, broadcast
 from .resolution import monotonicity_penalty as resol_penalty, resol_to_a
 from .types import FitDetail
@@ -53,7 +35,7 @@ from .types import FitDetail
 
 @dataclass
 class DatasetSpec:
-    """One (data, simulation, energy-range) pair of a global fit.
+    """One (data, simulation, energy-range) pair of a fit.
 
     ``data`` / ``sim`` are :class:`kc761fit.io.Spectrum` objects; ``elow`` /
     ``ehigh`` the fit energy range in keV; ``width`` an optional fixed
@@ -74,18 +56,29 @@ def _scale_name(label: str, index: int) -> str:
     return f"s_{clean}" if clean else f"s{index}"
 
 
+def degenerate_detail(space, p, c, a) -> FitDetail:
+    """Placeholder FitDetail for an infeasible parameter point.
+
+    chi^2 = inf rejects the point for any optimizer; a valid fit is never
+    affected, so this cannot bias the result.  ``p`` is the full parameter
+    vector in the ``space`` layout; ``s`` is the per-dataset scales array.
+    """
+    return FitDetail(
+        datasets=[], s=np.asarray(p[space.scales], dtype=float),
+        chi2=np.inf, ndof=0, pen=0.0,
+        c=c, a=a, x=p[space.channels], r=p[space.resolutions],
+        valid=False,
+    )
+
+
 class GlobalFitModel:
     """Bundles N (data, simulation, range) pairs and evaluates the summed chi^2.
 
     ``evaluate`` / ``detail`` / ``residuals`` expect the fit parameter vector
-    q = [x60..x2614, r60..r2614, s0..s_{N-1}] (global-fit calibration
-    channels, global-fit relative resolutions, one scale per dataset).  The
-    reported ``detail`` dict carries the derived coefficients (c, a), the
-    global-fit fitted channels / resolutions (x, r), the per-dataset scales,
-    and — in ``datasets`` — the per-dataset masked arrays and chi^2.
-    ``self.space`` is the :class:`~kc761fit.params.ParameterSpace` owning the
-    vector layout; ``n_global_params`` is the number of shared (non-scale)
-    parameters.
+    q = [x60..x2614, r60..r2614, s0..s_{N-1}] (global-fit calibration channels,
+    global-fit relative resolutions, one scale per dataset).  ``self.space`` is
+    the :class:`~kc761fit.params.ParameterSpace` owning the vector layout;
+    ``n_global_params`` is the number of shared (non-scale) parameters.
     """
 
     def __init__(self, specs, sys_frac: float | list[float] = DEFAULT_SYS_FRAC,
@@ -136,13 +129,13 @@ class GlobalFitModel:
         # Parameter space: channels within (0, min n_bins) so that every
         # dataset's calibration lines fall inside its channel range;
         # resolutions in BOUNDS_R; one scale bound per dataset (BOUNDS_S).
-        # The per-dataset initial scales are the models' own (auto estimates
-        # at first construction, carried forward through ``rebuilt``).
+        # The per-dataset initial scales are the models' own (data-driven WLS
+        # estimates at first construction, recomputed by ``rebuilt``).
         min_n = min(m.data.n_bins for m in self.models)
         core = ParameterSpace.from_anchors(min_n)
         self.space = core.with_scales(
             self.n_datasets, names=self.scale_names,
-            init=[m.x0[m.space.scale_start] for m in self.models])
+            init=[m.initial_scale for m in self.models])
         self.x0 = self.space.x0
         if _channels is not None:
             self.x0[self.space.channels] = np.asarray(_channels, dtype=float)
@@ -175,8 +168,8 @@ class GlobalFitModel:
 
         Used to re-bin every dataset after a first pass, so each grid matches
         the actual (global-fit) channel-to-energy density at that dataset's
-        native resolution.  The per-dataset resolutions and scales are carried
-        forward (the fit warm-starts from the previous pass's solution).
+        native resolution.  The fit warm-starts from the previous pass's
+        solution anyway, so only the grids matter here.
         """
         channels = np.asarray(channels, dtype=float)
         models = [m.rebuilt(channels) for m in self.models]
@@ -215,29 +208,30 @@ class GlobalFitModel:
         """Weighted residuals (d - s_i m)/sigma, concatenated over datasets.
 
         Each dataset's bins are weighted with its own scale s_i and its own
-        total errors (statistical + fractional-systematic + x-direction,
-        via ``FitModel.model_error``); ``mask`` (concatenated, e.g.
-        ``detail().mask``) selects the grid bins.  This is the vector
-        whose central-difference Jacobian gives the parameter uncertainties.
+        total errors (statistical + fractional-systematic + x-direction, via
+        ``FitModel.error_model``); ``mask`` (concatenated, e.g.
+        ``detail().mask``) selects the grid bins.  This is the vector whose
+        central-difference Jacobian gives the parameter uncertainties.
         """
         q = np.asarray(q, dtype=float)
         c = channels_to_c(q[self.space.channels])
         a = resol_to_a(q[self.space.resolutions])
+        q_core = q[:self.n_global_params]
         masks = (self._split_mask(mask) if mask is not None
                  else [None] * self.n_datasets)
         res = []
         for i, (m, msk) in enumerate(zip(self.models, masks)):
-            d, err, m_raw = m.arrays(q[:self.n_global_params], c, a)
+            d, err, m_raw = m.arrays(q_core, c, a)
             s_i = float(q[self.space.scale_start + i])
-            ds = finish_dataset(m, d, err, m_raw, s_i, mask=msk)
+            ds = m.dataset_detail(d, err, m_raw, s_i, mask=msk)
             res.append((ds.d - ds.s * ds.m_raw) / ds.err)
         return np.concatenate(res)
 
     def detail(self, q) -> FitDetail:
         """Masked evaluation at fit parameters q (always a FitDetail).
 
-        ``q`` = [x60..x2614, r60..r2614, s0..s_{N-1}].  The detail carries
-        the global-fit fitted channels (x) / resolutions (r), the derived
+        ``q`` = [x60..x2614, r60..r2614, s0..s_{N-1}].  The detail carries the
+        global-fit fitted channels (x) / resolutions (r), the derived
         coefficients (c, a), the per-dataset scales (s), the total data chi^2
         (``chi2``), the per-dataset contributions (``chi2_per_dataset`` /
         ``bins_per_dataset``), the soft monotonicity penalty (``pen``, counted
@@ -254,21 +248,19 @@ class GlobalFitModel:
         c = channels_to_c(x)
         a = resol_to_a(r)
         p = np.concatenate([x, r, s])
+        q_core = q[:self.n_global_params]
 
         entries = []
         chi2_per = np.empty(self.n_datasets)
         bins_per = np.empty(self.n_datasets, dtype=int)
         degenerate = False
         for i, m in enumerate(self.models):
-            d, err, m_raw = m.arrays(q[:self.n_global_params], c, a)
-            mask_i = err > 0
-            if int(np.sum(mask_i)) < m.min_usable_bins:
+            d, err, m_raw = m.arrays(q_core, c, a)
+            mask = err > 0
+            if int(np.sum(mask)) < m.min_usable_bins:
                 degenerate = True
-            s_i = float(s[i])
-            ds = finish_dataset(m, d, err, m_raw, s_i, mask=mask_i)
-            ds.label = self.labels[i]
-            ds.elow = m.elow
-            ds.ehigh = m.ehigh
+            ds = m.dataset_detail(d, err, m_raw, float(s[i]), mask=mask,
+                                  label=self.labels[i])
             chi2_per[i] = ds.chi2
             bins_per[i] = ds.n_bins
             entries.append(ds)
