@@ -34,7 +34,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "(default: data file stem)")
     parser.add_argument("--width", action="append", type=float, default=None,
                         metavar="KEV",
-                        help="energy-grid bin width; single value or one per "
+                        help="energy bin width; single value or one per "
                              "dataset (default: about one data channel width)")
     parser.add_argument("--sys", action="append", type=float, default=None,
                         metavar="FRAC",
@@ -45,7 +45,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              f"(default {DEFAULT_SYS_FRAC:g})")
     parser.add_argument("--s", action="append", type=float, default=None,
                         metavar="SCALE",
-                        help="initial normalisation scale override; single "
+                        help="initial normalization scale override; single "
                              "value or one per dataset (default: auto "
                              "weighted least-squares estimate)")
 
@@ -56,7 +56,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Nelder-Mead iterations per pass (default 10000)")
     parser.add_argument("--passes", type=int, default=5,
                         help="number of fit passes; each pass fixes an energy "
-                             "grid at the native resolution (one bin per data "
+                             "binning at the native resolution (one bin per data "
                              "channel), rebuilt from the fitted calibration "
-                             "between passes (default 5)")
+                             "between passes; 0 = report the initial parameters "
+                             "without fitting (default 5)")
     return parser.parse_args(argv)

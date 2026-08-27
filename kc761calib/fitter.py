@@ -7,8 +7,7 @@ import sys
 import numpy as np
 from scipy import optimize
 
-from .params import CHANNELS, RESOLUTIONS
-from .response import channels_to_c, resol_to_b
+from .params import CALIB, RESOL
 from .types import FitResult
 
 
@@ -17,6 +16,7 @@ def _fit_once(model, x0, bounds, maxiter):
     return optimize.minimize(
         model.evaluate, x0, method="Nelder-Mead", bounds=bounds,
         options=dict(maxiter=maxiter, xatol=1e-6, fatol=1e-3, adaptive=True))
+    # return optimize.differential_evolution(model.evaluate, bounds, disp=True)
 
 
 def finite_difference_jacobian(fun, x0: np.ndarray,
@@ -76,13 +76,11 @@ def _fit_statistics(model, q):
     cov = _covariance(model, q)
     perr = np.sqrt(np.clip(np.diag(cov), 0, None))
 
-    c, jac_c = channels_to_c(q[CHANNELS], jacobian=True)
-    b, jac_b = resol_to_b(q[RESOLUTIONS], jacobian=True)
-    cov_c = jac_c @ cov[CHANNELS, CHANNELS] @ jac_c.T
-    cov_b = jac_b @ cov[RESOLUTIONS, RESOLUTIONS] @ jac_b.T
-    perr_c = np.sqrt(np.clip(np.diag(cov_c), 0, None))
-    perr_b = np.sqrt(np.clip(np.diag(cov_b), 0, None))
-    return det, cov, perr, cov_c, perr_c, cov_b, perr_b
+    calib_cov = np.asarray(cov[CALIB, CALIB], dtype=float)
+    resol_cov = np.asarray(cov[RESOL, RESOL], dtype=float)
+    calib_err = np.sqrt(np.clip(np.diag(calib_cov), 0, None))
+    resol_err = np.sqrt(np.clip(np.diag(resol_cov), 0, None))
+    return det, cov, perr, calib_cov, calib_err, resol_cov, resol_err
 
 
 def _reconcile_success(det, success: bool, message: str):
@@ -97,7 +95,8 @@ def _reconcile_success(det, success: bool, message: str):
 def _finalize(model, q, success: bool = True, message: str = "",
               nfev: int = 0) -> FitResult:
     q = np.asarray(q, dtype=float)
-    det, cov, perr, cov_c, perr_c, cov_b, perr_b = _fit_statistics(model, q)
+    det, cov, perr, calib_cov, calib_err, resol_cov, resol_err = (
+        _fit_statistics(model, q))
     success, message = _reconcile_success(det, success, message)
     chi2 = float(det.chi2)
     ndof = int(det.ndof)
@@ -113,15 +112,17 @@ def _finalize(model, q, success: bool = True, message: str = "",
         ndof=ndof,
         reduced_chi2=chi2 / ndof if ndof > 0 else np.nan,
         cov=cov,
-        params_c=np.asarray(det.c), errors_c=perr_c, cov_c=cov_c,
-        params_b=np.asarray(det.b), errors_b=perr_b, cov_b=cov_b,
+        calib_params=np.asarray(q[CALIB], dtype=float),
+        calib_errors=calib_err, calib_cov=calib_cov,
+        resol_params=np.asarray(q[RESOL], dtype=float),
+        resol_errors=resol_err, resol_cov=resol_cov,
         model=model,
         detail=det,
     )
 
 
 def _fit_passes(model, x0, bounds, maxiter, n_passes, verbose):
-    """Fit repeatedly, re-freezing the energy grid from the fitted anchors."""
+    """Fit repeatedly, re-freezing the energy binning from the fitted anchors."""
     x0 = np.asarray(x0, dtype=float)
     if not np.isfinite(x0).all():
         raise ValueError("fit starting point x0 contains NaN/inf")
@@ -136,15 +137,15 @@ def _fit_passes(model, x0, bounds, maxiter, n_passes, verbose):
     nfev_total = 0
     for k in range(1, n_passes + 1):
         st = x0 if best is None else best.x
-        m_new = model.rebuilt(st[CHANNELS])
-        if not (m_new.grid_ok() and m_new.is_valid(st)):
+        m_new = model.rebuilt(st[CALIB])
+        if not (m_new.binning_ok() and m_new.is_valid(st)):
             break  # report the previous, still-valid pass
         m = m_new
         best = _fit_once(m, st, bounds, maxiter)
         nfev_total += int(best.nfev)
-        tag = ("grid from initial calibration" if k == 1
-               else "grid from fitted calibration")
-        n_bins = sum(len(mm.grid_centers) for mm in m.models)
+        tag = ("binning from initial calibration" if k == 1
+               else "binning from fitted calibration")
+        n_bins = sum(len(mm.bin_centers) for mm in m.models)
         if verbose:
             print(f"[calib] pass {k}: {n_bins} bins ({tag}), "
                   f"best chi2 = {best.fun:.2f}, nfev = {best.nfev}")
@@ -155,13 +156,26 @@ def run_fit(model, x0=None, maxiter: int = 10000, n_passes: int = 5,
             verbose: bool = True) -> FitResult:
     if x0 is None:
         x0 = model.x0
+    n_passes = int(n_passes)
+    if n_passes < 0:
+        raise ValueError(f"n_passes must be >= 0, got {n_passes}")
+    if n_passes == 0:
+        # No optimization: report the starting parameters as-is.
+        st = np.clip(np.asarray(x0, dtype=float),
+                     [b[0] for b in model.bounds], [b[1] for b in model.bounds])
+        if not model.is_valid(st):
+            print("[calib] warning: the starting point is degenerate "
+                  "(insufficient data coverage) for --passes 0",
+                  file=sys.stderr)
+        return _finalize(model, st, success=True,
+                         message="no fit passes (initial parameters)", nfev=0)
     m, best, nfev_total = _fit_passes(model, x0, model.bounds, maxiter,
                                       n_passes, verbose)
     if best is None:
-        # No admissible grid even at the start point; report honestly.
+        # No admissible binning even at the start point; report honestly.
         return _finalize(model, x0, success=False,
                          message="degenerate fit: inadmissible starting "
-                                 "grid for all passes")
+                                 "binning for all passes")
     return _finalize(m, best.x, success=bool(best.success),
                      message=str(best.message), nfev=nfev_total)
 

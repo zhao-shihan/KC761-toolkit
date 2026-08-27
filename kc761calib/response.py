@@ -1,18 +1,21 @@
 """Detector response: energy calibration E(x) and resolution sigma^2(E).
 
-Both halves of the response are parameterized through their values at fixed
-anchor energies and recovered by exact interpolation through those anchors:
+The calibration is cubic in the channel number and is parameterized by the
+intercept plus three slopes ``(c0, k1, k2, k3)``:
 
-  - E(x) = c0 + c1 x + c2 x^2 + c3 x^3 through the channel positions of the
-    lines in ``CALIB_ENERGIES``;
-  - sigma^2(E) = b0 + b1 E + b2 E^2 (noise / Fano / constant term added in
-    quadrature) through the relative resolutions at ``RESOL_ENERGIES``.
+   E(x) = c0 + k1 x + (4 k2 - 3 k1 - k3)/(2 x_max) x^2
+                 + 2 (k1 - 2 k2 + k3)/(3 x_max^2) x^3,
+   E'(0) = k1,   E'(x_max/2) = k2,   E'(x_max) = k3.
 
-Non-negative b coefficients guarantee a positive sigma(E) and a decreasing
-sigma/E, and E(x) monotonicity is checked exactly on the channel axis, so
-the fit gate can reject infeasible states with chi2 = inf instead of using
-soft penalties.  The fit keeps the interpretable anchor values as free
-parameters; ``channels_to_c`` and ``resol_to_b`` map them to coefficients.
+Monotonicity on [0, x_max] is guaranteed by the fit bounds (no separate check).
+Reported coefficients are the plain cubic form ``(c0, c1, c2, c3)`` with
+``c1 = k1``, ``c2 = (4 k2 - 3 k1 - k3)/(2 x_max)`` and
+``c3 = 2 (k1 - 2 k2 + k3)/(3 x_max^2)`` via the constant, invertible map
+``c0k1k2k3_to_c0c1c2c3``.
+
+Resolution is parametrized directly by ``sigma^2(E) = b0^2 + b1^2 E + b2^2 E^2``;
+the squared coefficients keep sigma(E) real and positive for any real
+``(b0, b1, b2)``, so no extra positivity constraint is needed.
 """
 
 from __future__ import annotations
@@ -23,103 +26,80 @@ import numba
 import numpy as np
 
 # --------------------------------------------------------------------------
-# anchors and shared solver tolerance
+# shared constants and fit bounds
 
-CALIB_ENERGIES = np.array([60.0, 662.0, 1333.0, 2615.0])
-INIT_X = np.array([150.0, 500.0, 800.0, 1350.0])
+INIT_CALIB = np.array([-180.0, 1.5, 2.5, 3.5])
+BOUNDS_CALIB = [(-200.0, -160.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)]
 
-RESOL_ENERGIES = np.array([60.0, 662.0, 2615.0])
-INIT_R = np.array([0.15, 0.05, 0.03])
-BOUNDS_R = [(0.001, 0.5)] * 3
+INIT_RESOL = np.array([2.0, 1.0, 0.0])
+BOUNDS_RESOL = [(0.0, 10.0), (0.025, 2.5), (0.0, 0.1)]
 
-
-MAX_COND = 1e14
-SIGMA_FLOOR = 0.001
+MIN_SIGMA = 0.001  # 1eV
 
 
 # --------------------------------------------------------------------------
 # energy calibration E(x)
 
-
 def poly_basis(x: np.ndarray | float, degree: int) -> np.ndarray:
-    """Design matrix [1, x, ..., x^degree]; matches poly3/sigma_model terms."""
+    """Design matrix [1, x, ..., x^degree]."""
     x = np.asarray(x, dtype=float)
     return np.stack([x**k for k in range(degree + 1)], axis=-1)
 
 
-def _solve_exact(m: np.ndarray, y: np.ndarray) -> np.ndarray | None:
-    """Solve m·theta = y exactly, guarded against degenerate systems."""
-    if not (np.all(np.isfinite(m)) and np.all(np.isfinite(y))):
-        return None
-    try:
-        if np.linalg.cond(m) > MAX_COND:
-            return None
-        return np.linalg.solve(m, y)
-    except np.linalg.LinAlgError:
-        return None
+def calib_model(calib_params: np.ndarray | list[float], x: np.ndarray | float,
+                x_max: float) -> np.ndarray:
+    """Cubic E(x) from an intercept and three slopes.
 
-
-def _nan(n: int, jacobian: bool = False):
-    theta = np.full(n, np.nan)
-    if jacobian:
-        return theta, np.full((n, n), np.nan)
-    return theta
-
-
-def poly3(c: np.ndarray | list[float], x: np.ndarray | float) -> np.ndarray:
-    c0, c1, c2, c3 = np.asarray(c, dtype=float)
-    x = np.asarray(x, dtype=float)
-    return c0 + (c1 + (c2 + c3 * x) * x) * x
-
-
-def channels_to_c(x: np.ndarray | list[float],
-                  energies: np.ndarray | list[float] = CALIB_ENERGIES,
-                  jacobian: bool = False,
-                  ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
-    """Polynomial coefficients interpolating ``energies`` at channels ``x``.
-
-    Returns NaN coefficients when the system is not solvable.  The optional
-    Jacobian is dC/dX of the implicit relation V(x) c(anchors) = energies.
+    ``calib_params = [c0, k1, k2, k3]`` where ``k1 = E'(0)``, ``k2 = E'(x_max/2)``
+    and ``k3 = E'(x_max)``; ``x_max`` is the maximum channel number of the
+    acquisition, a fixed constant of the data.
     """
+    c0, k1, k2, k3 = np.asarray(calib_params, dtype=float)
     x = np.asarray(x, dtype=float)
-    e = np.asarray(energies, dtype=float)
-    v = poly_basis(x, 3)
-    c = _solve_exact(v, e)
-    if c is None:
-        return _nan(4, jacobian)
-    if not jacobian:
-        return c
-    try:
-        v_inv = np.linalg.inv(v)
-    except np.linalg.LinAlgError:
-        return _nan(4, jacobian)
-    jac = np.empty((4, 4))
-    dv = np.zeros_like(v)
-    for j in range(4):
-        dv[:] = 0.0
-        dv[j] = [0.0, 1.0, 2.0 * x[j], 3.0 * x[j] ** 2]
-        jac[:, j] = -v_inv @ (dv @ c)
-    return c, jac
+    return (c0 + k1 * x
+            + (4 * k2 - 3 * k1 - k3) / (2.0 * x_max) * x**2
+            + 2.0 * (k1 - 2.0 * k2 + k3) / (3.0 * x_max**2) * x**3)
 
 
-def poly3_is_increasing(c: np.ndarray | list[float], x_max: float) -> bool:
-    """True if E(x) is strictly increasing over channels [0, x_max].
+def c0k1k2k3_to_c0c1c2c3(calib_params: np.ndarray | list[float], x_max: float) -> np.ndarray:
+    """Cubic coefficients [c0, c1, c2, c3] from the calibration parameters.
 
-    Checked exactly via the minimum of E'(x) on the interval; a non-finite
-    coefficient vector is rejected.
+    ``calib_params = [c0, k1, k2, k3]`` where ``k1 = E'(0)``, ``k2 = E'(x_max/2)``
+    and ``k3 = E'(x_max)``: ``c1 = k1``, ``c2 = (4 k2 - 3 k1 - k3)/(2 x_max)`` and
+    ``c3 = 2 (k1 - 2 k2 + k3)/(3 x_max^2)``.
     """
-    c = np.asarray(c, dtype=float)
-    if not np.isfinite(c).all():
-        return False
-    _, c1, c2, c3 = c
-    xs = [0.0, float(x_max)]
-    if c3 != 0.0:
-        xv = -c2 / (3.0 * c3)
-        if 0.0 < xv < x_max:
-            xs.append(xv)
-    xs = np.asarray(xs)
-    slope = c1 + 2.0 * c2 * xs + 3.0 * c3 * xs**2
-    return bool(np.all(slope > 0.0))
+    c0, k1, k2, k3 = np.asarray(calib_params, dtype=float)
+    c1 = k1
+    c2 = (4 * k2 - 3 * k1 - k3) / (2.0 * x_max)
+    c3 = 2.0 * (k1 - 2.0 * k2 + k3) / (3.0 * x_max**2)
+    return np.array([c0, c1, c2, c3])
+
+
+def jac_c0k1k2k3(x_max: float) -> np.ndarray:
+    """Constant Jacobian d(c0, c1, c2, c3)/d(c0, k1, k2, k3)."""
+    inv2x = 1.0 / (2.0 * x_max)
+    inv3x2 = 1.0 / (3.0 * x_max**2)
+    return np.array([
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, -3.0 * inv2x, 2.0 / x_max, -inv2x],
+        [0.0, 2.0 * inv3x2, -4.0 * inv3x2, 2.0 * inv3x2],
+    ])
+
+
+def reported_calib(calib_params: np.ndarray | list[float], cov_calib: np.ndarray,
+                   x_max: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Reported (c0, c1, c2, c3) values, errors and covariance from raw params.
+
+    Useful only for display: internally the parameterization works with
+    ``(c0, k1, k2, k3)``, and the plain cubic coefficients are recovered on
+    demand via the constant map ``c0k1k2k3_to_c0c1c2c3``.
+    """
+    c = c0k1k2k3_to_c0c1c2c3(calib_params, x_max)
+    jac = jac_c0k1k2k3(x_max)
+    cov = jac @ np.asarray(cov_calib, dtype=float) @ jac.T
+    err = np.sqrt(np.clip(np.diag(cov), 0, None))
+    return c, err, cov
 
 
 # --------------------------------------------------------------------------
@@ -148,43 +128,16 @@ def _smear_kernel(ec, f, sig_j, mu, sig_i, widths, nsigma):
     return out
 
 
-def sigma_model(b: np.ndarray | list[float], e: np.ndarray | float) -> np.ndarray:
-    """sigma(E) from variance coefficients; clamped at zero for safety."""
+def resol_model(b: np.ndarray | list[float], e: np.ndarray | float) -> np.ndarray:
+    """sigma(E) = sqrt(b0^2 + b1^2 E + b2^2 E^2).
+
+    The squared coefficients keep the variance non-negative for any real ``b``;
+    clamped at zero only as a numerical safety.
+    """
     b0, b1, b2 = np.asarray(b, dtype=float)
     e = np.asarray(e, dtype=float)
-    var = b0 + (b1 + b2 * e) * e
+    var = b0**2 + (b1**2 + b2**2 * e) * e
     return np.sqrt(np.maximum(var, 0.0))
-
-
-def coeffs_ok(b: np.ndarray | list[float]) -> bool:
-    """Admissible sigma^2 polynomial: finite and everywhere non-negative."""
-    b = np.asarray(b, dtype=float)
-    return bool(np.all(np.isfinite(b)) and np.all(b >= 0.0))
-
-
-def resol_to_b(r: np.ndarray | list[float],
-               energies: np.ndarray | list[float] = RESOL_ENERGIES,
-               jacobian: bool = False,
-               ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
-    """sigma^2 coefficients from anchor resolutions r_i = sigma(E_i)/E_i.
-
-    Solves the linear system b0 + b1 E + b2 E^2 = (r E)^2 through the three
-    anchors.  The Jacobian is db/dR with columns M^-1 * 2 r_i E_i^2 e_i.
-    """
-    e = np.asarray(energies, dtype=float)
-    r = np.asarray(r, dtype=float)
-    m = poly_basis(e, 2)
-    y = (r * e) ** 2
-    b = _solve_exact(m, y)
-    if b is None:
-        return _nan(3, jacobian)
-    if not jacobian:
-        return b
-    try:
-        jac = np.linalg.solve(m, np.diag(2.0 * r * e * e))
-    except np.linalg.LinAlgError:
-        return _nan(3, jacobian)
-    return b, jac
 
 
 def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
@@ -193,7 +146,7 @@ def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
     """Convolve sim counts with an energy-dependent Gaussian onto target bins."""
     b = np.asarray(b, dtype=float)
     mu = 0.5 * (t_lo + t_hi)
-    sig_i = np.maximum(sigma_model(b, mu), SIGMA_FLOOR)
+    sig_i = np.maximum(resol_model(b, mu), MIN_SIGMA)
 
     sim_centers = 0.5 * (sim_edges[:-1] + sim_edges[1:])
 
@@ -205,7 +158,7 @@ def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
 
     ec = sim_centers[js]
     f = sim_counts[js]
-    sig_j = np.maximum(sigma_model(b, ec), SIGMA_FLOOR)
+    sig_j = np.maximum(resol_model(b, ec), MIN_SIGMA)
 
     return _smear_kernel(ec, f, sig_j, mu, sig_i, t_hi - t_lo, nsigma)
 

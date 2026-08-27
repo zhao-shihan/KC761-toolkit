@@ -1,9 +1,9 @@
 """PDF figures of the fit result."""
 
 from __future__ import annotations
-from .response import (CALIB_ENERGIES, RESOL_ENERGIES, poly3, poly_basis,
-                       sigma_model)
-from .params import CHANNELS, PARAM_NAMES_B, PARAM_NAMES_C, RESOLUTIONS
+from .response import calib_model, poly_basis, resol_model, reported_calib
+from .params import (PARAM_NAMES_B, PARAM_NAMES_C, PARAM_NAMES_K,
+                     CALIB_K)
 from pathlib import Path
 from matplotlib.gridspec import GridSpecFromSubplotSpec
 import numpy as np
@@ -65,10 +65,13 @@ def _parameter_text(result) -> str:
     def rows(names, vals, errs): return "\n".join(
         f"{n} = {v: .6g} $\\pm$ {e_: .3g}"
         for n, v, e_ in zip(names, vals, errs))
+    c, err, _ = reported_calib(result.calib_params, result.calib_cov,
+                               result.detail.channel_max)
     return ("\n".join([
-        rows(result.names, result.params, result.errors),
-        rows(PARAM_NAMES_C, result.params_c, result.errors_c),
-        rows(PARAM_NAMES_B, result.params_b, result.errors_b),
+        rows(PARAM_NAMES_C, c, err),
+        rows(PARAM_NAMES_K, result.calib_params[CALIB_K],
+             result.calib_errors[CALIB_K]),
+        rows(PARAM_NAMES_B, result.resol_params, result.resol_errors),
     ]))
 
 
@@ -80,12 +83,12 @@ def _parameter_panel(ax, txt: str) -> None:
 
 
 def _spectrum_panel(ax, ds, title: str | None) -> None:
-    ax.plot(ds.mu, ds.m, "-", color="tab:red", lw=1.5,
+    ax.plot(ds.bin_centers, ds.smeared_model, "-", color="tab:red", lw=1.5,
             label="Best-fit model (smeared sim.)")
-    ax.errorbar(ds.mu, ds.d, yerr=ds.err, fmt="o", ms=1.5, lw=0.8,
-                alpha=0.6, color="tab:blue",
+    ax.errorbar(ds.bin_centers, ds.bin_counts, yerr=ds.sigma, fmt="o", ms=1.5,
+                lw=0.8, alpha=0.6, color="tab:blue",
                 label="Data (-bkg, calibrated)")
-    ax.stairs(ds.s * ds.sim_raw, ds.grid_edges,
+    ax.stairs(ds.scale * ds.raw_sim, ds.bin_edges,
               color="tab:gray", lw=0.8,
               label="Raw sim. (perfect res., scaled)")
     ax.set_yscale("log")
@@ -100,11 +103,12 @@ def _spectrum_panel(ax, ds, title: str | None) -> None:
 RESID_YMAX = 0.6
 
 
-def _residual_panel(ax, mu, d, err, m, elow, ehigh, title: str) -> None:
-    ok = m > 0
-    rel = (d[ok] - m[ok]) / m[ok]
-    ax.errorbar(mu[ok], rel, yerr=err[ok] / m[ok], fmt="o",
-                ms=1.5, lw=0.8, color="tab:green")
+def _residual_panel(ax, bin_centers, bin_counts, sigma, smeared_model, elow,
+                    ehigh, title: str) -> None:
+    ok = smeared_model > 0
+    rel = (bin_counts[ok] - smeared_model[ok]) / smeared_model[ok]
+    ax.errorbar(bin_centers[ok], rel, yerr=sigma[ok] / smeared_model[ok],
+                fmt="o", ms=1.5, lw=0.8, color="tab:green")
     ax.axhline(0, color="k", lw=0.8)
     for level in (-0.3, 0.3):
         ax.axhline(level, color="tab:red", lw=0.6, ls=":")
@@ -120,24 +124,20 @@ CALIB_BAND_SCALE = 100.0
 RESOL_BAND_SCALE = 30.0
 
 
-def _calibration_panel(ax, c, x_anchors, x_max: float = 2048.0,
-                       cov_c=None, title: str = "Energy calibration") -> None:
+def _calibration_panel(ax, calib, x_max: float = 2048.0,
+                       calib_cov=None, title: str = "Energy calibration") -> None:
     x = np.linspace(0.0, x_max, 400)
-    e = poly3(c, x)
+    e = calib_model(calib, x, x_max)
     ax.plot(x, e, "-", color="tab:purple", lw=1.5,
             label="$E(x) = c_0 + c_1 x + c_2 x^2 + c_3 x^3$")
-    if cov_c is not None and np.all(np.isfinite(cov_c)):
+    if calib_cov is not None and np.all(np.isfinite(calib_cov)):
         v = poly_basis(x, 3)
         err = CALIB_BAND_SCALE * np.sqrt(
-            np.clip(np.sum((v @ cov_c) * v, axis=1), 0, None))
+            np.clip(np.sum((v @ calib_cov) * v, axis=1), 0, None))
         ax.fill_between(x, e - err, e + err, color="tab:purple", alpha=0.15,
                         lw=0,
                         label=f"1$\\sigma$ band ($\\mathbf{{\\times "
                         f"{CALIB_BAND_SCALE:g}}}$)")
-    ax.plot(x_anchors, CALIB_ENERGIES, "o", ms=5, mfc="none",
-            color="tab:purple",
-            label="Fit line positions ("
-                  + "/".join(f"{e:g}" for e in CALIB_ENERGIES) + " keV)")
     ax.set_xlabel("Channel")
     ax.set_ylabel("Energy (keV)")
     ax.set_title(title, fontsize=10)
@@ -145,29 +145,27 @@ def _calibration_panel(ax, c, x_anchors, x_max: float = 2048.0,
     ax.legend(fontsize=8, loc="upper left")
 
 
-RESOL_YMAX = 15.0
+RESOL_YMAX = 10.0
 
 
-def _resolution_panel(ax, b, r_anchors, e_max: float, cov_b=None,
+def _resolution_panel(ax, b, e_max: float, resol_cov=None,
                       title: str = "Energy resolution") -> None:
     e_res = np.linspace(1.0, e_max, 300)
-    rel = 100.0 * sigma_model(b, e_res) / e_res
+    rel = 100.0 * resol_model(b, e_res) / e_res
     ax.plot(e_res, rel, "-", color="tab:orange", lw=1.5,
-            label=r"$r(E) = \sqrt{b_0 + b_1 E + b_2 E^2}\,/\,E$")
-    if cov_b is not None and np.all(np.isfinite(cov_b)):
-        # Delta method: d(sigma/E)/db = [1, E, E^2] / (2 E sigma(E)).
-        var = np.maximum(b[0] + b[1] * e_res + b[2] * e_res**2, 1e-12)
-        grad = poly_basis(e_res, 2) / (2.0 * e_res * np.sqrt(var))[:, None]
+            label=r"$r(E) = \sqrt{b_0^2 + b_1^2 E + b_2^2 E^2}\,/\,E$")
+    if resol_cov is not None and np.all(np.isfinite(resol_cov)):
+        # Delta method on r=sigma/E with sigma^2 = b0^2 + b1^2 E + b2^2 E^2:
+        # d r / d b_i = b_i [1, E, E^2]_i / (E sigma).
+        b = np.asarray(b, dtype=float)
+        sigma = resol_model(b, e_res)
+        grad = (poly_basis(e_res, 2) * b) / (e_res * sigma)[:, None]
         err = RESOL_BAND_SCALE * 100.0 * np.sqrt(
-            np.clip(np.sum((grad @ cov_b) * grad, axis=1), 0, None))
+            np.clip(np.sum((grad @ resol_cov) * grad, axis=1), 0, None))
         ax.fill_between(e_res, rel - err, rel + err, color="tab:orange",
                         alpha=0.15, lw=0,
                         label=f"1$\\sigma$ band ($\\mathbf{{\\times "
                         f"{RESOL_BAND_SCALE:g}}}$)")
-    ax.plot(RESOL_ENERGIES, 100.0 * r_anchors, "o", ms=5, mfc="none",
-            color="tab:orange",
-            label=("Fit resolution ("
-                   + "/".join(f"{e:g}" for e in RESOL_ENERGIES) + " keV)"))
     ax.set_ylim(0.0, RESOL_YMAX)
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel(r"$\sigma/E$ (%)")
@@ -178,12 +176,13 @@ def _resolution_panel(ax, b, r_anchors, e_max: float, cov_b=None,
 
 def plot_fit(result, out_pdf: str) -> None:
     det = result.detail
-    c, b = result.params_c, result.params_b
+    calib = result.calib_params
+    b = result.resol_params
     n = len(det.datasets)
 
     fig, gs = _figure_grid(n)
     scale_note = (f"({n} datasets)"
-                  if n > 1 else f"$s = {det.datasets[0].s:.4f}$")
+                  if n > 1 else f"$s = {det.datasets[0].scale:.4f}$")
     _title_panel(
         fig.add_subplot(gs[0]),
         f"KC761 calibration  |  "
@@ -196,24 +195,25 @@ def plot_fit(result, out_pdf: str) -> None:
         if n > 1:
             spec_title = (f"{label}  [{ds.elow:g}-{ds.ehigh:g} keV]  "
                           f"$\\chi^2 = {ds.chi2:.1f}$, {ds.n_bins} bins, "
-                          f"$s = {ds.s:.4f}$")
+                          f"$s = {ds.scale:.4f}$")
             pull_title = f"{label} relative residual"
         else:
             spec_title = None
             pull_title = "Relative residual"
         _spectrum_panel(ax_spec, ds, spec_title)
-        _residual_panel(ax_pull, ds.mu, ds.d, ds.err, ds.m,
-                        ds.elow, ds.ehigh, pull_title)
+        _residual_panel(ax_pull, ds.bin_centers, ds.bin_counts, ds.sigma,
+                        ds.smeared_model, ds.elow, ds.ehigh, pull_title)
 
     cal_title = "Energy calibration" + (" (global)" if n > 1 else "")
     res_title = "Energy resolution" + (" (global)" if n > 1 else "")
     ax_cal, ax_res, ax_params = _footer_row(fig, gs, n + 1)
-    _calibration_panel(ax_cal, c, result.params[CHANNELS],
-                       x_max=det.n_channel_bins, cov_c=result.cov_c,
-                       title=cal_title)
-    _resolution_panel(ax_res, b, result.params[RESOLUTIONS],
-                      e_max=float(poly3(c, det.channel_max)),
-                      cov_b=result.cov_b, title=res_title)
+    _, _, calib_cov_report = reported_calib(calib, result.calib_cov,
+                                            det.channel_max)
+    _calibration_panel(ax_cal, calib, x_max=det.channel_max,
+                       calib_cov=calib_cov_report, title=cal_title)
+    _resolution_panel(ax_res, b, e_max=float(calib_model(calib, det.channel_max,
+                                                         det.channel_max)),
+                      resol_cov=result.resol_cov, title=res_title)
     _parameter_panel(ax_params, _parameter_text(result))
 
     _save_fig(fig, out_pdf)

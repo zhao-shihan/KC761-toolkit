@@ -1,8 +1,4 @@
-"""Flat fit-vector layout q = [*channels(4), *resolutions(3), *scales(n)].
-
-This module is the single source of truth for parameter names, bounds and
-slices; the anchor energies themselves live in calibration/resolution.
-"""
+"""Flat fit-vector layout q = [*calib(3), *resol(3), *scales(n)]."""
 
 from __future__ import annotations
 
@@ -11,20 +7,23 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .response import BOUNDS_R, CALIB_ENERGIES, INIT_R, INIT_X, RESOL_ENERGIES
+from .response import BOUNDS_RESOL, BOUNDS_CALIB, INIT_CALIB, INIT_RESOL
 
 DEFAULT_SYS_FRAC = 0.05
 
-BOUNDS_S = [(1e-3, 1e3)]
+BOUNDS_SCALE = [(1e-3, 1e3)]
 
-N_CHANNELS = len(CALIB_ENERGIES)
-N_RESOLUTIONS = len(RESOL_ENERGIES)
-N_CORE = N_CHANNELS + N_RESOLUTIONS
+N_CALIB = 4
+N_RESOL = 3
+N_CORE = N_CALIB + N_RESOL
 
-CHANNELS = slice(0, N_CHANNELS)
-RESOLUTIONS = slice(N_CHANNELS, N_CORE)
+CALIB = slice(0, N_CALIB)
+CALIB_K = slice(1, N_CALIB)  # k1, k2, k3 (the slope parameters, excluding c0)
+RESOL = slice(N_CALIB, N_CORE)
 
+PARAM_NAMES_CORE = ["c0", "k1", "k2", "k3", "b0", "b1", "b2"]
 PARAM_NAMES_C = ["c0", "c1", "c2", "c3"]
+PARAM_NAMES_K = ["k1", "k2", "k3"]
 PARAM_NAMES_B = ["b0", "b1", "b2"]
 
 _SCALE_CLEAN = re.compile(r"[^A-Za-z0-9_]")
@@ -35,21 +34,15 @@ def scale_name(label: str, index: int) -> str:
     return f"s_{clean}" if clean else f"s{index}"
 
 
-def anchor_names() -> list[str]:
-    return ([f"x{e:g}" for e in CALIB_ENERGIES]
-            + [f"r{e:g}" for e in RESOL_ENERGIES])
-
-
 @dataclass(frozen=True)
 class Space:
-    """Layout bookkeeping for one fit: scale labels plus the channel bound.
+    """Layout bookkeeping for one fit: scale labels only.
 
-    Channel anchors are bounded to the shared data-channel range so that a
-    monotonically increasing calibration cannot run off the detector axis.
+    The calibration/resolution parameters have fixed bounds in response, so the
+    space only has to know how many per-dataset scales there are.
     """
 
     scale_labels: tuple[str, ...]
-    channel_bound: float
 
     @property
     def n_scales(self) -> int:
@@ -65,16 +58,15 @@ class Space:
 
     @property
     def names(self) -> list[str]:
-        return (anchor_names()
+        return (PARAM_NAMES_CORE
                 + [scale_name(l, i) for i, l in enumerate(self.scale_labels)])
 
     @property
     def bounds(self) -> list[tuple[float, float]]:
-        return ([(0.0, float(self.channel_bound))] * N_CHANNELS
-                + BOUNDS_R + BOUNDS_S * self.n_scales)
+        return BOUNDS_CALIB + BOUNDS_RESOL + BOUNDS_SCALE * self.n_scales
 
     def x0(self, init_scales: np.ndarray | list[float]) -> np.ndarray:
-        return np.concatenate([INIT_X, INIT_R,
+        return np.concatenate([INIT_CALIB, INIT_RESOL,
                                np.asarray(init_scales, dtype=float)])
 
 

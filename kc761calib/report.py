@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from .params import PARAM_NAMES_B, PARAM_NAMES_C
-from .response import CALIB_ENERGIES, RESOL_ENERGIES
+from .params import PARAM_NAMES_B, PARAM_NAMES_C, PARAM_NAMES_K, CALIB_K
+from .response import reported_calib
 
 
 def print_summary(result, dataset_lines: list[str] | None = None) -> None:
@@ -14,17 +14,20 @@ def print_summary(result, dataset_lines: list[str] | None = None) -> None:
     if dataset_lines:
         for line in dataset_lines:
             print(line)
-    calib_kev = "/".join(f"{e:g}" for e in CALIB_ENERGIES)
-    resol_kev = "/".join(f"{e:g}" for e in RESOL_ENERGIES)
-    print(f"[calib] fitted parameters (channels at {calib_kev} keV, "
-          f"relative resolution sigma/E at {resol_kev} keV, scale(s)):")
-    for name, v, e in zip(result.names, result.params, result.errors):
-        print(f"[calib]   {name:>6s} = {v: .6g} +/- {e:.3g}")
 
-    print("[calib] derived calibration coefficients c0..c3:")
-    for name, v, e in zip(PARAM_NAMES_C, result.params_c, result.errors_c):
+    x_max = result.detail.channel_max
+    c, err, _ = reported_calib(result.calib_params, result.calib_cov, x_max)
+    print("[calib] calibration parameters\n"
+          "[calib] c0..c3 (E(x) = c0 + c1*x + c2*x^2 + c3*x^3):")
+    for name, v, e in zip(PARAM_NAMES_C, c, err):
         print(f"[calib]   {name:>3s} = {v: .6g} +/- {e:.3g}")
-    print("[calib] derived sigma^2 coefficients b0..b2 "
-          "(sigma^2(E) = b0 + b1*E + b2*E^2):")
-    for name, v, e in zip(PARAM_NAMES_B, result.params_b, result.errors_b):
+    print("[calib] calibration slope parameters\n"
+          "[calib] (k1 = E'(0), k2 = E'(x_max/2), k3 = E'(x_max)):")
+    for name, v, e in zip(PARAM_NAMES_K, result.calib_params[CALIB_K],
+                          result.calib_errors[CALIB_K]):
+        print(f"[calib]   {name:>3s} = {v: .6g} +/- {e:.3g}")
+    print("[calib] resolution parameters b0..b2\n"
+          "[calib] (sigma^2(E) = b0^2 + b1^2*E + b2^2*E^2):")
+    for name, v, e in zip(PARAM_NAMES_B, result.resol_params,
+                          result.resol_errors):
         print(f"[calib]   {name:>3s} = {v: .6g} +/- {e:.3g}")
