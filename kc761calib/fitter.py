@@ -16,7 +16,6 @@ def _fit_once(model, x0, bounds, maxiter):
     return optimize.minimize(
         model.evaluate, x0, method="Nelder-Mead", bounds=bounds,
         options=dict(maxiter=maxiter, xatol=1e-6, fatol=1e-3, adaptive=True))
-    # return optimize.differential_evolution(model.evaluate, bounds, disp=True)
 
 
 def finite_difference_jacobian(fun, x0: np.ndarray,
