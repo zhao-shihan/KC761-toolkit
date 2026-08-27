@@ -1,19 +1,17 @@
 """PDF figures of the fit result."""
 
 from __future__ import annotations
+from .response import (CALIB_ENERGIES, RESOL_ENERGIES, poly3, poly_basis,
+                       sigma_model)
+from .params import CHANNELS, PARAM_NAMES_B, PARAM_NAMES_C, RESOLUTIONS
+from pathlib import Path
+from matplotlib.gridspec import GridSpecFromSubplotSpec
+import numpy as np
+import matplotlib.pyplot as plt
 
 import matplotlib
 
 matplotlib.use("Agg")
-
-import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib.gridspec import GridSpecFromSubplotSpec
-from pathlib import Path
-
-from .params import CHANNELS, PARAM_NAMES_B, PARAM_NAMES_C, RESOLUTIONS
-from .response import (CALIB_ENERGIES, RESOL_ENERGIES, poly3, poly_basis,
-                       sigma_model)
 
 
 def _save_fig(fig, out_pdf: str) -> None:
@@ -64,7 +62,7 @@ def _title_panel(ax, txt: str) -> None:
 
 
 def _parameter_text(result) -> str:
-    rows = lambda names, vals, errs: "\n".join(
+    def rows(names, vals, errs): return "\n".join(
         f"{n} = {v: .6g} $\\pm$ {e_: .3g}"
         for n, v, e_ in zip(names, vals, errs))
     return ("\n".join([
@@ -135,10 +133,11 @@ def _calibration_panel(ax, c, x_anchors, x_max: float = 2048.0,
         ax.fill_between(x, e - err, e + err, color="tab:purple", alpha=0.15,
                         lw=0,
                         label=f"1$\\sigma$ band ($\\mathbf{{\\times "
-                              f"{CALIB_BAND_SCALE:g}}}$)")
+                        f"{CALIB_BAND_SCALE:g}}}$)")
     ax.plot(x_anchors, CALIB_ENERGIES, "o", ms=5, mfc="none",
             color="tab:purple",
-            label="Fit line positions (60/609/1461/2614 keV)")
+            label="Fit line positions ("
+                  + "/".join(f"{e:g}" for e in CALIB_ENERGIES) + " keV)")
     ax.set_xlabel("Channel")
     ax.set_ylabel("Energy (keV)")
     ax.set_title(title, fontsize=10)
@@ -164,7 +163,7 @@ def _resolution_panel(ax, b, r_anchors, e_max: float, cov_b=None,
         ax.fill_between(e_res, rel - err, rel + err, color="tab:orange",
                         alpha=0.15, lw=0,
                         label=f"1$\\sigma$ band ($\\mathbf{{\\times "
-                              f"{RESOL_BAND_SCALE:g}}}$)")
+                        f"{RESOL_BAND_SCALE:g}}}$)")
     ax.plot(RESOL_ENERGIES, 100.0 * r_anchors, "o", ms=5, mfc="none",
             color="tab:orange",
             label=("Fit resolution ("

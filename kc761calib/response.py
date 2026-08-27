@@ -25,15 +25,13 @@ import numpy as np
 # --------------------------------------------------------------------------
 # anchors and shared solver tolerance
 
+CALIB_ENERGIES = np.array([60.0, 662.0, 1333.0, 2615.0])
+INIT_X = np.array([150.0, 500.0, 800.0, 1350.0])
 
-CALIB_ENERGIES = np.array([60.0, 609.0, 1461.0, 2614.0])
-INIT_X = np.array([160.0, 500.0, 900.0, 1350.0])
-
-RESOL_ENERGIES = np.array([60.0, 609.0, 2614.0])
-# Defaults must imply non-negative b coefficients so that the initial point
-# is admissible (b0 >= 0 needs r60 >= ~0.148 given the other two anchors).
+RESOL_ENERGIES = np.array([60.0, 662.0, 2615.0])
 INIT_R = np.array([0.15, 0.05, 0.03])
 BOUNDS_R = [(0.001, 0.5)] * 3
+
 
 MAX_COND = 1e14
 SIGMA_FLOOR = 0.001

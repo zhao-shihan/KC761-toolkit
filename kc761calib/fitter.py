@@ -44,7 +44,8 @@ def finite_difference_jacobian(fun, x0: np.ndarray,
         q_m[k] -= h
         f_p = np.asarray(fun(q_p))
         f_m = np.asarray(fun(q_m))
-        ok_p, ok_m = bool(np.all(np.isfinite(f_p))), bool(np.all(np.isfinite(f_m)))
+        ok_p, ok_m = bool(np.all(np.isfinite(f_p))), bool(
+            np.all(np.isfinite(f_m)))
         if ok_p and ok_m:
             jac[:, k] = (f_p - f_m) / (2.0 * h)
         elif ok_p:
@@ -59,7 +60,7 @@ def finite_difference_jacobian(fun, x0: np.ndarray,
 def _covariance(model, q) -> np.ndarray:
     """Inverse Fisher matrix from frozen-mask residuals; NaN when singular."""
     mask_list = model.masks(q)
-    fun = lambda qq: model.residuals(qq, mask_list)
+    def fun(qq): return model.residuals(qq, mask_list)
     jac = finite_difference_jacobian(fun, q, model.bounds)
     n_q = len(q)
     if (np.all(np.isfinite(jac)) and jac.shape[0] > n_q):

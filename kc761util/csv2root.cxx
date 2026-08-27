@@ -53,7 +53,7 @@ double ParseDaqTimeHours(const std::string& header) {
     return days * 24.0 + hours + minutes / 60.0 + seconds / 3600.0;
 }
 
-}
+} // namespace
 
 void csv2root(const std::string& input, const std::string& output = "") {
     std::string outName = output;
