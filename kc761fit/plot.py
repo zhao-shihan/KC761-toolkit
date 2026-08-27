@@ -1,18 +1,19 @@
 """PDF figures of the fit result."""
 
 from __future__ import annotations
-from pathlib import Path
-
-from .resolution import RESOL_ENERGIES, sigma_model
-from .params import PARAM_NAMES_A, PARAM_NAMES_C
-from .calibration import CALIB_ENERGIES, poly3
-import numpy as np
-from matplotlib.gridspec import GridSpecFromSubplotSpec
-import matplotlib.pyplot as plt
 
 import matplotlib
 
 matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.gridspec import GridSpecFromSubplotSpec
+from pathlib import Path
+
+from .params import CHANNELS, PARAM_NAMES_B, PARAM_NAMES_C, RESOLUTIONS
+from .response import (CALIB_ENERGIES, RESOL_ENERGIES, poly3, poly_basis,
+                       sigma_model)
 
 
 def _save_fig(fig, out_pdf: str) -> None:
@@ -63,44 +64,42 @@ def _title_panel(ax, txt: str) -> None:
 
 
 def _parameter_text(result) -> str:
-    txt = "\n".join(
+    rows = lambda names, vals, errs: "\n".join(
         f"{n} = {v: .6g} $\\pm$ {e_: .3g}"
-        for n, v, e_ in zip(result.names, result.params, result.errors)
-    )
-    txt += "\n" + "\n".join(
-        f"{n} = {v: .6g} $\\pm$ {e_: .3g}"
-        for n, v, e_ in zip(PARAM_NAMES_C, result.params_c, result.errors_c)
-    )
-    txt += "\n" + "\n".join(
-        f"{n} = {v: .6g} $\\pm$ {e_: .3g}"
-        for n, v, e_ in zip(PARAM_NAMES_A, result.params_a, result.errors_a)
-    )
-    return txt
+        for n, v, e_ in zip(names, vals, errs))
+    return ("\n".join([
+        rows(result.names, result.params, result.errors),
+        rows(PARAM_NAMES_C, result.params_c, result.errors_c),
+        rows(PARAM_NAMES_B, result.params_b, result.errors_b),
+    ]))
 
 
 def _parameter_panel(ax, txt: str) -> None:
     ax.axis("off")
-    ax.text(0.5, 0.5, txt, transform=ax.transAxes, va="center", ha="center", fontsize=8,
+    ax.text(0.5, 0.5, txt, transform=ax.transAxes, va="center", ha="center",
+            fontsize=8,
             bbox=dict(boxstyle="round", fc="#f8f8f8", ec="gray", alpha=0.9))
 
 
-def _spectrum_panel(ax, mu, d, err, m, m_raw_unsmeared, grid_edges,
-                    s_i, elow, ehigh, title: str | None) -> None:
-    ax.plot(mu, m, "-", color="tab:red", lw=1.5,
+def _spectrum_panel(ax, ds, title: str | None) -> None:
+    ax.plot(ds.mu, ds.m, "-", color="tab:red", lw=1.5,
             label="Best-fit model (smeared sim.)")
-    ax.errorbar(mu, d, yerr=err, fmt="o", ms=1.5, lw=0.8, alpha=0.6,
-                color="tab:blue", label="Data (-bkg, calibrated)")
-    ax.stairs(s_i * m_raw_unsmeared, grid_edges,
+    ax.errorbar(ds.mu, ds.d, yerr=ds.err, fmt="o", ms=1.5, lw=0.8,
+                alpha=0.6, color="tab:blue",
+                label="Data (-bkg, calibrated)")
+    ax.stairs(ds.s * ds.sim_raw, ds.grid_edges,
               color="tab:gray", lw=0.8,
               label="Raw sim. (perfect res., scaled)")
     ax.set_yscale("log")
-    ax.set_ylim(bottom=1.0)
-    ax.set_xlim(elow, ehigh)
+    ax.set_xlim(ds.elow, ds.ehigh)
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Counts")
     ax.legend(fontsize=8, loc="upper right")
     if title is not None:
         ax.set_title(title, fontsize=9)
+
+
+RESID_YMAX = 0.6
 
 
 def _residual_panel(ax, mu, d, err, m, elow, ehigh, title: str) -> None:
@@ -109,17 +108,13 @@ def _residual_panel(ax, mu, d, err, m, elow, ehigh, title: str) -> None:
     ax.errorbar(mu[ok], rel, yerr=err[ok] / m[ok], fmt="o",
                 ms=1.5, lw=0.8, color="tab:green")
     ax.axhline(0, color="k", lw=0.8)
-    if len(rel):
-        lim = float(min(0.6, max(0.05, 3.0 * np.percentile(np.abs(rel), 95))))
-    else:
-        lim = 0.6
+    for level in (-0.3, 0.3):
+        ax.axhline(level, color="tab:red", lw=0.6, ls=":")
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Relative residual $(d-m)/m$")
     ax.set_xlim(elow, ehigh)
-    ax.set_ylim(-lim, lim)
-    if lim >= 0.3:
-        ax.axhline(0.3, color="tab:red", lw=0.6, ls=":")
-        ax.axhline(-0.3, color="tab:red", lw=0.6, ls=":")
+    # Fixed range so that the panels of all datasets are directly comparable.
+    ax.set_ylim(-RESID_YMAX, RESID_YMAX)
     ax.set_title(title, fontsize=9)
 
 
@@ -128,19 +123,19 @@ RESOL_BAND_SCALE = 30.0
 
 
 def _calibration_panel(ax, c, x_anchors, x_max: float = 2048.0,
-                       cov_c=None, title: str = "Energy calibration"):
+                       cov_c=None, title: str = "Energy calibration") -> None:
     x = np.linspace(0.0, x_max, 400)
     e = poly3(c, x)
     ax.plot(x, e, "-", color="tab:purple", lw=1.5,
             label="$E(x) = c_0 + c_1 x + c_2 x^2 + c_3 x^3$")
     if cov_c is not None and np.all(np.isfinite(cov_c)):
-        v = np.stack([np.ones_like(x), x, x**2, x**3], axis=1)
+        v = poly_basis(x, 3)
         err = CALIB_BAND_SCALE * np.sqrt(
             np.clip(np.sum((v @ cov_c) * v, axis=1), 0, None))
         ax.fill_between(x, e - err, e + err, color="tab:purple", alpha=0.15,
                         lw=0,
                         label=f"1$\\sigma$ band ($\\mathbf{{\\times "
-                        f"{CALIB_BAND_SCALE:g}}}$)")
+                              f"{CALIB_BAND_SCALE:g}}}$)")
     ax.plot(x_anchors, CALIB_ENERGIES, "o", ms=5, mfc="none",
             color="tab:purple",
             label="Fit line positions (60/609/1461/2614 keV)")
@@ -154,24 +149,26 @@ def _calibration_panel(ax, c, x_anchors, x_max: float = 2048.0,
 RESOL_YMAX = 15.0
 
 
-def _resolution_panel(ax, a, r_anchors, e_max: float, cov_a=None,
-                      title: str = "Energy resolution"):
+def _resolution_panel(ax, b, r_anchors, e_max: float, cov_b=None,
+                      title: str = "Energy resolution") -> None:
     e_res = np.linspace(1.0, e_max, 300)
-    rel = 100.0 * sigma_model(a, e_res) / e_res
+    rel = 100.0 * sigma_model(b, e_res) / e_res
     ax.plot(e_res, rel, "-", color="tab:orange", lw=1.5,
-            label=r"$r(E) = \sigma(E)/E = a_0/E + a_1/\sqrt{E} + a_2$")
-    if cov_a is not None and np.all(np.isfinite(cov_a)):
-        w = np.stack([1.0 / e_res, 1.0 / np.sqrt(e_res),
-                      np.ones_like(e_res)], axis=1)
+            label=r"$r(E) = \sqrt{b_0 + b_1 E + b_2 E^2}\,/\,E$")
+    if cov_b is not None and np.all(np.isfinite(cov_b)):
+        # Delta method: d(sigma/E)/db = [1, E, E^2] / (2 E sigma(E)).
+        var = np.maximum(b[0] + b[1] * e_res + b[2] * e_res**2, 1e-12)
+        grad = poly_basis(e_res, 2) / (2.0 * e_res * np.sqrt(var))[:, None]
         err = RESOL_BAND_SCALE * 100.0 * np.sqrt(
-            np.clip(np.sum((w @ cov_a) * w, axis=1), 0, None))
+            np.clip(np.sum((grad @ cov_b) * grad, axis=1), 0, None))
         ax.fill_between(e_res, rel - err, rel + err, color="tab:orange",
                         alpha=0.15, lw=0,
                         label=f"1$\\sigma$ band ($\\mathbf{{\\times "
-                        f"{RESOL_BAND_SCALE:g}}}$)")
+                              f"{RESOL_BAND_SCALE:g}}}$)")
     ax.plot(RESOL_ENERGIES, 100.0 * r_anchors, "o", ms=5, mfc="none",
             color="tab:orange",
-            label=f"Fit resolution ({'/'.join(f'{e:g}' for e in RESOL_ENERGIES)} keV)")
+            label=("Fit resolution ("
+                   + "/".join(f"{e:g}" for e in RESOL_ENERGIES) + " keV)"))
     ax.set_ylim(0.0, RESOL_YMAX)
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel(r"$\sigma/E$ (%)")
@@ -180,52 +177,44 @@ def _resolution_panel(ax, a, r_anchors, e_max: float, cov_a=None,
     ax.legend(fontsize=8, loc="upper right")
 
 
-def plot_fit(model, result, out_pdf: str) -> None:
+def plot_fit(result, out_pdf: str) -> None:
     det = result.detail
-    p = result.params
-    c, a = result.params_c, result.params_a
-    space = model.space
-    x_anchors = p[space.channels]
-    r_anchors = p[space.resolutions]
-    n = model.n_datasets
-    models = model.models
+    c, b = result.params_c, result.params_b
+    n = len(det.datasets)
 
     fig, gs = _figure_grid(n)
-    if n > 1:
-        title = (f"KC761 global fit  |  $\\chi^2/\\mathrm{{ndof}} = "
-                 f"{result.chi2:.1f}/{result.ndof} = {result.reduced_chi2:.2f}$"
-                 f"  ({n} datasets, global-fit calibration + resolution)")
-    else:
-        title = (f"KC761 fit  |  $\\chi^2/\\mathrm{{ndof}} = "
-                 f"{result.chi2:.1f}/{result.ndof} = {result.reduced_chi2:.2f}$"
-                 f"   $s = {det.datasets[0].s:.4f}$")
-    _title_panel(fig.add_subplot(gs[0]), title)
+    scale_note = (f"({n} datasets, global-fit calibration + resolution)"
+                  if n > 1 else f"$s = {det.datasets[0].s:.4f}$")
+    _title_panel(
+        fig.add_subplot(gs[0]),
+        f"KC761 {'global ' if n > 1 else ''}fit  |  "
+        f"$\\chi^2/\\mathrm{{ndof}} = {result.chi2:.1f}/{result.ndof} "
+        f"= {result.reduced_chi2:.2f}$  {scale_note}")
 
-    for i, (entry, m_i) in enumerate(zip(det.datasets, models)):
+    for i, ds in enumerate(det.datasets):
         ax_spec, ax_pull = _dataset_row(fig, gs, i + 1)
-        label = _cap(entry.label)
+        label = _cap(ds.label)
         if n > 1:
-            spec_title = (f"{label}  [{entry.elow:g}-{entry.ehigh:g} keV]  "
-                          f"$\\chi^2 = {entry.chi2:.1f}$, "
-                          f"{entry.n_bins} bins, $s = {entry.s:.4f}$")
+            spec_title = (f"{label}  [{ds.elow:g}-{ds.ehigh:g} keV]  "
+                          f"$\\chi^2 = {ds.chi2:.1f}$, {ds.n_bins} bins, "
+                          f"$s = {ds.s:.4f}$")
             pull_title = f"{label} relative residual"
         else:
             spec_title = None
             pull_title = "Relative residual"
-        _spectrum_panel(ax_spec, entry.mu, entry.d, entry.err, entry.m,
-                        m_i.raw_model_counts(), entry.grid_edges, entry.s,
-                        entry.elow, entry.ehigh, spec_title)
-        _residual_panel(ax_pull, entry.mu, entry.d, entry.err, entry.m,
-                        entry.elow, entry.ehigh, pull_title)
+        _spectrum_panel(ax_spec, ds, spec_title)
+        _residual_panel(ax_pull, ds.mu, ds.d, ds.err, ds.m,
+                        ds.elow, ds.ehigh, pull_title)
 
-    cal_title = "Energy calibration" if n == 1 else "Energy calibration (global)"
-    res_title = "Energy resolution" if n == 1 else "Energy resolution (global)"
+    cal_title = "Energy calibration" + (" (global)" if n > 1 else "")
+    res_title = "Energy resolution" + (" (global)" if n > 1 else "")
     ax_cal, ax_res, ax_params = _footer_row(fig, gs, n + 1)
-    _calibration_panel(ax_cal, c, x_anchors, x_max=model.n_channel_bins,
-                       cov_c=result.cov_c, title=cal_title)
-    _resolution_panel(ax_res, a, r_anchors,
-                      e_max=float(poly3(c, model.channel_max)),
-                      cov_a=result.cov_a, title=res_title)
+    _calibration_panel(ax_cal, c, result.params[CHANNELS],
+                       x_max=det.n_channel_bins, cov_c=result.cov_c,
+                       title=cal_title)
+    _resolution_panel(ax_res, b, result.params[RESOLUTIONS],
+                      e_max=float(poly3(c, det.channel_max)),
+                      cov_b=result.cov_b, title=res_title)
     _parameter_panel(ax_params, _parameter_text(result))
 
     _save_fig(fig, out_pdf)

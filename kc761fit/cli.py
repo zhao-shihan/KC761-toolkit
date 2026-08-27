@@ -5,12 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .calibration import CALIB_ENERGIES
 from .params import DEFAULT_SYS_FRAC
-from .resolution import RESOL_ENERGIES
-
-CORE_NAMES = [f"x{e:g}" for e in CALIB_ENERGIES] + [
-    f"r{e:g}" for e in RESOL_ENERGIES]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -63,7 +58,4 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "grid at the native resolution (one bin per data "
                              "channel), rebuilt from the fitted calibration "
                              "between passes (default 5)")
-    for name in CORE_NAMES:
-        parser.add_argument(f"--{name}", type=float, default=None,
-                            help=f"initial value of {name}")
     return parser.parse_args(argv)

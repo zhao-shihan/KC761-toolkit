@@ -1,49 +1,53 @@
-"""Typed evaluation and fit-result containers."""
+"""Typed evaluation and fit-result containers.
+
+``FitDetail`` is the single source of truth for a fitted state; ``FitResult``
+exposes it directly and derives convenience views (per-dataset chi2, scale
+values and errors) as properties instead of storing copies.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
 
 @dataclass
 class DatasetDetail:
-    d: np.ndarray
-    err: np.ndarray
-    m_raw: np.ndarray
-    m: np.ndarray
+    """Diagnostics for one dataset on its fit grid."""
+
+    label: str
+    elow: float
+    ehigh: float
+    mu: np.ndarray            # bin centers
+    d: np.ndarray             # rebinned data counts
+    err: np.ndarray           # total sigma used for weighting
+    m: np.ndarray             # smeared model scaled by s
+    m_raw: np.ndarray         # smeared model, unscaled
+    sim_raw: np.ndarray       # unsmeared sim integrated on the grid, unscaled
     s: float
-    mu: np.ndarray
     chi2: float
     n_bins: int
-    mask: np.ndarray
-    grid_edges: np.ndarray = field(default_factory=lambda: np.array([]))
-    label: str = ""
-    elow: float = 0.0
-    ehigh: float = 0.0
+    grid_edges: np.ndarray
 
 
 @dataclass
 class FitDetail:
+    datasets: list[DatasetDetail]
     chi2: float
     ndof: int
-    pen: float
-    c: np.ndarray
-    a: np.ndarray
-    x: np.ndarray
-    r: np.ndarray
-    s: np.ndarray
-    datasets: list[DatasetDetail] = field(default_factory=list)
-    chi2_per_dataset: np.ndarray = field(default_factory=lambda: np.array([]))
-    bins_per_dataset: np.ndarray = field(default_factory=lambda: np.array([]))
+    x: np.ndarray                 # channel anchors
+    r: np.ndarray                 # resolution anchors
+    s: np.ndarray                 # per-dataset scales
+    c: np.ndarray                 # calibration coefficients
+    b: np.ndarray                 # sigma^2 coefficients
+    channel_max: float = 0.0      # largest data channel edge across models
+    n_channel_bins: int = 0       # smallest data channel count across models
     valid: bool = True
 
     @property
-    def mask(self) -> np.ndarray | None:
-        if not self.datasets:
-            return None
-        return np.concatenate([ds.mask for ds in self.datasets])
+    def bins_per_dataset(self) -> np.ndarray:
+        return np.array([ds.n_bins for ds in self.datasets], dtype=int)
 
 
 @dataclass
@@ -58,15 +62,24 @@ class FitResult:
     ndof: int
     reduced_chi2: float
     cov: np.ndarray
-    params_c: np.ndarray | None = None
-    errors_c: np.ndarray | None = None
-    cov_c: np.ndarray | None = None
-    params_a: np.ndarray | None = None
-    errors_a: np.ndarray | None = None
-    cov_a: np.ndarray | None = None
+    params_c: np.ndarray
+    errors_c: np.ndarray
+    cov_c: np.ndarray
+    params_b: np.ndarray
+    errors_b: np.ndarray
+    cov_b: np.ndarray
     model: object = None
     detail: FitDetail | None = None
-    scales: np.ndarray | None = None
-    scale_errors: np.ndarray | None = None
-    chi2_per_dataset: np.ndarray | None = None
-    bins_per_dataset: np.ndarray | None = None
+
+    @property
+    def scales(self) -> np.ndarray:
+        return self.detail.s
+
+    @property
+    def scale_errors(self) -> np.ndarray:
+        tail = slice(len(self.params) - len(self.detail.s), len(self.params))
+        return self.errors[tail]
+
+    @property
+    def chi2_per_dataset(self) -> np.ndarray:
+        return np.array([ds.chi2 for ds in self.detail.datasets], dtype=float)

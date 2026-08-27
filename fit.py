@@ -6,16 +6,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from kc761fit.calibration import CALIB_ENERGIES
-from kc761fit.cli import CORE_NAMES, parse_args
+from kc761fit.cli import parse_args
 from kc761fit.fitter import make_x0, run_fit
 from kc761fit.globalfit import DatasetSpec, GlobalFitModel
 from kc761fit.io import load_data_spectrum, load_sim_spectrum
-from kc761fit.params import (
-    DEFAULT_SYS_FRAC, PARAM_NAMES_A, PARAM_NAMES_C, broadcast,
-)
+from kc761fit.params import DEFAULT_SYS_FRAC, broadcast
 from kc761fit.plot import plot_fit
-from kc761fit.resolution import RESOL_ENERGIES
+from kc761fit.report import print_summary
 
 
 def _default_label(path: Path) -> str:
@@ -34,36 +31,6 @@ def _broadcast(values, default, n: int, name: str):
         print(f"[fit] error: {name} must have 1 value or one per dataset "
               f"({n} datasets), got {n_vals}", file=sys.stderr)
         sys.exit(1)
-
-
-def _print_result(result, datasets: list[str] | None = None) -> None:
-    print(f"[fit] success={result.success} nfev={result.nfev} "
-          f"message={result.message}")
-    print(f"[fit] total chi2 = {result.chi2:.2f}  ndof = {result.ndof}  "
-          f"chi2/ndof = {result.reduced_chi2:.2f}")
-    pen = result.detail.pen
-    if pen > 0:
-        print(f"[fit] note: soft monotonicity penalty = {pen:.3g} "
-              f"(chi2 above excludes it; 0 for a physically ordered fit)")
-    if datasets:
-        for line in datasets:
-            print(line)
-    print("[fit] fitted parameters (channels at "
-          f"{'/'.join(f'{e:g}' for e in CALIB_ENERGIES)} keV, "
-          f"relative resolution sigma/E at "
-          f"{'/'.join(f'{e:g}' for e in RESOL_ENERGIES)} keV, scale(s)):")
-    for name, v, e in zip(result.names, result.params, result.errors):
-        print(f"[fit]   {name:>6s} = {v: .6g} +/- {e:.3g}")
-    _print_derived(result)
-
-
-def _print_derived(result) -> None:
-    print("[fit] derived calibration coefficients c0..c3:")
-    for name, v, e in zip(PARAM_NAMES_C, result.params_c, result.errors_c):
-        print(f"[fit]   {name:>3s} = {v: .6g} +/- {e:.3g}")
-    print("[fit] derived resolution coefficients a0..a2:")
-    for name, v, e in zip(PARAM_NAMES_A, result.params_a, result.errors_a):
-        print(f"[fit]   {name:>3s} = {v: .6g} +/- {e:.3g}")
 
 
 def _run_fit(args) -> int:
@@ -95,9 +62,9 @@ def _run_fit(args) -> int:
         data_file = args.data_multi[i].expanduser().resolve()
         sim_file = args.sim_multi[i].expanduser().resolve()
         elow, ehigh = args.elow_multi[i], args.ehigh_multi[i]
-        for label, path in (("data", data_file), ("simulation", sim_file)):
+        for role, path in (("data", data_file), ("simulation", sim_file)):
             if not path.is_file():
-                print(f"[fit] error: {label} file not found: {path}",
+                print(f"[fit] error: {role} file not found: {path}",
                       file=sys.stderr)
                 return 1
         if elow >= ehigh:
@@ -113,8 +80,7 @@ def _run_fit(args) -> int:
 
     gmodel = GlobalFitModel(specs, sys_frac=syss, labels=labels)
 
-    core_overrides = {name: getattr(args, name) for name in CORE_NAMES}
-    x0 = make_x0(gmodel, core_overrides, s_inits)
+    x0 = make_x0(gmodel, s_inits)
     print(f"[fit] x0={x0}")
 
     result = run_fit(gmodel, x0=x0, maxiter=args.maxiter,
@@ -122,17 +88,17 @@ def _run_fit(args) -> int:
 
     dataset_lines = [
         f"[fit]   {label}: chi2 = {result.chi2_per_dataset[i]:.2f}, "
-        f"{result.bins_per_dataset[i]} bins, "
+        f"{result.detail.bins_per_dataset[i]} bins, "
         f"scale s = {result.scales[i]:.6g} +/- {result.scale_errors[i]:.3g}"
         for i, label in enumerate(gmodel.labels)
     ]
-    _print_result(result, datasets=dataset_lines)
+    print_summary(result, dataset_lines=dataset_lines)
 
     if args.output is not None:
         out_pdf = args.output.expanduser().resolve()
     else:
         out_pdf = Path.cwd() / ("-".join(labels) + "-fit.pdf")
-    plot_fit(result.model, result, str(out_pdf))
+    plot_fit(result, str(out_pdf))
     print(f"[fit] wrote {out_pdf}")
     return 0
 
