@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
-"""kc761sim gamma-spectrometry simulation.
-
-Geant4 (via geant4_pybind) Monte Carlo of a CsI(Tl) probe with one of five
-fixed radioactive sources.  The energy deposited in the CsI(Tl) crystal is
-merged into detector "pulses" (see :mod:`kc761sim.actions`) and written to a
-ROOT ntuple: one row per pulse, ``edep`` as float32 in **keV** (NOT MeV) and
-``time`` (global time of the first deposit of the pulse) as float64 in
-seconds.  A chain source (e.g. th232, ra226) can produce several rows per
-event; events without any crystal deposit produce no row.
-
-Usage
------
-Batch mode::
-
-    python sim.py --k40  -n 100000 -o sim_output.root -t 8
-
-Interactive / visualization mode (no ``-n``)::
-
-    python sim.py --th232
-"""
+"""Geant4 gamma-spectrometry Monte Carlo of a CsI(Tl) probe with fixed sources."""
 
 from __future__ import annotations
 
@@ -142,11 +123,6 @@ def interactive_mode(args: argparse.Namespace, source_key: str, verbose: int) ->
     )
     ui.ApplyCommand(f"/control/execute {os.path.join(_SCRIPT_DIR, 'vis.mac')}")
 
-    # Interactive session (exampleB1 pattern).  Note: this geant4_pybind wheel
-    # was built with terminal sessions only ("Available UI session types:
-    # [ tcsh, csh ]"), so ui_session.IsGUI() is always False here and gui.mac
-    # is never applied; the geometry/tracks are still shown in the OpenGL
-    # viewer opened by vis.mac when a display is available.
     ui_session = G4UIExecutive(len(sys.argv), sys.argv)
     if ui_session.IsGUI():
         ui.ApplyCommand(

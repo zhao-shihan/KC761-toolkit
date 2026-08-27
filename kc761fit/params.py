@@ -1,20 +1,4 @@
-"""Fit parameter-space layout and shared fit configuration constants.
-
-The optimizer works on a flat parameter vector
-
-    q = [x60..x2614, r60..r2614, s0..s_{N-1}]
-
-(channel positions of the calibration lines, relative resolutions, and the
-normalization scale(s)).  This module owns that layout: the parameter blocks,
-their names / initial values / bounds, and the derived flat-vector accessors.
-It replaces the previous module-level ``IDX_CHANNELS`` / ``IDX_RESOL`` /
-``IDX_SCALE`` slices, whose meaning differed between the single- and
-multi-dataset models.
-
-A :class:`ParameterSpace` is built with :meth:`ParameterSpace.from_anchors`
-(the 4 calibration channels + 3 relative resolutions of the reference lines)
-and extended per model with :meth:`ParameterSpace.with_scales`.
-"""
+"""Fit parameter-space layout and shared fit configuration constants."""
 
 from __future__ import annotations
 
@@ -23,25 +7,15 @@ import numpy as np
 from .calibration import CALIB_ENERGIES, INIT_X
 from .resolution import BOUNDS_R, INIT_R, RESOL_ENERGIES
 
-# Default per-bin fractional systematic error (dimensionless): 5%.  Added in
-# quadrature to the statistical errors proportional to the bin counts, so the
-# chi^2 weights are not dominated by the highest-statistics peaks alone.
-# CLI ``--sys`` overrides it per run.
 DEFAULT_SYS_FRAC = 0.05
 
-# Bounds of the normalization scale (dimensionless).
 BOUNDS_S = [(1e-3, 1e3)]
 
-# Names of the derived coefficients reported on output (from the fitted
-# channels / resolutions).
 PARAM_NAMES_C = ["c0", "c1", "c2", "c3"]
 PARAM_NAMES_A = ["a0", "a1", "a2"]
 
 
 class ParamBlock:
-    """One contiguous group of fit parameters (e.g. the 4 calibration
-    channels): names, initial values and box bounds."""
-
     def __init__(self, name: str, names: list[str] | tuple[str, ...],
                  init: np.ndarray | list[float],
                  bounds: list[tuple[float, float]]):
@@ -54,8 +28,6 @@ class ParamBlock:
                 f"block '{name}': names/init/bounds lengths "
                 f"{len(self.names)}/{len(self.init)}/{len(self.bounds)} "
                 "must match")
-        # Flat-vector index where the block starts; assigned by
-        # ParameterSpace.__init__.
         self.start: int = 0
 
     @property
@@ -72,12 +44,6 @@ class ParamBlock:
 
 
 class ParameterSpace:
-    """Ordered list of parameter blocks with flat-vector layout.
-
-    Blocks are laid out in order (channels, resolutions, scales).  Each block
-    knows its ``start`` / ``stop`` / ``slice`` into the flat parameter vector.
-    """
-
     def __init__(self, blocks: list[ParamBlock]):
         self.blocks = tuple(blocks)
         start = 0
@@ -86,15 +52,8 @@ class ParameterSpace:
             start += b.n
         self._size = start
 
-    # -- construction ------------------------------------------------------
     @classmethod
     def from_anchors(cls, n_channels: float) -> "ParameterSpace":
-        """Channels (4 reference-line positions) + resolutions (3 relative
-        widths), with the constants from calibration.py / resolution.py.
-
-        ``n_channels`` is the per-channel upper fit bound (the data's channel
-        count); the resolution block uses ``BOUNDS_R``.
-        """
         calib_names = [f"x{e:g}" for e in CALIB_ENERGIES]
         resol_names = [f"r{e:g}" for e in RESOL_ENERGIES]
         return cls([
@@ -107,7 +66,6 @@ class ParameterSpace:
                     init: np.ndarray | list[float] | None = None,
                     bounds: list[tuple[float, float]] | None = None
                     ) -> "ParameterSpace":
-        """New space with a scale block of ``n`` parameters appended."""
         if n < 0:
             raise ValueError(f"n_scales must be >= 0, got {n}")
         if names is None:
@@ -119,7 +77,6 @@ class ParameterSpace:
         return ParameterSpace([*self.blocks,
                                ParamBlock("scales", names, init, bounds)])
 
-    # -- layout ------------------------------------------------------------
     @property
     def size(self) -> int:
         return self._size
@@ -144,8 +101,6 @@ class ParameterSpace:
 
     @property
     def scale_start(self) -> int:
-        """Flat-vector index of the first scale parameter (or ``size`` when
-        the space has no scale block)."""
         for b in self.blocks:
             if b.name == "scales":
                 return b.start
@@ -168,11 +123,6 @@ _MISSING = object()
 
 
 def broadcast(value, n: int, name: str, default=_MISSING):
-    """Broadcast ``value`` (scalar / length-1 / length-n) to length ``n``.
-
-    A ``None`` ``value`` is replaced by ``default`` (``* n``) when provided,
-    otherwise it is an error.  A wrong-length sequence raises ValueError.
-    """
     if value is None:
         if default is _MISSING:
             raise ValueError(f"{name}: value is None (expected a scalar or "

@@ -1,12 +1,4 @@
-"""Run orchestration: single-process simulations and multiprocessing batching.
-
-Because of the Python GIL, geant4_pybind cannot benefit from Geant4's native
-multithreading (an ``G4MTRunManager`` built with Python user actions deadlocks,
-see the geant4_pybind README).  Parallelism is therefore achieved with Python
-``multiprocessing``: each worker runs its own serial Geant4 instance over a
-chunk of the requested events, writes its own ROOT file, and the master merges
-the chunks with ``uproot`` into the final output file.
-"""
+"""Run orchestration: single-process simulations and multiprocessing batching."""
 
 from __future__ import annotations
 
@@ -32,19 +24,10 @@ from . import (
 )
 from .paths import final_output_path, output_stem, temp_work_dir
 
-#: default random seed used when --seed is not given (worker i uses seed + i + 1)
 DEFAULT_SEED = 908136382
 
 
 def apply_verbosity(run_manager, verbose: int) -> None:
-    """Set the Geant4 verbosity level (0 = only banner and run progress).
-
-    Must be called after the run manager is created and before
-    ``G4RunManager::Initialize`` so that the physics-construction messages
-    (hadronic and EM parameter dumps, HP data loading, ...) are suppressed
-    too.  ``/tracking/verbose`` is intentionally NOT set: it stays at its
-    default (0) so that per-track output never floods the run.
-    """
     run_manager.SetVerboseLevel(verbose)
     G4HadronicParameters.Instance().SetVerboseLevel(verbose)
     G4EmParameters.Instance().SetVerbose(verbose)
@@ -60,11 +43,6 @@ def run_simulation(
     event_offset: int = 0,
     verbose: int = 0,
 ) -> int:
-    """Run one serial Geant4 simulation in the current process.
-
-    Writes the ROOT ntuple to ``<output_stem>.root``.  Intended to be called
-    from a worker process (or directly when ``--threads 1``).
-    """
     G4Random.setTheSeed(int(seed))
 
     spec = config.SOURCES[source_key]
@@ -90,21 +68,11 @@ def run_simulation(
 
 
 def _split_events(n_events: int, n_parts: int) -> list[int]:
-    """Distribute ``n_events`` over ``n_parts`` workers as evenly as possible."""
     base, remainder = divmod(n_events, n_parts)
     return [base + (1 if i < remainder else 0) for i in range(n_parts)]
 
 
 def merge_root_files(output_path: str, input_paths: list[str]) -> None:
-    """Merge the per-worker ROOT ntuples (and the spectrum histogram) into a
-    single output file, preserving the float32 energy-deposition column (keV).
-
-    The ntuple is merged in bounded-memory chunks (streamed via
-    ``uproot.iterate``) so arbitrarily large per-worker files can be combined
-    without holding all rows of every file in memory at once.  Every worker
-    file is required to carry the spectrum histogram (a missing one aborts
-    the merge instead of silently under-counting the spectrum).
-    """
     import numpy as np
     import uproot
 
@@ -118,8 +86,6 @@ def merge_root_files(output_path: str, input_paths: list[str]) -> None:
     hist_edges = None
 
     with uproot.recreate(output_path) as f:
-        # uproot >= 5.7 writes RNTuples by default; use mktree so the merged
-        # output stays a classic TTree (readable by any ROOT version).
         tree = f.mktree(
             tree_name,
             {
@@ -160,8 +126,6 @@ def run_batch(
     seed: int = DEFAULT_SEED,
     verbose: int = 0,
 ) -> None:
-    """Run ``n_events`` events for ``source_key`` using ``threads`` processes
-    and write the merged result to ``output_path``."""
     stem = output_stem(output_path)
     final_path = final_output_path(output_path)
 
@@ -176,13 +140,9 @@ def run_batch(
         offsets.append(running)
         running += chunk
 
-    # Each worker writes its ROOT ntuple to a hidden temporary directory
-    # (".<stem>-kc761sim_wip") under the name "<stem>-kc761sim_w<i>_wip.root";
-    # the chunks are merged into the final output only after every worker has
-    # finished, and the temporary directory is then removed.
     work_dir = temp_work_dir(stem)
     if os.path.isdir(work_dir):
-        shutil.rmtree(work_dir)  # drop stale files from an earlier failed run
+        shutil.rmtree(work_dir)
     os.makedirs(work_dir)
     base = os.path.basename(stem)
 
@@ -211,7 +171,7 @@ def run_batch(
         pool.close()
         pool.join()
         for task in tasks:
-            task.get()  # re-raise worker exceptions in the master
+            task.get()
     finally:
         pool.terminate()
 

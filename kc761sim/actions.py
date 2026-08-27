@@ -1,34 +1,4 @@
-"""User actions: primary generation, run/event/stepping hooks and scoring.
-
-Each energy deposition in the CsI(Tl) crystal is recorded together with its
-global time.  At the end of the event the deposits are merged into detector
-pulses with a fixed resolution time (10 us): deposits that fall within one
-resolution window of the first deposit of a group are summed, then the
-iteration continues with the next deposit.  This separates the decays of a
-cascade chain (e.g. Th-232 / Ra-226) that are far apart in time into distinct
-pulses instead of piling them up into one.
-
-Note on the recorded ``time`` column: it stores the absolute global time of
-the first deposit of each pulse, which for a chain source is dominated by the
-exponentially sampled decay time of the (long-lived) parent nucleus and is
-therefore NOT a detector clock.  In addition, Geant4 accumulates decay times
-on the parent's absolute time scale (G4double in ns); for Th-232 the parent
-mean life is ~2e10 yr, so the floating-point resolution at the relevant time
-is ~100 s and the decay time of Tl-208 (mean life 264 s) collapses to the
-same double as Bi-212 in ~16% of events.  The 10 us pulse merge is unaffected
-(the Bi-212 alpha branch deposits no crystal energy, so the merged pulse
-energy is the same as without the collapse), but the ``time`` column for
-Th-232 is quantized to ~70-140 s steps and carries a mislabelled time for
-those Tl-208 pulses; it should not be used for time-resolved analysis of
-Th-232 data.
-
-Note on the spectrum histogram: pulses whose summed energy exceeds the
-4096 keV axis ceiling are clipped into the histogram overflow bin while the
-ntuple retains the true value, so the two can diverge above 4096 keV.
-
-All arithmetic uses ``double``; values are only converted to ``float``
-(``edep``, keV) at storage time.
-"""
+"""User actions: primary generation, run/event/stepping hooks and scoring."""
 
 from __future__ import annotations
 
@@ -48,24 +18,12 @@ from .paths import NTUPLE_NAME, SPECTRUM_HIST_NAME
 
 G4AnalysisManager = G4RootAnalysisManager
 
-#: number of bins and upper edge of the deposited-energy histogram (keV);
-#: 4096 bins of 1 keV each.
 _EDEP_HISTOGRAM_BINS = 4096
 _EDEP_HISTOGRAM_MAX_KEV = 4096.0
-#: detector pulse-resolution time: deposits closer together than this are
-#: merged into a single pulse (10 us).
 RESOLUTION_TIME = 10 * us
 
 
 class PrimaryGeneratorAction(G4VUserPrimaryGeneratorAction):
-    """One source nucleus (ion at rest) per event.
-
-    The vertex is produced by the general particle source (G4GeneralParticleSource),
-    whose volume distribution is shaped to coincide exactly with the active
-    source volume (see :func:`kc761sim.physics.configure_gps`); the
-    radioactive-decay process then emits the gammas.
-    """
-
     def __init__(self, source):
         super().__init__()
         self.source = source
@@ -76,7 +34,6 @@ class PrimaryGeneratorAction(G4VUserPrimaryGeneratorAction):
 
 
 class RunAction(G4UserRunAction):
-
     def __init__(self, output_stem: str, source_name: str, verbose: int = 0):
         super().__init__()
         self.output_stem = output_stem
@@ -87,18 +44,9 @@ class RunAction(G4UserRunAction):
             f"{NTUPLE_NAME} - {source_name} - per-pulse energy deposition",
         )
         am.CreateNtupleIColumn("event_id")
-        # total energy of the pulse, keV (float)
         am.CreateNtupleFColumn("edep")
-        # global time of the pulse (first deposit of the group), seconds.
-        # Absolute decay-chain time (see the module docstring); NOT a detector
-        # clock, and for Th-232 quantized to ~70-140 s steps.
         am.CreateNtupleDColumn("time")
         am.FinishNtuple()
-        # Note: xmin/xmax of G4AnalysisManager::CreateH1 are in Geant4 internal
-        # units (MeV here); unitName only selects the axis unit.  Passing
-        # xmax = 4096*keV therefore yields a 0-4096 keV axis with 1 keV/bin.
-        # Pulses above 4096 keV are clipped into the overflow bin (the ntuple
-        # keeps the true value); see the module docstring.
         am.CreateH1(
             SPECTRUM_HIST_NAME,
             "Energy deposited in CsI crystal per pulse",
@@ -119,11 +67,9 @@ class RunAction(G4UserRunAction):
 
 
 class EventAction(G4UserEventAction):
-
     def __init__(self, event_offset: int = 0):
         super().__init__()
         self.event_offset = event_offset
-        #: list of (global_time, edep) deposits in the crystal, internal units
         self.deposits: list[tuple[float, float]] = []
 
     def BeginOfEventAction(self, event):
@@ -133,18 +79,6 @@ class EventAction(G4UserEventAction):
         self.deposits.append((global_time, edep))
 
     def _merge_pulses(self):
-        """Merge the deposits into detector pulses with the resolution time.
-
-        Fixed-window pile-up model: starting from the first deposit, all
-        deposits whose global time falls within ``RESOLUTION_TIME`` of it are
-        summed into one pulse; the iteration then continues with the next
-        unmerged deposit until the (time-sorted) sequence is exhausted.
-        (A chained window - merge anything within the resolution time of any
-        already-merged deposit - would give identical pulses for the five
-        configured sources, because intra-decay gammas arrive within ns while
-        inter-decay chain gaps are either >> 10 us or alpha-only.)  Returns
-        (pulse_time, edep).
-        """
         deposits = sorted(self.deposits, key=lambda d: d[0])
         pulses: list[tuple[float, float]] = []
         i, n = 0, len(deposits)
@@ -159,7 +93,6 @@ class EventAction(G4UserEventAction):
         return pulses
 
     def EndOfEventAction(self, event):
-        # skip events without any energy deposition in the crystal
         if not self.deposits:
             return
         am = G4AnalysisManager.Instance()
@@ -173,11 +106,6 @@ class EventAction(G4UserEventAction):
 
 
 class SteppingAction(G4UserSteppingAction):
-    """Adds the energy deposited in the CsI(Tl) crystal to the current event.
-
-    The crystal logical volume is resolved lazily on the first step (the
-    geometry is only constructed during run initialization)."""
-
     def __init__(self, detector, event_action: EventAction):
         super().__init__()
         self.detector = detector
@@ -200,7 +128,6 @@ class SteppingAction(G4UserSteppingAction):
 
 
 class ActionInitialization(G4VUserActionInitialization):
-
     def __init__(
         self,
         source,

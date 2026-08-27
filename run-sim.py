@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""Helper script: run kc761 gamma-spectrometry simulations into data/sim/.
-
-Usage:
-    python run-sim.py [KEY ...] [--threads N] [--dry-run]
-
-Positional ``KEY`` arguments select which sources to simulate (any of
-``am241``, ``k40``, ``lu176``, ``ra226``, ``th232``); with no KEY given, all
-sources run.  Each run invokes ``sim.py --<key> -n <events> -t <threads>``
-and writes ``data/sim/<key>-simulation-<count>.root`` (no date tag).  Sources
-are executed one after another, each using all CPU cores by default.
-Existing output files are skipped, so re-running resumes where the previous
-run stopped.  An existing file that is empty or corrupt is not trusted: it is
-deleted and the source re-run.
-"""
+"""Run KC761 simulations into data/sim/."""
 
 from __future__ import annotations
 
@@ -29,7 +16,6 @@ from kc761sim.paths import NTUPLE_NAME, output_stem, temp_work_dir  # noqa: E402
 SIM = os.path.join(ROOT, "sim.py")
 OUT_DIR = os.path.join(ROOT, "data", "sim")
 
-#: per-source production event counts.
 RUNS: dict[str, int] = {
     "am241": 3_000_000,
     "k40": 1_000_000_000,
@@ -40,7 +26,6 @@ RUNS: dict[str, int] = {
 
 
 def count_label(n: int) -> str:
-    """'2e6' style label for the file names, e.g. 2000000 -> 2e6."""
     mantissa, exponent = f"{n:.0e}".split("e")
     return f"{mantissa}e{int(exponent)}"
 
@@ -50,11 +35,6 @@ def output_path(key: str, n: int) -> str:
 
 
 def valid_output(path: str) -> bool:
-    """True if ``path`` is a readable ROOT file with a non-empty ntuple.
-
-    Used by the resume logic to avoid treating a truncated/partial output
-    (e.g. from a killed run or an interrupted merge) as "already done".
-    """
     try:
         import uproot
         with uproot.open(path) as f:
@@ -66,7 +46,7 @@ def valid_output(path: str) -> bool:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="run-sim.py",
-        description="Run kc761 gamma-spectrometry simulations into data/sim/.",
+        description="Run KC761 simulations into data/sim/.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -137,8 +117,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[FAIL] {key}: exit code {ret} after {dt_min:.1f} min",
                   flush=True)
             failures.append(key)
-            # Drop any partial/corrupt output and the worker scratch dir so
-            # that a re-run actually redoes the simulation.
             if os.path.exists(out):
                 os.remove(out)
             wip = temp_work_dir(output_stem(out))

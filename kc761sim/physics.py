@@ -1,4 +1,4 @@
-"""Physics list, radioactive-decay and particle-source configuration."""
+"""Physics list and radioactive-decay/GPS configuration for KC761 simulation."""
 
 from __future__ import annotations
 
@@ -21,37 +21,12 @@ from geant4_pybind import (
 
 
 class PhysicsList(G4VModularPhysicsList):
-    """The ``QBBC_EMZ`` reference physics list + radioactive decay.
-
-    The Geant4 physics-list factory (which would build the true ``QBBC_EMZ``)
-    cannot be used here: in geant4_pybind 0.1.3 a factory-returned list is
-    handed to the run manager with a non-owning reference that
-    ``SetUserInitialization`` cannot take ownership of, and the bound
-    ``G4VModularPhysicsList`` has no ``ReplacePhysics``/``RemovePhysics``, so
-    the default ``G4EmStandardPhysics`` of ``QBBC`` cannot be swapped for
-    ``G4EmStandardPhysics_option4``.
-
-    Following the geant4_pybind B3 example, the list is therefore built as a
-    Python subclass of ``G4VModularPhysicsList`` that registers the same
-    components as ``QBBC`` (see ``source/physics_lists/lists/src/QBBC.cc``)
-    with the EMZ replacement: ``G4EmStandardPhysics_option4`` instead of the
-    standard EM physics.
-
-    ``QBBC`` does NOT include radioactive decay (it only registers the
-    particle-decay physics), so ``G4RadioactiveDecayPhysics`` is registered
-    explicitly here to enable the decay of the source nuclei.
-    """
-
     def __init__(self):
         super().__init__()
-        self.SetDefaultCutValue(0.7 * mm)  # same default cut as QBBC
-        # EM physics (EMZ = option4)
+        self.SetDefaultCutValue(0.7 * mm)
         self.RegisterPhysics(G4EmStandardPhysics_option4())
-        # Synchrotron radiation & gamma-nuclear physics
         self.RegisterPhysics(G4EmExtraPhysics())
-        # Decays
         self.RegisterPhysics(G4DecayPhysics())
-        # Hadron physics (QBBC components)
         self.RegisterPhysics(G4HadronElasticPhysicsXS())
         self.RegisterPhysics(G4StoppingPhysics())
         self.RegisterPhysics(G4IonPhysicsXS())
@@ -59,26 +34,10 @@ class PhysicsList(G4VModularPhysicsList):
         self.RegisterPhysics(G4HadronInelasticQBBC())
         self.RegisterPhysics(G4ChargeExchangePhysics())
         self.RegisterPhysics(G4NeutronTrackingCut())
-        # Radioactive decay (QBBC does not provide it by default)
         self.RegisterPhysics(G4RadioactiveDecayPhysics())
 
 
 def configure_radioactive_decay(source) -> None:
-    """Enable the decay of the (long-lived) source nuclides.
-
-    Geant4 >= 11.2 ignores at-rest decays whose sampled decay time exceeds a
-    global threshold whose default is 1 year; all five sources would therefore
-    be stable by default.  The threshold is raised per source (e.g. to 1e60
-    years so that the whole Th-232 / Ra-226 chain can decay within one event).
-
-    For Am-241 the decay is additionally restricted to the source nuclide
-    itself via ``/process/had/rdm/nucleusLimits``, so that the long-lived
-    daughter Np-237 (2.14 Myr) does not produce a spurious decay chain.
-
-    The commands require the RDM messenger, which is created during run
-    initialization; this function must therefore be called after
-    ``G4RunManager::Initialize``.
-    """
     ui = G4UImanager.GetUIpointer()
     ui.ApplyCommand(
         f"/process/had/rdm/thresholdForVeryLongDecayTime {source.threshold_years:.6g} year"
@@ -91,19 +50,6 @@ def configure_radioactive_decay(source) -> None:
 
 
 def configure_gps(source, detector) -> None:
-    """Configure the general particle source (GPS) for the selected source.
-
-    One ion of the source nuclide (at rest) is shot per event, at a position
-    sampled uniformly inside the source volume.  The GPS volume distribution
-    is shaped to coincide exactly with the active region of the source (the
-    whole geometry for simple sources, the active layer(s) for a
-    :class:`~kc761sim.config.Sandwich`), so every sampled vertex lies inside
-    the source material and no ``/gps/pos/confine`` volume check is needed.
-
-    The ``/gps`` messenger is created when the primary-generator action (and
-    with it the G4GeneralParticleSource) is built during run initialization,
-    so this function must be called after ``G4RunManager::Initialize``.
-    """
     ui = G4UImanager.GetUIpointer()
     z, a = source.nuclide
     ui.ApplyCommand("/gps/particle ion")
@@ -115,8 +61,6 @@ def configure_gps(source, detector) -> None:
     center = detector.source_center
     ui.ApplyCommand("/gps/pos/type Volume")
     if geometry.kind == "box":
-        # GPS has no "Box" shape; a parallelepiped with zero skew angles is an
-        # axis-aligned box.
         ui.ApplyCommand("/gps/pos/shape Para")
         ui.ApplyCommand(f"/gps/pos/halfx {0.5 * geometry.size_x} mm")
         ui.ApplyCommand(f"/gps/pos/halfy {0.5 * geometry.size_y} mm")
@@ -126,17 +70,9 @@ def configure_gps(source, detector) -> None:
         ui.ApplyCommand(f"/gps/pos/radius {geometry.radius} mm")
         ui.ApplyCommand(f"/gps/pos/halfz {geometry.half_length} mm")
         if geometry.axis == "y":
-            # The GPS sampling cylinder is defined along its local z; rotate it
-            # so that the axis runs along world +y (x' = z, z' = y), matching
-            # the source cylinder orientation (detector.py rotates G4Tubs with
-            # rotateX(-90 deg), which maps local +z to world +y as well).
             ui.ApplyCommand("/gps/pos/rot1 0 0 1")
             ui.ApplyCommand("/gps/pos/rot2 1 0 0")
     elif geometry.kind == "sandwich":
-        # Sample exactly the active layer(s): a cylinder matching the active
-        # region (radius, active thickness), centred on the active centroid
-        # (see detector.source_center).  Every vertex is therefore generated
-        # directly in the active material, no confinement rejection needed.
         ui.ApplyCommand("/gps/pos/shape Cylinder")
         ui.ApplyCommand(f"/gps/pos/radius {geometry.radius} mm")
         ui.ApplyCommand(

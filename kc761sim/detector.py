@@ -1,14 +1,4 @@
-"""Detector and source geometry for the kc761 gamma-spectrometry simulation.
-
-Coordinate system
------------------
-* The world is a 30 cm x 30 cm x 30 cm air cube centred on the origin.
-* The CsI(Tl) crystal (10 x 10 x 25.4 mm) is wrapped in a 1 mm ABS housing
-  (12 x 12 x 27.4 mm).  The assembly is centred on the origin with the crystal
-  long axis along **z**; the 10 x 10 mm end faces are the detection faces.
-* The housing front face facing the sources is at z = +13.7 mm.  Every source
-  is placed on the +z side with a 1 mm face-to-face gap along z.
-"""
+"""Detector and source geometry for the KC761 simulation."""
 
 from __future__ import annotations
 
@@ -41,33 +31,20 @@ from .config import (
     source_center_z,
 )
 
-#: World half-size (cm).
 WORLD_HALF_SIZE = 15.0 * cm
 
-#: CsI(Tl) crystal half dimensions (mm).
 CRYSTAL_HALF_X = 5.0 * mm
 CRYSTAL_HALF_Y = 5.0 * mm
 CRYSTAL_HALF_Z = 12.7 * mm
 
-#: ABS housing half dimensions (mm): crystal + 1 mm wall on every side.
 HOUSING_HALF_X = CRYSTAL_HALF_X + 1.0 * mm
 HOUSING_HALF_Y = CRYSTAL_HALF_Y + 1.0 * mm
 HOUSING_HALF_Z = CRYSTAL_HALF_Z + 1.0 * mm
 
-#: z of the housing front face (towards the sources), mm.
 DETECTOR_FRONT_Z = HOUSING_HALF_Z
 
 
 class DetectorConstruction(G4VUserDetectorConstruction):
-    """Builds the world, the detector and the source.
-
-    Visual attributes are intentionally NOT set here: rendering (colors,
-    transparency, visibility, projection) is fully controlled by the
-    visualization macros (script/vis.mac), which the application executes in
-    interactive mode.  ``check_overlaps`` enables the Geant4 geometry overlap
-    check (used as a debug aid; it is turned off for quiet batch runs).
-    """
-
     def __init__(
         self,
         source: SourceSpec,
@@ -78,15 +55,12 @@ class DetectorConstruction(G4VUserDetectorConstruction):
         self.source = source
         self.materials = materials
         self.check_overlaps = check_overlaps
-        #: logical volume of the CsI(Tl) crystal, used for energy scoring
         self.crystal_lv: G4LogicalVolume | None = None
-        #: world-frame centre of the source volume, used for vertex sampling
         self.source_center: G4ThreeVector | None = None
 
     def Construct(self):
         air = self.materials["G4_AIR"]
 
-        # ---- World ---------------------------------------------------------
         world_solid = G4Box("World", WORLD_HALF_SIZE,
                             WORLD_HALF_SIZE, WORLD_HALF_SIZE)
         world_lv = G4LogicalVolume(world_solid, air, "World")
@@ -101,8 +75,6 @@ class DetectorConstruction(G4VUserDetectorConstruction):
             self.check_overlaps,
         )
 
-        # ---- Detector ------------------------------------------------------
-        # The housing is placed in the world and the crystal inside the housing.
         housing_solid = G4Box(
             "Housing", HOUSING_HALF_X, HOUSING_HALF_Y, HOUSING_HALF_Z
         )
@@ -136,7 +108,6 @@ class DetectorConstruction(G4VUserDetectorConstruction):
             self.check_overlaps,
         )
 
-        # ---- Source ---------------------------------------------------------
         self._construct_source(world_lv)
 
         return world_pv
@@ -147,10 +118,6 @@ class DetectorConstruction(G4VUserDetectorConstruction):
         position = G4ThreeVector(0.0, 0.0, center_z * mm)
         self.source_center = position
 
-        # The container tube (when present) and the source volumes are all
-        # placed in the world as siblings: the source sits in the tube's
-        # hollow, which is not part of the tube solid, so nesting it as a
-        # daughter of the tube would put it outside its mother's solid.
         if spec.container is not None:
             container_position = position
             offset = spec.container_offset
@@ -168,9 +135,6 @@ class DetectorConstruction(G4VUserDetectorConstruction):
 
         geometry = spec.geometry
         if isinstance(geometry, Sandwich):
-            # GPS samples the active layer(s) directly: the sampling centre is
-            # the centroid of the active material, which may differ from the
-            # sandwich centre.
             self.source_center = G4ThreeVector(
                 position.x,
                 position.y,
@@ -183,10 +147,6 @@ class DetectorConstruction(G4VUserDetectorConstruction):
         solid = self._build_source_solid(geometry)
         source_lv = G4LogicalVolume(solid, material, "Source")
 
-        # A source cylinder with axis "y" is built as a (z-axis) G4Tubs and
-        # rotated the same way as its container tube: rotateX(-90 deg) maps
-        # the local +z axis to world +y, matching the GPS sampling-cylinder
-        # rotation configured in physics.configure_gps.
         if isinstance(geometry, Cylinder) and geometry.axis == "y":
             rot = G4RotationMatrix()
             rot.rotateX(-90.0 * deg)
@@ -213,11 +173,6 @@ class DetectorConstruction(G4VUserDetectorConstruction):
             )
 
     def _build_source_solid(self, geometry):
-        """Solid for a single (non-sandwich) source geometry.
-
-        Solids are built in local coordinates (centred on the origin, G4Tubs
-        along z); the rotation to the world frame happens at placement time.
-        """
         name = f"Source{geometry.kind.capitalize()}"
         if isinstance(geometry, Box):
             return G4Box(
@@ -262,13 +217,6 @@ class DetectorConstruction(G4VUserDetectorConstruction):
         position: G4ThreeVector,
         world_lv: G4LogicalVolume,
     ):
-        """Build and place the layers of a sandwich source, stacked along z.
-
-        Layers are ordered front-to-back: the first layer faces the detector
-        (smaller z).  Layers carrying the decaying nuclide are named ``Source``;
-        the inert front/back cladding layers are named ``SourceCladFront`` /
-        ``SourceCladBack``.
-        """
         n_layers = len(sandwich.layers)
         z = position.z - 0.5 * sandwich.total_thickness * mm
         for i, layer in enumerate(sandwich.layers):
@@ -307,7 +255,6 @@ class DetectorConstruction(G4VUserDetectorConstruction):
         position: G4ThreeVector,
         world_lv: G4LogicalVolume,
     ) -> G4LogicalVolume:
-        """Build and place the container tube (sibling of the source volume)."""
         spec = self.source
         if spec.key == "th232":
             material = self.materials["G4_Pyrex_Glass"]
@@ -327,8 +274,6 @@ class DetectorConstruction(G4VUserDetectorConstruction):
         tube_lv = G4LogicalVolume(tube_solid, material, "SourceTube")
 
         if tube.axis == "y":
-            # rotate the (z-axis) tube so its axis points along +y (matching
-            # the source cylinder and the GPS sampling rotation)
             rot = G4RotationMatrix()
             rot.rotateX(-90.0 * deg)
             transform = G4Transform3D(rot, position)

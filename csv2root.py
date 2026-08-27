@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""Frontend that assembles the ROOT command line and runs the csv2root.cxx macro.
-
-Converts a KC761 multichannel-analyzer CSV export (e.g. bkg-260821-data.csv)
-into a ROOT file containing:
-  - TH1D              "kc761_spectrum" : one bin per channel
-  - TParameter<double> "daq_time"      : acquisition time in hours
-
-Examples:
-    python csv2root.py bkg-260821-data.csv
-    python csv2root.py bkg-260821-data.csv -o out.root
-    python csv2root.py bkg-260821-data.csv --root /opt/root/6.40.02/bin/root
-"""
+"""Convert a KC761 MCA CSV export into a ROOT file via csv2root.cxx."""
 
 from __future__ import annotations
 

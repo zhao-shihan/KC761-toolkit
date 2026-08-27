@@ -1,25 +1,8 @@
 // csv2root.cxx
-// ---------------------------------------------------------------------------
-// Convert a KC761 multichannel-analyzer CSV export into a ROOT file.
-//
-// Input CSV format (as exported by the KC761 acquisition software):
-//     Channel,Count #<D>d<H>h<M>m<S>s
-//     0,0,
-//     1,0,
-//     ...
-//   - Column 1: channel number (0 .. N-1)
-//   - Column 2: counts per channel; its header contains the acquisition
-//     (DAQ) time token "#0d22h41m31s" (days/hours/minutes/seconds).
-//
-// Output ROOT file contains:
-//   - TH1D             "kc761_spectrum" : one bin per channel, bin center
-//                                          == channel number
-//   - TParameter<double> "daq_time"     : acquisition time in hours
-//
-// Usage:
-//   root -l -b -q 'csv2root.cxx("bkg-260821-data.csv")'
-//   root -l -b -q 'csv2root.cxx("bkg-260821-data.csv","out.root")'
-// ---------------------------------------------------------------------------
+// Convert a KC761 multichannel-analyzer CSV export into a ROOT file with
+// TH1D "kc761_spectrum" (one bin per channel) and the acquisition time
+// TParameter<double> "daq_time" (hours).
+// Usage:  root -l -b -q 'csv2root.cxx("data.csv","out.root")'
 
 #include "TFile.h"
 #include "TH1D.h"
@@ -36,8 +19,6 @@
 
 namespace {
 
-// Parse an acquisition-time token of the form "#0d22h41m31s"
-// (days / hours / minutes / seconds) and return it in hours.
 double ParseDaqTimeHours(const std::string& header) {
     size_t pos = header.find('#');
     if (pos == std::string::npos) {
@@ -66,16 +47,15 @@ double ParseDaqTimeHours(const std::string& header) {
             num.clear();
             break;
         } else {
-            break; // unexpected char -> stop parsing
+            break;
         }
     }
     return days * 24.0 + hours + minutes / 60.0 + seconds / 3600.0;
 }
 
-} // namespace
+}
 
 void csv2root(const std::string& input, const std::string& output = "") {
-    // Default output name: input filename with extension replaced by ".root".
     std::string outName = output;
     if (outName.empty()) {
         outName = input;
@@ -91,7 +71,6 @@ void csv2root(const std::string& input, const std::string& output = "") {
         return;
     }
 
-    // Column-2 header carries the acquisition time.
     std::string headerLine;
     std::getline(in, headerLine);
     double daqHours = ParseDaqTimeHours(headerLine);
@@ -100,11 +79,11 @@ void csv2root(const std::string& input, const std::string& output = "") {
     std::vector<double> counts;
 
     std::string line;
-    int lineNo = 1; // header already consumed
+    int lineNo = 1;
     while (std::getline(in, line)) {
         ++lineNo;
         size_t start = line.find_first_not_of(" \t\r");
-        if (start == std::string::npos) continue; // blank line
+        if (start == std::string::npos) continue;
 
         int ch = -1;
         double cnt = 0.0;
@@ -130,8 +109,7 @@ void csv2root(const std::string& input, const std::string& output = "") {
     for (int ch : channels)
         if (ch + 1 > nCh) nCh = ch + 1;
 
-    // Bin center == channel number  =>  range [-0.5, nCh - 0.5].
-    TH1D* h = new TH1D("kc761_spectrum", "kc761 spectrum;Channel;Counts",
+    TH1D* h = new TH1D("kc761_spectrum", "KC761 spectrum;Channel;Counts",
                        nCh, -0.5, nCh - 0.5);
     for (size_t i = 0; i < counts.size(); ++i) {
         int bin = channels[i] + 1;

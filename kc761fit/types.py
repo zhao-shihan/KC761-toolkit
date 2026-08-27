@@ -1,15 +1,4 @@
-"""Typed evaluation and fit-result containers.
-
-These dataclasses replace the ad-hoc ``detail`` dictionaries previously
-returned by ``FitModel.detail`` / ``GlobalFitModel.detail``.  The field names
-and value semantics match the old dictionaries, so the consumers (plotting,
-the CLI, the fitter) only changed their access style
-(``det["s"]`` -> ``det.s``).
-
-A fit is always N datasets (a single-dataset fit has N = 1): ``FitDetail``
-and ``FitResult`` carry per-dataset arrays, so downstream code does not
-branch on the single-vs-global distinction.
-"""
+"""Typed evaluation and fit-result containers."""
 
 from __future__ import annotations
 
@@ -20,17 +9,6 @@ import numpy as np
 
 @dataclass
 class DatasetDetail:
-    """Masked evaluation of one dataset of a fit (N = 1 for a single-dataset
-    fit).
-
-    ``d`` / ``err`` are the calibrated, exactly-rebinned data counts and
-    total errors; ``m_raw`` the un-scaled resolution-smeared simulation; ``m``
-    the scaled model (``s * m_raw``); ``mu`` the grid-bin centers.  All arrays
-    are masked to the bins with positive statistical error (``mask``).
-    ``grid_edges`` and ``label`` / ``elow`` / ``ehigh`` are display context
-    carried so the plotting layer does not need to reach into the model.
-    """
-
     d: np.ndarray
     err: np.ndarray
     m_raw: np.ndarray
@@ -48,16 +26,6 @@ class DatasetDetail:
 
 @dataclass
 class FitDetail:
-    """Masked evaluation of a fit model at one parameter point.
-
-    ``datasets`` holds one :class:`DatasetDetail` per dataset (exactly one for
-    a single-dataset fit); ``s`` is the per-dataset scale array.  ``chi2`` is
-    the total data chi^2, ``pen`` the soft monotonicity penalty (zero for a
-    physically ordered point), ``ndof`` the degrees of freedom.  ``valid``
-    marks a degenerate point (insufficient data coverage): ``chi2`` is
-    ``inf`` and ``datasets`` is empty.
-    """
-
     chi2: float
     ndof: int
     pen: float
@@ -73,7 +41,6 @@ class FitDetail:
 
     @property
     def mask(self) -> np.ndarray | None:
-        """Concatenated bin mask over all datasets (None when degenerate)."""
         if not self.datasets:
             return None
         return np.concatenate([ds.mask for ds in self.datasets])
@@ -81,18 +48,6 @@ class FitDetail:
 
 @dataclass
 class FitResult:
-    """Result of a completed fit (single- or multi-dataset).
-
-    ``params`` / ``errors`` / ``names`` are in the fit parameter space
-    ``[x60..x2614, r60..r2614, s0..s_{N-1}]``; ``params_c`` / ``params_a`` are
-    the derived calibration (c0..c3) and resolution (a0..a2) coefficients with
-    their errors and covariances propagated through the linear maps.
-    ``scales`` / ``scale_errors`` / ``chi2_per_dataset`` / ``bins_per_dataset``
-    hold the per-dataset values (length 1 for a single-dataset fit).  ``model``
-    is the (final, rebuilt) model whose grid the result was evaluated on;
-    ``detail`` the masked evaluation at the fitted parameters.
-    """
-
     success: bool
     message: str
     nfev: int

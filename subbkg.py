@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-"""Frontend that assembles the ROOT command line and runs the subbkg.cxx macro.
-
-Subtracts a background spectrum from a signal spectrum (both ROOT files as
-produced by csv2root.py), scaling the background by the ratio of DAQ times
-and propagating Poisson errors per bin.  Output TH1D "kc761_spectrum" is
-saved to a ROOT file.
-
-Examples:
-    python subbkg.py data/exp/th232-data.root data/exp/bkg-data.root
-    python subbkg.py sig.root bkg.root -o out.root
-"""
+"""Subtract a background ROOT spectrum from a signal one, scaled by DAQ time."""
 
 from __future__ import annotations
 

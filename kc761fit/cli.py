@@ -1,11 +1,4 @@
-"""Command-line argument definition for :mod:`kc761fit`.
-
-This module only *defines* the CLI surface — which options the fit command
-accepts.  Parsing and the run orchestration live outside it: the top-level
-:mod:`fit` driver (and the ``kc761-fit`` entry) call :func:`parse_args` to
-turn ``argv`` into an :class:`argparse.Namespace`.  It imports no model code so
-it stays a lightweight, reusable argument specification.
-"""
+"""Command-line argument definition for kc761fit."""
 
 from __future__ import annotations
 
@@ -16,9 +9,6 @@ from .calibration import CALIB_ENERGIES
 from .params import DEFAULT_SYS_FRAC
 from .resolution import RESOL_ENERGIES
 
-# Core (channels + resolutions) parameter names; drives the ``--x*`` / ``--r*``
-# CLI options and maps their overrides onto the fit vector.  Public: the
-# driver imports it to collect the ``--x*`` / ``--r*`` overrides from ``args``.
 CORE_NAMES = [f"x{e:g}" for e in CALIB_ENERGIES] + [
     f"r{e:g}" for e in RESOL_ENERGIES]
 
@@ -26,10 +16,9 @@ CORE_NAMES = [f"x{e:g}" for e in CALIB_ENERGIES] + [
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Fit simulation(s) to background-subtracted data: energy "
-                    "calibration + resolution by chi^2 minimisation.  Repeat "
+                    "calibration + resolution by chi^2 minimization.  Repeat "
                     "the --data/--sim/--elow/--ehigh groups once per dataset."
     )
-    # Per-dataset groups (repeatable).
     parser.add_argument("--data", dest="data_multi", action="append",
                         type=Path, default=None, metavar="FILE",
                         help="data ROOT file; repeat once per dataset")

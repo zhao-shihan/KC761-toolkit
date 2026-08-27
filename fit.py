@@ -1,25 +1,5 @@
 #!/usr/bin/env python3
-"""Fit simulated spectrum/spectra to background-subtracted experimental data.
-
-The application driver: parse the CLI (via :func:`kc761fit.cli.parse_args`),
-validate the dataset groups, build the shared-global-fit :class:`GlobalFitModel`
-(see :mod:`kc761fit.globalfit`), run the fit (see :mod:`kc761fit.fitter`),
-print the statistics / parameters / derived coefficients, and write the PDF
-(see :mod:`kc761fit.plot`).
-
-All fits run through the repeated ``--data`` groups: one or more
-(data, simulation, energy-range) pairs are fit at once.  The 7 calibration /
-resolution parameters are *global-fit* parameters common to all datasets, each
-dataset gets its own normalisation scale s_i, and the total chi^2 is the sum
-of the per-dataset chi^2 values.  A single dataset is the N = 1 case of the
-same layout.
-
-Examples:
-    python fit.py --data th232-subbkg.root --sim th232-sim.root \
-                  --elow 300 --ehigh 3000 --label th232 \
-                  --data am241-subbkg.root --sim am241-sim.root \
-                  --elow 20 --ehigh 80 --label am241
-"""
+"""Fit simulated spectra to background-subtracted experimental data."""
 
 from __future__ import annotations
 
@@ -39,7 +19,6 @@ from kc761fit.resolution import RESOL_ENERGIES
 
 
 def _default_label(path: Path) -> str:
-    """Dataset label from the data file stem (strip -data-subbkg/-subbkg/-data)."""
     stem = Path(path).stem
     for suffix in ("-data-subbkg", "-subbkg", "-data"):
         if stem.endswith(suffix):
@@ -48,7 +27,6 @@ def _default_label(path: Path) -> str:
 
 
 def _broadcast(values, default, n: int, name: str):
-    """Broadcast a CLI list (None / length-1 / length-n) to length ``n``."""
     try:
         return broadcast(values, n, name, default=default)
     except ValueError:
@@ -59,11 +37,6 @@ def _broadcast(values, default, n: int, name: str):
 
 
 def _print_result(result, datasets: list[str] | None = None) -> None:
-    """Print the fit statistics, parameters and derived coefficients.
-
-    ``datasets`` (optional preformatted per-dataset lines) are printed between
-    the chi^2 and the parameter block.
-    """
     print(f"[fit] success={result.success} nfev={result.nfev} "
           f"message={result.message}")
     print(f"[fit] total chi2 = {result.chi2:.2f}  ndof = {result.ndof}  "
@@ -85,7 +58,6 @@ def _print_result(result, datasets: list[str] | None = None) -> None:
 
 
 def _print_derived(result) -> None:
-    """Print the derived calibration / resolution coefficients."""
     print("[fit] derived calibration coefficients c0..c3:")
     for name, v, e in zip(PARAM_NAMES_C, result.params_c, result.errors_c):
         print(f"[fit]   {name:>3s} = {v: .6g} +/- {e:.3g}")
@@ -141,8 +113,6 @@ def _run_fit(args) -> int:
 
     gmodel = GlobalFitModel(specs, sys_frac=syss, labels=labels)
 
-    # --x*/--r* overrides map onto the core parameters; --s overrides the
-    # per-dataset initial scales (defaults: the data-driven WLS estimates).
     core_overrides = {name: getattr(args, name) for name in CORE_NAMES}
     x0 = make_x0(gmodel, core_overrides, s_inits)
     print(f"[fit] x0={x0}")
@@ -162,8 +132,6 @@ def _run_fit(args) -> int:
         out_pdf = args.output.expanduser().resolve()
     else:
         out_pdf = Path.cwd() / ("-".join(labels) + "-fit.pdf")
-    # Plot from the *final* (rebuilt) model returned by the fit, so the raw
-    # simulation curve is drawn on the same grid as the fitted model/data.
     plot_fit(result.model, result, str(out_pdf))
     print(f"[fit] wrote {out_pdf}")
     return 0

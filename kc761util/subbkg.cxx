@@ -1,31 +1,7 @@
 // subbkg.cxx
-// ---------------------------------------------------------------------------
-// Subtract a background spectrum from a signal spectrum, scaling the
-// background by the ratio of acquisition (DAQ) times, with proper Poisson
-// error propagation.
-//
-// Input ROOT files (both as produced by csv2root.cxx):
-//   - TH1D              "kc761_spectrum" : experimental spectrum
-//   - TParameter<double> "daq_time"      : acquisition time in hours
-//
-// For each bin:
-//     r      = t_signal / t_background
-//     net_i  = S_i - r * B_i
-//     err_i  = sqrt(S_i + r^2 * B_i)      (Poisson statistics on both inputs)
-//
-// This is implemented with the canonical TH1 operations:
-//   - Sumw2() stores the Poisson variance per bin (var == counts) in the
-//     histograms' fSumw2 arrays;
-//   - TH1::Add(hSig, hBkg, 1.0, -r) computes net = 1*S - r*B in one step,
-//     propagating the errors as var_net = 1^2*S + r^2*B.
-//
-// Output ROOT file contains:
-//   - TH1D "kc761_spectrum" : background-subtracted spectrum
-//
-// Usage:
-//   root -l -b -q 'subbkg.cxx("sig.root","bkg.root")'
-//   root -l -b -q 'subbkg.cxx("sig.root","bkg.root","out.root")'
-// ---------------------------------------------------------------------------
+// Background-subtract a signal spectrum by the ratio of DAQ times,
+// propagating Poisson errors: net_i = S_i - r*B_i, err_i = sqrt(S_i + r^2*B_i).
+// Usage:  root -l -b -q 'subbkg.cxx("sig.root","bkg.root","out.root")'
 
 #include "TFile.h"
 #include "TH1D.h"
@@ -37,7 +13,6 @@
 
 void subbkg(const std::string& sigFile, const std::string& bkgFile,
             const std::string& outFile = "") {
-    // Default output name: signal filename with "_subbkg" before the extension.
     std::string outName = outFile;
     if (outName.empty()) {
         outName = sigFile;
@@ -90,21 +65,15 @@ void subbkg(const std::string& sigFile, const std::string& bkgFile,
     }
     double r = tSig->GetVal() / tBkgVal;
 
-    // Poisson statistics: variance per bin == number of counts.  Storing this
-    // in fSumw2 lets TH1::Add propagate the errors correctly.
     hSig->Sumw2();
     hBkg->Sumw2();
 
-    // Open the output file first and make it current, so hNet is created in
-    // its directory (avoids clashing with the input histograms by name).
     TFile fOut(outName.c_str(), "RECREATE");
     fOut.cd();
 
-    // Clone the signal histogram (keeps binning/axes and the fSumw2 array).
     TH1D* hNet = new TH1D(*hSig);
     hNet->SetNameTitle("kc761_spectrum",
-                       "kc761 spectrum (background subtracted);Channel;Counts");
-    // net = 1*S - r*B, with var_net = 1^2*var_S + r^2*var_B = S + r^2*B.
+                       "KC761 spectrum (background subtracted);Channel;Counts");
     hNet->Add(hSig, hBkg, 1.0, -r);
 
     hNet->Write();
