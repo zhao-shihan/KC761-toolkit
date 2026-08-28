@@ -47,8 +47,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("-o", "--output", type=Path, default=None,
                         help="output PDF (default: <label1>-<label2>-calib.pdf "
                              "in the current directory)")
-    parser.add_argument("--maxiter", type=int, default=10000,
-                        help="Nelder-Mead iterations per pass (default 10000)")
+    parser.add_argument("--maxiter", type=int, default=100000,
+                        help="Nelder-Mead iterations per pass (default 100000)")
     parser.add_argument("--passes", type=int, default=5,
                         help="number of fit passes; each pass fixes an energy "
                              "binning at the native resolution (one bin per data "
