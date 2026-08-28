@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from .params import BOUNDS_SCALE, DEFAULT_SYS_FRAC
 from .response import INIT_CALIB, INIT_RESOL, calib_model, smear
+from .scaling import BOUNDS_SCALE, scale_model
 from .types import DatasetDetail
 
-MIN_VARIANCE = 1.0
+DEFAULT_SYS_FRAC = 0.05
 
 
 class FitModel:
@@ -61,7 +61,7 @@ class FitModel:
         """
         var = (err_stat**2 + (self.sys_frac * d) ** 2
                + (0.5 * self.bin_width * self.s_ref * m_prime) ** 2)
-        return np.sqrt(np.maximum(var, MIN_VARIANCE))
+        return np.sqrt(np.maximum(var, 1.0))  # bound min error to 1
 
     def rebin_data(self, calib) -> tuple[np.ndarray, np.ndarray]:
         """Integrate data counts/sumw2 onto the bins via E(x).
@@ -108,15 +108,24 @@ class FitModel:
         w = self.error_model(dm, em, m_prime)
         return dm, w, mm, mask
 
-    def dataset_detail(self, label: str, calib, resol, s: float) -> DatasetDetail:
-        """Package one dataset's pulls into plot/report diagnostics."""
+    def dataset_detail(self, label: str, calib, resol,
+                       scale_params) -> DatasetDetail:
+        """Package one dataset's pulls into plot/report diagnostics.
+
+        The model prediction is ``s(E) * m(E)`` with the per-bin scale curve
+        ``s(E) = scale_model(scale_params, E)`` evaluated at each bin center; the
+        ``smeared_sim``/``raw_sim`` fields remain unscaled.
+        """
         dm, w, mm, mask = self.pulled(calib, resol)
-        res = (dm - s * mm) / w
+        scale_full = scale_model(scale_params, self.bin_centers)
+        scale_masked = scale_full[mask]
+        res = (dm - scale_masked * mm) / w
         return DatasetDetail(
             label=label, elow=self.elow, ehigh=self.ehigh,
             bin_centers=self.bin_centers[mask],
-            bin_counts=dm, sigma=w, smeared_model=s * mm, smeared_sim=mm,
-            raw_sim=self.sim_on_bins(), scale=float(s),
+            bin_counts=dm, sigma=w, smeared_model=scale_masked * mm,
+            smeared_sim=mm, raw_sim=self.sim_on_bins(),
+            scale_params=np.asarray(scale_params, dtype=float),
             chi2=float(res @ res), n_bins=int(len(dm)),
             bin_edges=self.bin_edges,
         )

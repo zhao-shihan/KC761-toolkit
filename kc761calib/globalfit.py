@@ -6,9 +6,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .fitmodel import FitModel
-from .params import CALIB, DEFAULT_SYS_FRAC, RESOL, Space, broadcast
+from .fitmodel import DEFAULT_SYS_FRAC, FitModel
+from .fitparamspace import CALIB, RESOL, FitParamSpace
+from .scaling import scale_model
 from .types import FitDetail
+from .util import broadcast
 
 
 @dataclass
@@ -51,9 +53,21 @@ class GlobalFitModel:
                 f"global calibration is shared): got {sorted(n_bins)}")
 
         self.channel_max = float(max(m.data.edges[-1] for m in self.models))
-        self.space = Space(tuple(self.labels))
-        self.x0 = self.space.x0([m.initial_scale for m in self.models])
-        self.bounds = self.space.bounds
+        self.param_space = FitParamSpace(tuple(self.labels),
+                                         s2_bounds=self._s2_bounds())
+        self.x0 = self.param_space.x0([m.initial_scale for m in self.models])
+        self.bounds = self.param_space.bounds
+
+    def _s2_bounds(self) -> list[tuple[float, float]]:
+        """Per-dataset s2 limits: the fit window extended by delta on both sides.
+
+        ``delta = max(2*(ehigh - elow), 5000)`` keV.
+        """
+        out = []
+        for m in self.models:
+            delta = max(2.0 * (m.ehigh - m.elow), 5000.0)
+            out.append((m.elow - delta, m.ehigh + delta))
+        return out
 
     @property
     def n_channel_bins(self) -> int:
@@ -100,12 +114,13 @@ class GlobalFitModel:
         if gate is None:
             return np.full(int(sum(sizes)), np.nan)
         calib, resol = gate
-        s = q[self.space.scales]
         out = []
         for i, m in enumerate(self.models):
             mask = None if mask_list is None else mask_list[i]
-            dm, w, mm, _ = m.pulled(calib, resol, mask=mask)
-            out.append((dm - float(s[i]) * mm) / w)
+            dm, w, mm, msk = m.pulled(calib, resol, mask=mask)
+            bc = m.bin_centers[msk]
+            sb = scale_model(q[self.param_space.scale_slice(i)], bc)
+            out.append((dm - sb * mm) / w)
         return np.concatenate(out)
 
     def evaluate(self, q) -> float:
@@ -115,13 +130,14 @@ class GlobalFitModel:
             return np.inf
         calib, resol = gate
         q = np.asarray(q, dtype=float)
-        s = q[self.space.scales]
         total = 0.0
         for i, m in enumerate(self.models):
-            dm, w, mm, _ = m.pulled(calib, resol)
+            dm, w, mm, msk = m.pulled(calib, resol)
             if len(dm) < m.min_usable_bins:
                 return np.inf
-            res = (dm - float(s[i]) * mm) / w
+            bc = m.bin_centers[msk]
+            sb = scale_model(q[self.param_space.scale_slice(i)], bc)
+            res = (dm - sb * mm) / w
             total += float(res @ res)
         return total if np.isfinite(total) else np.inf
 
@@ -130,7 +146,7 @@ class GlobalFitModel:
         q = np.asarray(q, dtype=float)
         calib_params = np.asarray(q[CALIB], dtype=float)
         resol_params = np.asarray(q[RESOL], dtype=float)
-        scale_params = np.asarray(q[self.space.scales], dtype=float)
+        scale_params = np.asarray(q[self.param_space.scales], dtype=float)
         base = dict(calib_params=calib_params, resol_params=resol_params,
                     scale_params=scale_params,
                     channel_max=self.channel_max,
@@ -142,14 +158,14 @@ class GlobalFitModel:
         for i, m in enumerate(self.models):
             entries.append(m.dataset_detail(self.labels[i], calib_params,
                                             resol_params,
-                                            float(scale_params[i])))
+                                            q[self.param_space.scale_slice(i)]))
         if gate is None or any(ds.n_bins < m.min_usable_bins
                                for ds, m in zip(entries, self.models)):
             return FitDetail(datasets=[], chi2=np.inf, ndof=0,
                              **base, valid=False)
 
         chi2 = float(sum(ds.chi2 for ds in entries))
-        ndof = int(sum(ds.n_bins for ds in entries)) - self.space.size
+        ndof = int(sum(ds.n_bins for ds in entries)) - self.param_space.size
         return FitDetail(datasets=entries, chi2=chi2, ndof=ndof,
                          **base, valid=True)
 

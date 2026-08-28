@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .params import DEFAULT_SYS_FRAC
+from .fitmodel import DEFAULT_SYS_FRAC
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -43,11 +43,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "to the statistical errors proportional to the "
                              "bin counts; single value or one per dataset "
                              f"(default {DEFAULT_SYS_FRAC:g})")
-    parser.add_argument("--s", action="append", type=float, default=None,
-                        metavar="SCALE",
-                        help="initial normalization scale override; single "
-                             "value or one per dataset (default: auto "
-                             "weighted least-squares estimate)")
 
     parser.add_argument("-o", "--output", type=Path, default=None,
                         help="output PDF (default: <label1>-<label2>-calib.pdf "

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from .params import PARAM_NAMES_B, PARAM_NAMES_C, PARAM_NAMES_K, CALIB_K
-from .response import reported_calib
+from .fitparamspace import CALIB_K
+from .response import PARAM_NAMES_B, PARAM_NAMES_C, PARAM_NAMES_K, reported_calib
 
 
 def print_summary(result, dataset_lines: list[str] | None = None) -> None:

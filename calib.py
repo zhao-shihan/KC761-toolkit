@@ -8,10 +8,12 @@ import sys
 from pathlib import Path
 
 from kc761calib.cli import parse_args
-from kc761calib.fitter import make_x0, run_fit
+from kc761calib.fitter import run_fit
 from kc761calib.globalfit import DatasetSpec, GlobalFitModel
 from kc761calib.io import load_data_spectrum, load_sim_spectrum
-from kc761calib.params import DEFAULT_SYS_FRAC, broadcast
+from kc761calib.fitmodel import DEFAULT_SYS_FRAC
+from kc761calib.scaling import N_SCALE
+from kc761calib.util import broadcast
 from kc761calib.plot import plot_fit
 from kc761calib.report import print_summary
 
@@ -46,7 +48,6 @@ def _run_calib(args) -> int:
 
     widths = _broadcast(args.width, None, n, "--width")
     syss = _broadcast(args.sys, DEFAULT_SYS_FRAC, n, "--sys")
-    s_inits = _broadcast(args.s, None, n, "--s")
     if args.label is None:
         labels = [_default_label(p) for p in args.data_multi]
     else:
@@ -58,7 +59,7 @@ def _run_calib(args) -> int:
 
     specs = []
     print(f"[calib] fitting {n} dataset(s): shared calibration and resolution, "
-          f"per-dataset scale")
+          f"per-dataset scale curve")
     for i in range(n):
         data_file = args.data_multi[i].expanduser().resolve()
         sim_file = args.sim_multi[i].expanduser().resolve()
@@ -81,18 +82,23 @@ def _run_calib(args) -> int:
 
     gmodel = GlobalFitModel(specs, sys_frac=syss, labels=labels)
 
-    x0 = make_x0(gmodel, s_inits)
+    x0 = gmodel.x0
     print(f"[calib] x0={x0}")
 
     result = run_fit(gmodel, x0=x0, maxiter=args.maxiter,
                      n_passes=args.passes)
 
-    dataset_lines = [
-        f"[calib]   {label}: chi2 = {result.chi2_per_dataset[i]:.2f}, "
-        f"{result.detail.bins_per_dataset[i]} bins, "
-        f"scale s = {result.scales[i]:.6g} +/- {result.scale_errors[i]:.3g}"
-        for i, label in enumerate(gmodel.labels)
-    ]
+    dataset_lines = []
+    for i, label in enumerate(gmodel.labels):
+        lo = i * N_SCALE
+        sp = result.scales[lo:lo + N_SCALE]
+        se = result.scale_errors[lo:lo + N_SCALE]
+        dataset_lines.append(
+            f"[calib]   {label}: chi2 = {result.chi2_per_dataset[i]:.2f}, "
+            f"{result.detail.bins_per_dataset[i]} bins, "
+            f"scale s0 = {sp[0]:.6g} +/- {se[0]:.3g}, "
+            f"s1 = {sp[1]:.6g} +/- {se[1]:.3g}, "
+            f"s2 = {sp[2]:.6g} +/- {se[2]:.3g}")
     print_summary(result, dataset_lines=dataset_lines)
 
     if args.output is not None:

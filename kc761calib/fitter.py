@@ -7,7 +7,7 @@ import sys
 import numpy as np
 from scipy import optimize
 
-from .params import CALIB, RESOL
+from .fitparamspace import CALIB, RESOL
 from .types import FitResult
 
 
@@ -106,7 +106,7 @@ def _finalize(model, q, success: bool = True, message: str = "",
         nfev=int(nfev),
         params=q,
         errors=perr,
-        names=model.space.names,
+        names=model.param_space.names,
         chi2=chi2,
         ndof=ndof,
         reduced_chi2=chi2 / ndof if ndof > 0 else np.nan,
@@ -177,14 +177,3 @@ def run_fit(model, x0=None, maxiter: int = 10000, n_passes: int = 5,
                                  "binning for all passes")
     return _finalize(m, best.x, success=bool(best.success),
                      message=str(best.message), nfev=nfev_total)
-
-
-def make_x0(model, scale_values: list[float] | None = None) -> np.ndarray:
-    """Model default start vector with optional per-dataset scale overrides."""
-    x0 = np.array(model.x0, dtype=float, copy=True)
-    if scale_values:
-        tail = model.space.scales
-        for k, v in enumerate(scale_values):
-            if v is not None:
-                x0[tail.start + k] = v
-    return x0

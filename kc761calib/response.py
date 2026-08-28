@@ -26,15 +26,20 @@ import numba
 import numpy as np
 
 # --------------------------------------------------------------------------
-# shared constants and fit bounds
+# initial values and fit bounds
 
+N_CALIB = 4  # (c0, k1, k2, k3)
 INIT_CALIB = np.array([-180.0, 1.5, 2.5, 3.5])
 BOUNDS_CALIB = [(-200.0, -160.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)]
 
+N_RESOL = 3  # (b0, b1, b2)
 INIT_RESOL = np.array([2.0, 1.0, 0.0])
 BOUNDS_RESOL = [(0.0, 10.0), (0.025, 2.5), (0.0, 0.1)]
 
-MIN_SIGMA = 0.001  # 1eV
+PARAM_NAMES_CORE = ["c0", "k1", "k2", "k3", "b0", "b1", "b2"]
+PARAM_NAMES_C = ["c0", "c1", "c2", "c3"]
+PARAM_NAMES_K = ["k1", "k2", "k3"]
+PARAM_NAMES_B = ["b0", "b1", "b2"]
 
 
 # --------------------------------------------------------------------------
@@ -101,7 +106,6 @@ def reported_calib(calib_params: np.ndarray | list[float], cov_calib: np.ndarray
     err = np.sqrt(np.clip(np.diag(cov), 0, None))
     return c, err, cov
 
-
 # --------------------------------------------------------------------------
 # resolution sigma^2(E) and histogram convolution
 
@@ -138,6 +142,9 @@ def resol_model(b: np.ndarray | list[float], e: np.ndarray | float) -> np.ndarra
     e = np.asarray(e, dtype=float)
     var = b0**2 + (b1**2 + b2**2 * e) * e
     return np.sqrt(np.maximum(var, 0.0))
+
+
+MIN_SIGMA = 0.001  # 1eV
 
 
 def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
