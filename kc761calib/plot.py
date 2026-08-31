@@ -79,7 +79,7 @@ def _parameter_text(result) -> str:
 def _parameter_panel(ax, txt: str) -> None:
     ax.axis("off")
     ax.text(0.5, 0.5, txt, transform=ax.transAxes, va="center", ha="center",
-            fontsize=8,
+            fontsize=11,
             bbox=dict(boxstyle="round", fc="#f8f8f8", ec="gray", alpha=0.9))
 
 
@@ -135,12 +135,12 @@ def _residual_panel(ax, bin_centers, bin_counts, sigma, smeared_model, elow,
     ok = smeared_model > 0
     rel = (bin_counts[ok] - smeared_model[ok]) / smeared_model[ok]
     ax.errorbar(bin_centers[ok], rel, yerr=sigma[ok] / smeared_model[ok],
-                fmt="o", ms=1.5, lw=0.8, color="tab:brown")
+                fmt="o", ms=1.5, lw=0.8, color="tab:gray")
     ax.axhline(0, color="k", lw=0.8)
     for level in (-0.3, 0.3):
         ax.axhline(level, color="tab:red", lw=0.6, ls=":")
     ax.set_xlabel("Energy (keV)")
-    ax.set_ylabel("Relative residual $(d-m)/m$")
+    ax.set_ylabel("Residual")
     ax.set_xlim(elow, ehigh)
     # Fixed range so that the panels of all datasets are directly comparable.
     ax.set_ylim(-RESID_YMAX, RESID_YMAX)
@@ -222,13 +222,13 @@ def plot_fit(result, out_pdf: str) -> None:
         if n > 1:
             spec_title = (f"{label}  [{ds.elow:g}-{ds.ehigh:g} keV]  "
                           f"$\\chi^2 = {ds.chi2:.1f}$, {ds.n_bins} bins")
-            pull_title = f"{label} relative residual"
+            res_title = f"{label} residual"
         else:
             spec_title = None
-            pull_title = "Relative residual"
+            res_title = "residual"
         _spectrum_panel(ax_spec, ds, spec_title)
         _residual_panel(ax_pull, ds.bin_centers, ds.bin_counts, ds.sigma,
-                        ds.smeared_model, ds.elow, ds.ehigh, pull_title)
+                        ds.smeared_model, ds.elow, ds.ehigh, res_title)
 
     cal_title = "Energy calibration" + (" (global)" if n > 1 else "")
     res_title = "Energy resolution" + (" (global)" if n > 1 else "")

@@ -85,7 +85,9 @@ def _run_calib(args) -> int:
     x0 = gmodel.x0
     print(f"[calib] x0={x0}")
 
-    result = run_fit(gmodel, x0=x0, maxiter=args.maxiter,
+    result = run_fit(gmodel, x0=x0,
+                     stage1_maxiter=args.stage1_maxiter,
+                     stage2_maxiter=args.stage2_maxiter,
                      n_passes=args.passes)
 
     dataset_lines = []

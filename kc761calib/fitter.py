@@ -1,8 +1,10 @@
-"""Parameter fit with a bounded derivative-free optimizer.
+"""Parameter fit with bounded derivative-free optimizers.
 
-The optimizer runs on a normalized ``[0,1]^d`` parameter space (each coordinate
-scaled by its own bounds), so its step sizes and convergence tolerances are
-uniform across parameters with very different physical ranges.
+The fit runs on a normalized ``[0,1]^d`` parameter space (each coordinate scaled
+by its own bounds), so its step sizes and convergence tolerances are uniform
+across parameters with very different physical ranges.  Each pass runs a
+stage-1 optimizer to locate the basin, then a stage-2 optimizer from its result
+to convergence.
 """
 
 from __future__ import annotations
@@ -15,15 +17,20 @@ from scipy import optimize
 from .fitparamspace import CALIB, RESOL
 from .types import FitResult
 
-# Print an optimizer progress line every this many iterations when verbose.
-_FIT_PROGRESS_LOG_MODULO = 1
+# Progress-line print cadence for each stage (modulo, when verbose).
+_STAGE1_PROGRESS_LOG_MODULO = 1
+_STAGE2_PROGRESS_LOG_MODULO = 300
 
-# The optimizer method and its tuning options are grouped here so the fitting
-# stage stays decoupled from any particular scipy solver. `maxiter` (the only
-# per-pass knob) is supplied per call in `_fit_once`.
-_OPTIMIZER = dict(
+# The two fit stages, both on the unit cube: the stage-1 optimizer locates the
+# basin, then the stage-2 optimizer polishes from its result to convergence.
+# Each stage's iteration budget is supplied per call in `_fit_once`.
+_STAGE1_OPTIMIZER = dict(
     method="Powell",
-    options=dict(xtol=1e-8, ftol=1e-8),
+    options=dict(xtol=1e-6, ftol=1e-6),
+)
+_STAGE2_OPTIMIZER = dict(
+    method="Nelder-Mead",
+    options=dict(fatol=1e-3, adaptive=True),
 )
 
 
@@ -75,13 +82,15 @@ def _progress_callback(model, tag: str, fit_progress_modulo: int,
     return callback
 
 
-def _fit_once(model, x0, bounds, maxiter, tag: str = "fit",
-              fit_progress_modulo: int = 0):
-    """One optimizer pass on the unit-cube space, returning physical params.
+def _fit_once(model, x0, bounds, stage1_maxiter, stage2_maxiter,
+              tag: str = "fit", fit_progress_modulo: int = 0):
+    """Two optimizer stages on the unit-cube space, returning physical params.
 
     ``x0`` and ``bounds`` are in physical units; the minimizer only ever sees the
-    affine-normalized ``[0,1]^d`` parameters.  The returned ``OptimizeResult``
-    carries ``x`` mapped back to physical space so callers can treat it as before.
+    affine-normalized ``[0,1]^d`` parameters.  The stage-1 optimizer locates the
+    basin, then the stage-2 optimizer polishes from its result to convergence.
+    The returned ``OptimizeResult`` carries ``x`` mapped back to physical space
+    and ``nfev`` summed over both stages.
     """
     x0 = np.asarray(x0, dtype=float)
     lo, hi = _bounds_arrays(bounds)
@@ -96,13 +105,29 @@ def _fit_once(model, x0, bounds, maxiter, tag: str = "fit",
 
     u0 = _normalize(x0, lo, hi)
     unit_bounds = [(0.0, 1.0)] * len(u0)
-    callback = (_progress_callback(model, tag, fit_progress_modulo, to_physical)
-                if fit_progress_modulo > 0 else None)
-    res = optimize.minimize(objective, u0, method=_OPTIMIZER["method"],
-                            bounds=unit_bounds,
-                            options=dict(maxiter=maxiter,
-                                         **_OPTIMIZER["options"]),
-                            callback=callback)
+
+    def make_callback(stage_tag, modulo):
+        return (_progress_callback(model, stage_tag, modulo, to_physical)
+                if modulo > 0 else None)
+
+    # Stage 1: the stage-1 optimizer locates the basin.
+    res = optimize.minimize(
+        objective, u0, method=_STAGE1_OPTIMIZER["method"],
+        bounds=unit_bounds,
+        options=dict(maxiter=stage1_maxiter, **_STAGE1_OPTIMIZER["options"]),
+        callback=make_callback(f"{tag} stage 1", fit_progress_modulo))
+    nfev = int(res.nfev)
+
+    # Stage 2: the stage-2 optimizer polishes from the stage-1 result, minimized
+    # to convergence (reuses the same progress callback with a coarser modulo).
+    stage2_modulo = (_STAGE2_PROGRESS_LOG_MODULO
+                     if fit_progress_modulo > 0 else 0)
+    res = optimize.minimize(
+        objective, res.x, method=_STAGE2_OPTIMIZER["method"],
+        bounds=unit_bounds,
+        options=dict(maxiter=stage2_maxiter, **_STAGE2_OPTIMIZER["options"]),
+        callback=make_callback(f"{tag} stage 2", stage2_modulo))
+    res.nfev = int(res.nfev) + nfev
     res.x = to_physical(np.asarray(res.x, dtype=float))
     return res
 
@@ -209,7 +234,8 @@ def _finalize(model, q, success: bool = True, message: str = "",
     )
 
 
-def _fit_passes(model, x0, bounds, maxiter, n_passes, verbose):
+def _fit_passes(model, x0, bounds, stage1_maxiter, stage2_maxiter,
+                n_passes, verbose):
     """Fit repeatedly, re-freezing the energy binning from the fitted anchors.
 
     Each pass builds its model from the previous optimum and uses that model's
@@ -241,8 +267,9 @@ def _fit_passes(model, x0, bounds, maxiter, n_passes, verbose):
         m_bounds = m.bounds
         st = np.clip(np.asarray(st, dtype=float),
                      [b[0] for b in m_bounds], [b[1] for b in m_bounds])
-        best = _fit_once(m, st, m_bounds, maxiter, tag=f"pass {k}",
-                         fit_progress_modulo=(_FIT_PROGRESS_LOG_MODULO if verbose else 0))
+        best = _fit_once(m, st, m_bounds, stage1_maxiter, stage2_maxiter,
+                         tag=f"pass {k}",
+                         fit_progress_modulo=(_STAGE1_PROGRESS_LOG_MODULO if verbose else 0))
         nfev_total += int(best.nfev)
         tag = ("binning from initial calibration" if k == 1
                else "binning from fitted calibration")
@@ -253,7 +280,8 @@ def _fit_passes(model, x0, bounds, maxiter, n_passes, verbose):
     return m, best, nfev_total
 
 
-def run_fit(model, x0=None, maxiter: int = 1000, n_passes: int = 5,
+def run_fit(model, x0=None, stage1_maxiter: int = 300,
+            stage2_maxiter: int = 100000, n_passes: int = 5,
             verbose: bool = True) -> FitResult:
     if x0 is None:
         x0 = model.x0
@@ -270,8 +298,8 @@ def run_fit(model, x0=None, maxiter: int = 1000, n_passes: int = 5,
                   file=sys.stderr)
         return _finalize(model, st, success=True,
                          message="no fit passes (initial parameters)", nfev=0)
-    m, best, nfev_total = _fit_passes(model, x0, model.bounds, maxiter,
-                                      n_passes, verbose)
+    m, best, nfev_total = _fit_passes(model, x0, model.bounds, stage1_maxiter,
+                                      stage2_maxiter, n_passes, verbose)
     if best is None:
         # No admissible binning even at the start point; report honestly.
         return _finalize(model, x0, success=False,
