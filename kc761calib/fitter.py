@@ -1,8 +1,8 @@
-"""Parameter fit with the bounded Nelder-Mead derivative-free optimizer.
+"""Parameter fit with a bounded derivative-free optimizer.
 
 The optimizer runs on a normalized ``[0,1]^d`` parameter space (each coordinate
-scaled by its own bounds), so its simplex step size and convergence tolerance
-are uniform across parameters with very different physical ranges.
+scaled by its own bounds), so its step sizes and convergence tolerances are
+uniform across parameters with very different physical ranges.
 """
 
 from __future__ import annotations
@@ -15,8 +15,16 @@ from scipy import optimize
 from .fitparamspace import CALIB, RESOL
 from .types import FitResult
 
-# Print a Nelder-Mead progress line every this many iterations when verbose.
-_FIT_PROGRESS_LOG_MODULO = 100
+# Print an optimizer progress line every this many iterations when verbose.
+_FIT_PROGRESS_LOG_MODULO = 1
+
+# The optimizer method and its tuning options are grouped here so the fitting
+# stage stays decoupled from any particular scipy solver. `maxiter` (the only
+# per-pass knob) is supplied per call in `_fit_once`.
+_OPTIMIZER = dict(
+    method="Powell",
+    options=dict(xtol=1e-8, ftol=1e-8),
+)
 
 
 def _bounds_arrays(bounds):
@@ -49,7 +57,7 @@ def _progress_callback(model, tag: str, fit_progress_modulo: int,
     parameter space before evaluating diagnostics; defaults to the identity.
     """
     if to_physical is None:
-        to_physical = lambda x: x
+        def to_physical(x): return x
     state = {"iter": 0}
 
     def callback(xk, convergence=None):
@@ -59,17 +67,17 @@ def _progress_callback(model, tag: str, fit_progress_modulo: int,
         det = model.detail(to_physical(np.asarray(xk, dtype=float)))
         chi2 = float(det.chi2)
         if det.valid and det.ndof > 0 and np.isfinite(chi2):
-            print(f"[calib]  {tag} iter {state["iter"]}: chi2/ndof = {chi2} / {det.ndof} = {chi2 / det.ndof}",
+            print(f"[calib]   {tag} iter {state["iter"]}: chi2/ndof = {chi2} / {det.ndof} = {chi2 / det.ndof}",
                   flush=True)
         else:
-            print(f"[calib]  {tag} iter {state["iter"]}: chi2 = {chi2}",
+            print(f"[calib]   {tag} iter {state["iter"]}: chi2 = {chi2}",
                   flush=True)
     return callback
 
 
 def _fit_once(model, x0, bounds, maxiter, tag: str = "fit",
               fit_progress_modulo: int = 0):
-    """One Nelder-Mead pass on the unit-cube space, returning physical params.
+    """One optimizer pass on the unit-cube space, returning physical params.
 
     ``x0`` and ``bounds`` are in physical units; the minimizer only ever sees the
     affine-normalized ``[0,1]^d`` parameters.  The returned ``OptimizeResult``
@@ -90,10 +98,10 @@ def _fit_once(model, x0, bounds, maxiter, tag: str = "fit",
     unit_bounds = [(0.0, 1.0)] * len(u0)
     callback = (_progress_callback(model, tag, fit_progress_modulo, to_physical)
                 if fit_progress_modulo > 0 else None)
-    res = optimize.minimize(objective, u0, method="Nelder-Mead",
+    res = optimize.minimize(objective, u0, method=_OPTIMIZER["method"],
                             bounds=unit_bounds,
-                            options=dict(maxiter=maxiter, xatol=1e-4,
-                                         fatol=1e-3, adaptive=True),
+                            options=dict(maxiter=maxiter,
+                                         **_OPTIMIZER["options"]),
                             callback=callback)
     res.x = to_physical(np.asarray(res.x, dtype=float))
     return res
@@ -154,12 +162,12 @@ def _covariance(model, q) -> np.ndarray:
 def _fit_statistics(model, q):
     det = model.detail(q)
     cov = _covariance(model, q)
-    perr = np.sqrt(np.clip(np.diag(cov), 0, None))
+    perr = np.sqrt(np.maximum(np.diag(cov), 0.0))
 
     calib_cov = np.asarray(cov[CALIB, CALIB], dtype=float)
     resol_cov = np.asarray(cov[RESOL, RESOL], dtype=float)
-    calib_err = np.sqrt(np.clip(np.diag(calib_cov), 0, None))
-    resol_err = np.sqrt(np.clip(np.diag(resol_cov), 0, None))
+    calib_err = np.sqrt(np.maximum(np.diag(calib_cov), 0.0))
+    resol_err = np.sqrt(np.maximum(np.diag(resol_cov), 0.0))
     return det, cov, perr, calib_cov, calib_err, resol_cov, resol_err
 
 
@@ -169,7 +177,7 @@ def _reconcile_success(det, success: bool, message: str):
                        "infeasible parameters)")
     if success:
         return True, message
-    return True, f"converged (Nelder-Mead stopped early: {message})"
+    return True, f"converged (optimizer stopped early: {message})"
 
 
 def _finalize(model, q, success: bool = True, message: str = "",
@@ -245,7 +253,7 @@ def _fit_passes(model, x0, bounds, maxiter, n_passes, verbose):
     return m, best, nfev_total
 
 
-def run_fit(model, x0=None, maxiter: int = 100000, n_passes: int = 5,
+def run_fit(model, x0=None, maxiter: int = 1000, n_passes: int = 5,
             verbose: bool = True) -> FitResult:
     if x0 is None:
         x0 = model.x0

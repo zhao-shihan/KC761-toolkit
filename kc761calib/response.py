@@ -30,7 +30,7 @@ import numpy as np
 
 N_CALIB = 4  # (c0, k1, k2, k3)
 INIT_CALIB = np.array([-180.0, 1.5, 2.5, 3.5])
-BOUNDS_CALIB = [(-200.0, -160.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)]
+BOUNDS_CALIB = [(-300.0, -100.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)]
 
 N_RESOL = 3  # (b0, b1, b2)
 INIT_RESOL = np.array([2.0, 1.0, 0.0])
@@ -103,7 +103,7 @@ def reported_calib(calib_params: np.ndarray | list[float], cov_calib: np.ndarray
     c = c0k1k2k3_to_c0c1c2c3(calib_params, x_max)
     jac = jac_c0k1k2k3(x_max)
     cov = jac @ np.asarray(cov_calib, dtype=float) @ jac.T
-    err = np.sqrt(np.clip(np.diag(cov), 0, None))
+    err = np.sqrt(np.maximum(np.diag(cov), 0.0))
     return c, err, cov
 
 # --------------------------------------------------------------------------
@@ -146,7 +146,7 @@ def resol_model(b: np.ndarray | list[float], e: np.ndarray | float) -> np.ndarra
     b0, b1, b2 = np.asarray(b, dtype=float)
     e = np.asarray(e, dtype=float)
     var = b0**2 + (b1**2 + b2**2 * e) * e
-    return np.sqrt(np.maximum(var, 0.0))
+    return np.sqrt(var)
 
 
 MIN_SIGMA = 0.001  # 1eV

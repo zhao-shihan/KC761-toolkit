@@ -75,7 +75,7 @@ class FitModel:
         d_int = np.interp(x_edges, self._ch_edges, self._cum_counts)
         w_int = np.interp(x_edges, self._ch_edges, self._cum_sumw2)
         d = np.diff(d_int)
-        var = np.clip(np.diff(w_int), 0.0, None)
+        var = np.diff(w_int)
         return d, np.sqrt(var)
 
     def model_counts(self, resol) -> np.ndarray:

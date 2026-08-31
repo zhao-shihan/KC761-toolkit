@@ -57,5 +57,6 @@ class FitParamSpace:
 
     def x0(self) -> np.ndarray:
         # Flat start: all four knot values equal the constant initial scale.
-        scale_block = np.repeat(np.asarray(self.init_scales, dtype=float), N_SCALE)
+        scale_block = np.repeat(np.asarray(
+            self.init_scales, dtype=float), N_SCALE)
         return np.concatenate([INIT_CALIB, INIT_RESOL, scale_block])

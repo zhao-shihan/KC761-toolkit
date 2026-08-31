@@ -34,6 +34,7 @@ def scale_bounds(initial: float) -> list[tuple[float, float]]:
     initial = float(initial)
     return [(SCALE_REL_LO * initial, SCALE_REL_HI * initial)] * N_SCALE
 
+
 _SCALE_CLEAN = re.compile(r"[^A-Za-z0-9_]")
 
 

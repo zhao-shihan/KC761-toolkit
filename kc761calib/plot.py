@@ -159,8 +159,8 @@ def _calibration_panel(ax, calib, x_max: float = 2048.0,
             label="$E(x) = c_0 + c_1 x + c_2 x^2 + c_3 x^3$")
     if calib_cov is not None and np.all(np.isfinite(calib_cov)):
         v = poly_basis(x, 3)
-        err = CALIB_BAND_SCALE * np.sqrt(
-            np.clip(np.sum((v @ calib_cov) * v, axis=1), 0, None))
+        err = CALIB_BAND_SCALE * np.sqrt(np.maximum(
+            np.sum((v @ calib_cov) * v, axis=1), 0.0))
         ax.fill_between(x, e - err, e + err, color="tab:purple", alpha=0.15,
                         lw=0,
                         label=f"1$\\sigma$ band ($\\mathbf{{\\times "
@@ -187,8 +187,8 @@ def _resolution_panel(ax, b, e_max: float, resol_cov=None,
         b = np.asarray(b, dtype=float)
         sigma = resol_model(b, e_res)
         grad = (poly_basis(e_res, 2) * b) / (e_res * sigma)[:, None]
-        err = RESOL_BAND_SCALE * 100.0 * np.sqrt(
-            np.clip(np.sum((grad @ resol_cov) * grad, axis=1), 0, None))
+        err = RESOL_BAND_SCALE * 100.0 * np.sqrt(np.maximum(
+            np.sum((grad @ resol_cov) * grad, axis=1), 0.0))
         ax.fill_between(e_res, rel - err, rel + err, color="tab:orange",
                         alpha=0.15, lw=0,
                         label=f"1$\\sigma$ band ($\\mathbf{{\\times "
