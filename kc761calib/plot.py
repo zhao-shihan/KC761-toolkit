@@ -3,7 +3,7 @@
 from __future__ import annotations
 from .response import (PARAM_NAMES_B, PARAM_NAMES_C, PARAM_NAMES_K, calib_model,
                        poly_basis, resol_model, reported_calib)
-from .scaling import PARAM_NAMES_SCALE, scale_model
+from .scaling import scale_model
 from .fitparamspace import CALIB_K
 from pathlib import Path
 from matplotlib.gridspec import GridSpecFromSubplotSpec
@@ -29,12 +29,6 @@ def _cap(s: str) -> str:
     return s[:1].upper() + s[1:] if s else s
 
 
-def _scale_label(sp) -> str:
-    """Latex "s_i = v" list for plot titles, from PARAM_NAMES_SCALE."""
-    return ",\\ ".join(f"${p} = {v:.4f}$"
-                       for p, v in zip(PARAM_NAMES_SCALE, sp))
-
-
 def _figure_grid(n_datasets: int):
     n_rows = n_datasets + 2
     fig = plt.figure(figsize=(15.0, 3.5 * n_datasets + 5.0))
@@ -48,7 +42,7 @@ def _figure_grid(n_datasets: int):
 
 def _dataset_row(fig, gs, row: int):
     inner = GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[row],
-                                    wspace=0.24)
+                                    wspace=0.45)
     return (fig.add_subplot(inner[0, 0]),
             fig.add_subplot(inner[0, 1]))
 
@@ -90,33 +84,45 @@ def _parameter_panel(ax, txt: str) -> None:
 
 
 def _spectrum_panel(ax, ds, title: str | None) -> None:
-    ax.plot(ds.bin_centers, ds.smeared_model, "-", color="tab:red", lw=1.5,
-            label="Best-fit model (smeared sim.)")
-    ax.errorbar(ds.bin_centers, ds.bin_counts, yerr=ds.sigma, fmt="o", ms=1.5,
-                lw=0.8, alpha=0.6, color="tab:blue",
-                label="Data (-bkg, calibrated)")
+    ax2 = ax.twinx()
+    # Draw the scale curve behind the spectrum artists (and the legend): the
+    # twin axis sits below the primary axis, whose background is transparent so
+    # the curve stays visible.  Layer order (bottom->top): Scale, Raw sim,
+    # Data, Best-fit, Legend.
+    ax2.set_zorder(ax.get_zorder() - 1)
+    ax.patch.set_visible(False)
+    e_curve = np.linspace(ds.elow, ds.ehigh, 300)
+    line_scale, = ax2.plot(e_curve,
+                           scale_model(ds.scale_params, e_curve, ds.elow,
+                                       ds.ehigh), "--",
+                           color="tab:olive", lw=1, zorder=1,
+                           label="Scale s(E)")
+    ax2.set_ylabel("Scale s(E)")
+
     centers_full = 0.5 * (ds.bin_edges[:-1] + ds.bin_edges[1:])
     sb_full = scale_model(ds.scale_params, centers_full, ds.elow, ds.ehigh)
-    ax.stairs(sb_full * ds.raw_sim, ds.bin_edges,
-              color="tab:gray", lw=0.8,
-              label="Raw sim. (perfect res., scaled)")
+    stairs_handle = ax.stairs(sb_full * ds.raw_sim, ds.bin_edges,
+                              color="tab:gray", lw=0.8, zorder=2,
+                              label="Raw sim. (scaled)")
+    data_handle = ax.errorbar(ds.bin_centers, ds.bin_counts, yerr=ds.sigma,
+                              fmt="o", ms=1.5, lw=0.8, alpha=0.6,
+                              color="tab:blue", zorder=3,
+                              label="Data (-bkg, calibrated)")
+    line_fit, = ax.plot(ds.bin_centers, ds.smeared_model, "-", color="tab:red",
+                        lw=1.5, zorder=4,
+                        label="Best fit (smeared sim.)")
     ax.set_yscale("log")
     ax.set_xlim(ds.elow, ds.ehigh)
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Counts")
 
-    ax2 = ax.twinx()
-    e_curve = np.linspace(ds.elow, ds.ehigh, 300)
-    line_scale, = ax2.plot(e_curve,
-                           scale_model(ds.scale_params, e_curve, ds.elow,
-                                       ds.ehigh), "-",
-                           color="tab:green", lw=1.4, label="Scale s(E)")
-    ax2.set_ylabel("Scale s(E)")
-
-    handles, labels = ax.get_legend_handles_labels()
-    handles.append(line_scale)
-    labels.append("Scale s(E)")
-    ax.legend(handles, labels, fontsize=8, loc="upper right")
+    # Legend order (top->bottom): Data, Best-fit, Raw sim., Scale.
+    ax.legend([data_handle, line_fit, stairs_handle, line_scale],
+              ["Data (-bkg, calibrated)",
+               "Best fit (smeared sim.)",
+               "Raw sim. (scaled)",
+               "Scale s(E)"],
+              fontsize=8, loc="upper right")
     if title is not None:
         ax.set_title(title, fontsize=9)
 
@@ -129,7 +135,7 @@ def _residual_panel(ax, bin_centers, bin_counts, sigma, smeared_model, elow,
     ok = smeared_model > 0
     rel = (bin_counts[ok] - smeared_model[ok]) / smeared_model[ok]
     ax.errorbar(bin_centers[ok], rel, yerr=sigma[ok] / smeared_model[ok],
-                fmt="o", ms=1.5, lw=0.8, color="tab:green")
+                fmt="o", ms=1.5, lw=0.8, color="tab:brown")
     ax.axhline(0, color="k", lw=0.8)
     for level in (-0.3, 0.3):
         ax.axhline(level, color="tab:red", lw=0.6, ls=":")
@@ -202,23 +208,20 @@ def plot_fit(result, out_pdf: str) -> None:
     n = len(det.datasets)
 
     fig, gs = _figure_grid(n)
-    if n > 1:
-        scale_note = f"({n} datasets)"
-    else:
-        scale_note = _scale_label(det.datasets[0].scale_params)
+    note = f"({n} datasets)" if n > 1 else ""
     _title_panel(
         fig.add_subplot(gs[0]),
         f"KC761 calibration  |  "
         f"$\\chi^2/\\mathrm{{ndof}} = {result.chi2:.1f}/{result.ndof} "
-        f"= {result.reduced_chi2:.2f}$  {scale_note}")
+        f"= {result.reduced_chi2:.2f}$"
+        + (f"  {note}" if note else ""))
 
     for i, ds in enumerate(det.datasets):
         ax_spec, ax_pull = _dataset_row(fig, gs, i + 1)
         label = _cap(ds.label)
         if n > 1:
             spec_title = (f"{label}  [{ds.elow:g}-{ds.ehigh:g} keV]  "
-                          f"$\\chi^2 = {ds.chi2:.1f}$, {ds.n_bins} bins, "
-                          f"{_scale_label(ds.scale_params)}")
+                          f"$\\chi^2 = {ds.chi2:.1f}$, {ds.n_bins} bins")
             pull_title = f"{label} relative residual"
         else:
             spec_title = None
