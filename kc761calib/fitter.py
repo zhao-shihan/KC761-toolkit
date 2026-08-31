@@ -14,13 +14,13 @@ from .types import FitResult
 _FIT_PROGRESS_LOG_MODULO = 100
 
 
-def _progress_callback(model, tag: str, log_modulo: int):
+def _progress_callback(model, tag: str, fit_progress_modulo: int):
     """Build a minimize callback that prints the current chi^2/params periodically."""
     state = {"iter": 0}
 
     def callback(xk, convergence=None):
         state["iter"] += 1
-        if state["iter"] % log_modulo != 0:
+        if state["iter"] % fit_progress_modulo != 0:
             return
         chi2 = model.evaluate(xk)
         print(f"[calib]   {tag} iter {state["iter"]}: chi2 = {chi2}",
@@ -29,10 +29,10 @@ def _progress_callback(model, tag: str, log_modulo: int):
 
 
 def _fit_once(model, x0, bounds, maxiter, tag: str = "fit",
-              log_modulo: int = 0):
+              fit_progress_modulo: int = 0):
     x0 = np.asarray(x0, dtype=float)
-    callback = (_progress_callback(model, tag, log_modulo)
-                if log_modulo > 0 else None)
+    callback = (_progress_callback(model, tag, fit_progress_modulo)
+                if fit_progress_modulo > 0 else None)
     return optimize.minimize(
         model.evaluate, x0, method="Nelder-Mead", bounds=bounds,
         options=dict(maxiter=maxiter, xatol=1e-6, fatol=1e-3, adaptive=True),
@@ -162,7 +162,7 @@ def _fit_passes(model, x0, bounds, maxiter, n_passes, verbose):
             break  # report the previous, still-valid pass
         m = m_new
         best = _fit_once(m, st, bounds, maxiter, tag=f"pass {k}",
-                         log_modulo=(_FIT_PROGRESS_LOG_MODULO if verbose else 0))
+                         fit_progress_modulo=(_FIT_PROGRESS_LOG_MODULO if verbose else 0))
         nfev_total += int(best.nfev)
         tag = ("binning from initial calibration" if k == 1
                else "binning from fitted calibration")

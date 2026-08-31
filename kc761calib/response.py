@@ -111,23 +111,28 @@ def reported_calib(calib_params: np.ndarray | list[float], cov_calib: np.ndarray
 
 
 if "NUMBA_NUM_THREADS" not in os.environ:
-    numba.set_num_threads(min(numba.get_num_threads(), 16))
+    numba.set_num_threads(min(numba.get_num_threads(), 32))
 
 _SQRT_2PI_INV = 1.0 / np.sqrt(2.0 * np.pi)
 
 
 @numba.njit(parallel=True)
-def _smear_kernel(ec, f, sig_j, mu, sig_i, widths, nsigma):
+def _smear_kernel(ec, coef, sig, mu, sig_i, widths, nsigma):
+    """Gaussian blur of ``coef`` placed at ``ec`` onto centers ``mu``.
+
+    ``coef = f / (sqrt(2 pi) sig)`` is the pre-scaled weight at each
+    simulation center (``f`` is the sim count, ``sig`` the smearing sigma).
+    Only centers within ``nsigma`` sigma of each target center contribute;
+    ``searchsorted`` finds that contiguous span in the sorted ``ec`` grid.
+    """
     out = np.empty(mu.shape[0], dtype=np.float64)
     for i in numba.prange(mu.shape[0]):
         lo = np.searchsorted(ec, mu[i] - nsigma * sig_i[i])
         hi = np.searchsorted(ec, mu[i] + nsigma * sig_i[i])
         s = 0.0
         for j in range(lo, hi):
-            if sig_j[j] <= 0.0:
-                continue
-            d = (mu[i] - ec[j]) / sig_j[j]
-            s += f[j] * np.exp(-0.5 * d * d) * _SQRT_2PI_INV / sig_j[j]
+            d = (mu[i] - ec[j]) / sig[j]
+            s += coef[j] * np.exp(-0.5 * d * d)
         out[i] = widths[i] * s
     return out
 
@@ -149,13 +154,14 @@ MIN_SIGMA = 0.001  # 1eV
 
 def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
                   t_lo: np.ndarray, t_hi: np.ndarray,
-                  b: np.ndarray | list[float], nsigma: float = 4.0) -> np.ndarray:
+                  b: np.ndarray | list[float], nsigma: float = 4.0,
+                  sim_centers: np.ndarray | None = None) -> np.ndarray:
     """Convolve sim counts with an energy-dependent Gaussian onto target bins."""
     b = np.asarray(b, dtype=float)
+    if sim_centers is None:
+        sim_centers = 0.5 * (sim_edges[:-1] + sim_edges[1:])
     mu = 0.5 * (t_lo + t_hi)
     sig_i = np.maximum(resol_model(b, mu), MIN_SIGMA)
-
-    sim_centers = 0.5 * (sim_edges[:-1] + sim_edges[1:])
 
     pad = nsigma * np.max(sig_i) if sig_i.size else 0.0
     jsel = (sim_centers >= mu.min() - pad) & (sim_centers <= mu.max() + pad)
@@ -166,12 +172,15 @@ def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
     ec = sim_centers[js]
     f = sim_counts[js]
     sig_j = np.maximum(resol_model(b, ec), MIN_SIGMA)
+    coef = f * _SQRT_2PI_INV / sig_j
 
-    return _smear_kernel(ec, f, sig_j, mu, sig_i, t_hi - t_lo, nsigma)
+    return _smear_kernel(ec, coef, sig_j, mu, sig_i, t_hi - t_lo, nsigma)
 
 
 def smear(sim_counts: np.ndarray, sim_edges: np.ndarray,
           target_edges: np.ndarray, b: np.ndarray | list[float],
-          nsigma: float = 4.0) -> np.ndarray:
+          nsigma: float = 4.0,
+          sim_centers: np.ndarray | None = None) -> np.ndarray:
     return smear_on_bins(sim_counts, sim_edges,
-                         target_edges[:-1], target_edges[1:], b, nsigma)
+                         target_edges[:-1], target_edges[1:], b, nsigma,
+                         sim_centers=sim_centers)

@@ -104,6 +104,16 @@ class GlobalFitModel:
         calib, _ = gate
         return [m.rebin_data(calib)[1] > 0 for m in self.models]
 
+    def _per_dataset_predictions(self, calib, resol, mask_list=None):
+        predictions = []
+        for i, m in enumerate(self.models):
+            mask = None if mask_list is None else mask_list[i]
+            dm, w, mm, msk = m.pulled(calib, resol, mask=mask)
+            if len(dm) < m.min_usable_bins:
+                return None
+            predictions.append((dm, w, mm, m.bin_centers[msk]))
+        return predictions
+
     def residuals(self, q, mask_list=None) -> np.ndarray:
         q = np.asarray(q, dtype=float)
         if mask_list is not None:
@@ -114,12 +124,12 @@ class GlobalFitModel:
         if gate is None:
             return np.full(int(sum(sizes)), np.nan)
         calib, resol = gate
+        predictions = self._per_dataset_predictions(calib, resol, mask_list)
+        if predictions is None:
+            return np.full(int(sum(sizes)), np.nan)
         out = []
-        for i, m in enumerate(self.models):
-            mask = None if mask_list is None else mask_list[i]
-            dm, w, mm, msk = m.pulled(calib, resol, mask=mask)
-            bc = m.bin_centers[msk]
-            sb = scale_model(q[self.param_space.scale_slice(i)], bc)
+        for i, (dm, w, mm, bc) in enumerate(predictions):
+            sb = scale_model(q[self.param_space.scale(i)], bc)
             out.append((dm - sb * mm) / w)
         return np.concatenate(out)
 
@@ -130,13 +140,12 @@ class GlobalFitModel:
             return np.inf
         calib, resol = gate
         q = np.asarray(q, dtype=float)
+        predictions = self._per_dataset_predictions(calib, resol)
+        if predictions is None:
+            return np.inf
         total = 0.0
-        for i, m in enumerate(self.models):
-            dm, w, mm, msk = m.pulled(calib, resol)
-            if len(dm) < m.min_usable_bins:
-                return np.inf
-            bc = m.bin_centers[msk]
-            sb = scale_model(q[self.param_space.scale_slice(i)], bc)
+        for i, (dm, w, mm, bc) in enumerate(predictions):
+            sb = scale_model(q[self.param_space.scale(i)], bc)
             res = (dm - sb * mm) / w
             total += float(res @ res)
         return total if np.isfinite(total) else np.inf
@@ -146,7 +155,7 @@ class GlobalFitModel:
         q = np.asarray(q, dtype=float)
         calib_params = np.asarray(q[CALIB], dtype=float)
         resol_params = np.asarray(q[RESOL], dtype=float)
-        scale_params = np.asarray(q[self.param_space.scales], dtype=float)
+        scale_params = np.asarray(q[self.param_space.scale_block], dtype=float)
         base = dict(calib_params=calib_params, resol_params=resol_params,
                     scale_params=scale_params,
                     channel_max=self.channel_max,
@@ -158,7 +167,7 @@ class GlobalFitModel:
         for i, m in enumerate(self.models):
             entries.append(m.dataset_detail(self.labels[i], calib_params,
                                             resol_params,
-                                            q[self.param_space.scale_slice(i)]))
+                                            q[self.param_space.scale(i)]))
         if gate is None or any(ds.n_bins < m.min_usable_bins
                                for ds, m in zip(entries, self.models)):
             return FitDetail(datasets=[], chi2=np.inf, ndof=0,

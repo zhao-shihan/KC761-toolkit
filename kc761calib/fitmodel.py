@@ -43,6 +43,8 @@ class FitModel:
         self.bin_centers = 0.5 * (self.bin_edges[:-1] + self.bin_edges[1:])
         self.bin_width = float(np.diff(self.bin_edges)[0])
 
+        self._sim_centers = 0.5 * (self.sim.edges[:-1] + self.sim.edges[1:])
+
         # s_ref starts at zero so that the initial scale estimate ignores the
         # bin-width systematic (its model gradient is not meaningful yet); it
         # then holds the estimate for the error weights used during fitting.
@@ -77,7 +79,8 @@ class FitModel:
         return d, np.sqrt(var)
 
     def model_counts(self, resol) -> np.ndarray:
-        return smear(self.sim.counts, self.sim.edges, self.bin_edges, resol)
+        return smear(self.sim.counts, self.sim.edges, self.bin_edges, resol,
+                     sim_centers=self._sim_centers)
 
     def sim_on_bins(self) -> np.ndarray:
         """Unsmeared simulation integrated onto the bins (plot reference)."""
