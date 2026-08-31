@@ -9,8 +9,9 @@ inside each dataset's fit window ``[elow, ehigh]``:
    s(E)   = cubic interpolant of the four values (s0, s1, s2, s3) at the knots.
 
 With all four values equal the curve reduces to that constant (the initial
-``x0``), matching the old sigmoid's ``s1 = s2 = 0`` behavior.  All four values
-share the fixed bounds below.
+``x0``), matching the old sigmoid's ``s1 = s2 = 0`` behavior.  During fitting the
+four knots share per-dataset bounds relative to that initial overall
+normalization (``[SCALE_REL_LO, SCALE_REL_HI] * s_initial``).
 """
 
 from __future__ import annotations
@@ -21,7 +22,17 @@ import numpy as np
 
 N_SCALE = 4  # (s0, s1, s2, s3) values at the four knots
 PARAM_NAMES_SCALE = ["s0", "s1", "s2", "s3"]
-BOUNDS_SCALE = [(1e-3, 1e3)] * N_SCALE
+
+# The fitted scale knots may vary within [LO, HI] * s_initial around each
+# dataset's initial overall-normalization estimate (s0..s3 all start there).
+SCALE_REL_LO = 0.05
+SCALE_REL_HI = 1.95
+
+
+def scale_bounds(initial: float) -> list[tuple[float, float]]:
+    """Per-dataset scale bounds: each knot within ``[LO, HI] * initial``."""
+    initial = float(initial)
+    return [(SCALE_REL_LO * initial, SCALE_REL_HI * initial)] * N_SCALE
 
 _SCALE_CLEAN = re.compile(r"[^A-Za-z0-9_]")
 

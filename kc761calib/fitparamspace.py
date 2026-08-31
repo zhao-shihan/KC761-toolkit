@@ -8,7 +8,7 @@ import numpy as np
 
 from .response import (BOUNDS_RESOL, BOUNDS_CALIB, INIT_CALIB, INIT_RESOL,
                        N_CALIB, N_RESOL, PARAM_NAMES_CORE)
-from .scaling import BOUNDS_SCALE, N_SCALE, scale_names
+from .scaling import N_SCALE, scale_bounds, scale_names
 
 N_CORE = N_CALIB + N_RESOL
 CALIB = slice(0, N_CALIB)
@@ -19,6 +19,13 @@ RESOL = slice(N_CALIB, N_CORE)
 @dataclass(frozen=True)
 class FitParamSpace:
     scale_labels: tuple[str, ...]
+    init_scales: tuple[float, ...]
+
+    def __post_init__(self):
+        if len(self.init_scales) != len(self.scale_labels):
+            raise ValueError(
+                "init_scales must provide one value per dataset "
+                f"({len(self.scale_labels)} datasets, got {len(self.init_scales)})")
 
     @property
     def n_datasets(self) -> int:
@@ -45,10 +52,10 @@ class FitParamSpace:
     def bounds(self) -> list[tuple[float, float]]:
         bounds = [*BOUNDS_CALIB, *BOUNDS_RESOL]
         for i in range(self.n_datasets):
-            bounds.extend(BOUNDS_SCALE)
+            bounds.extend(scale_bounds(float(self.init_scales[i])))
         return bounds
 
-    def x0(self, init_scales: np.ndarray | list[float]) -> np.ndarray:
+    def x0(self) -> np.ndarray:
         # Flat start: all four knot values equal the constant initial scale.
-        scale_block = np.repeat(np.asarray(init_scales, dtype=float), N_SCALE)
+        scale_block = np.repeat(np.asarray(self.init_scales, dtype=float), N_SCALE)
         return np.concatenate([INIT_CALIB, INIT_RESOL, scale_block])

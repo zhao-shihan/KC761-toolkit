@@ -1,4 +1,9 @@
-"""Parameter fit with the bounded Nelder-Mead derivative-free optimizer."""
+"""Parameter fit with the bounded Nelder-Mead derivative-free optimizer.
+
+The optimizer runs on a normalized ``[0,1]^d`` parameter space (each coordinate
+scaled by its own bounds), so its simplex step size and convergence tolerance
+are uniform across parameters with very different physical ranges.
+"""
 
 from __future__ import annotations
 
@@ -14,15 +19,44 @@ from .types import FitResult
 _FIT_PROGRESS_LOG_MODULO = 100
 
 
-def _progress_callback(model, tag: str, fit_progress_modulo: int):
-    """Build a minimize callback that prints chi^2 and chi^2/ndof periodically."""
+def _bounds_arrays(bounds):
+    """Split bounds into ``(lo, hi)`` float vectors.
+
+    Every parameter must have a finite, non-degenerate interval.
+    """
+    lo = np.asarray([b[0] for b in bounds], dtype=float)
+    hi = np.asarray([b[1] for b in bounds], dtype=float)
+    if np.any(hi - lo <= 0.0):
+        raise ValueError("every parameter bound must have lo < hi")
+    return lo, hi
+
+
+def _normalize(x, lo, hi) -> np.ndarray:
+    """Physical params ``x`` -> unit cube ``[0,1]^d`` via bounds ``(lo, hi)``."""
+    return (np.asarray(x, dtype=float) - lo) / (hi - lo)
+
+
+def _denormalize(u, lo, hi) -> np.ndarray:
+    """Unit-cube params ``u`` -> physical ``x`` via bounds ``(lo, hi)``."""
+    return lo + np.asarray(u, dtype=float) * (hi - lo)
+
+
+def _progress_callback(model, tag: str, fit_progress_modulo: int,
+                       to_physical=None):
+    """Build a minimize callback that prints chi^2 and chi^2/ndof periodically.
+
+    ``to_physical`` maps the minimizer's (normalized) point back to the physical
+    parameter space before evaluating diagnostics; defaults to the identity.
+    """
+    if to_physical is None:
+        to_physical = lambda x: x
     state = {"iter": 0}
 
     def callback(xk, convergence=None):
         state["iter"] += 1
         if state["iter"] % fit_progress_modulo != 0:
             return
-        det = model.detail(xk)
+        det = model.detail(to_physical(np.asarray(xk, dtype=float)))
         chi2 = float(det.chi2)
         if det.valid and det.ndof > 0 and np.isfinite(chi2):
             print(f"[calib]  {tag} iter {state["iter"]}: chi2/ndof = {chi2} / {det.ndof} = {chi2 / det.ndof}",
@@ -35,13 +69,34 @@ def _progress_callback(model, tag: str, fit_progress_modulo: int):
 
 def _fit_once(model, x0, bounds, maxiter, tag: str = "fit",
               fit_progress_modulo: int = 0):
+    """One Nelder-Mead pass on the unit-cube space, returning physical params.
+
+    ``x0`` and ``bounds`` are in physical units; the minimizer only ever sees the
+    affine-normalized ``[0,1]^d`` parameters.  The returned ``OptimizeResult``
+    carries ``x`` mapped back to physical space so callers can treat it as before.
+    """
     x0 = np.asarray(x0, dtype=float)
-    callback = (_progress_callback(model, tag, fit_progress_modulo)
+    lo, hi = _bounds_arrays(bounds)
+
+    def to_physical(u):
+        """Unit-cube -> physical parameter vector."""
+        return _denormalize(u, lo, hi)
+
+    def objective(u):
+        """Chi-square in physical space, evaluated at the minimizer's ``u``."""
+        return model.evaluate(to_physical(u))
+
+    u0 = _normalize(x0, lo, hi)
+    unit_bounds = [(0.0, 1.0)] * len(u0)
+    callback = (_progress_callback(model, tag, fit_progress_modulo, to_physical)
                 if fit_progress_modulo > 0 else None)
-    return optimize.minimize(
-        model.evaluate, x0, method="Nelder-Mead", bounds=bounds,
-        options=dict(maxiter=maxiter, xatol=1e-6, fatol=1e-3, adaptive=True),
-        callback=callback)
+    res = optimize.minimize(objective, u0, method="Nelder-Mead",
+                            bounds=unit_bounds,
+                            options=dict(maxiter=maxiter, xatol=1e-4,
+                                         fatol=1e-3, adaptive=True),
+                            callback=callback)
+    res.x = to_physical(np.asarray(res.x, dtype=float))
+    return res
 
 
 def finite_difference_jacobian(fun, x0: np.ndarray,
@@ -147,7 +202,11 @@ def _finalize(model, q, success: bool = True, message: str = "",
 
 
 def _fit_passes(model, x0, bounds, maxiter, n_passes, verbose):
-    """Fit repeatedly, re-freezing the energy binning from the fitted anchors."""
+    """Fit repeatedly, re-freezing the energy binning from the fitted anchors.
+
+    Each pass builds its model from the previous optimum and uses that model's
+    own bounds, so the per-dataset scale box is re-derived every pass.
+    """
     x0 = np.asarray(x0, dtype=float)
     if not np.isfinite(x0).all():
         raise ValueError("fit starting point x0 contains NaN/inf")
@@ -162,11 +221,19 @@ def _fit_passes(model, x0, bounds, maxiter, n_passes, verbose):
     nfev_total = 0
     for k in range(1, n_passes + 1):
         st = x0 if best is None else best.x
-        m_new = model.rebuilt(st[CALIB])
+        try:
+            m_new = model.rebuilt(st[CALIB])
+        except ValueError as exc:
+            print(f"[calib] warning: pass {k} rebuild failed; using the "
+                  f"previous valid pass ({exc})", file=sys.stderr)
+            break
         if not (m_new.binning_ok() and m_new.is_valid(st)):
             break  # report the previous, still-valid pass
         m = m_new
-        best = _fit_once(m, st, bounds, maxiter, tag=f"pass {k}",
+        m_bounds = m.bounds
+        st = np.clip(np.asarray(st, dtype=float),
+                     [b[0] for b in m_bounds], [b[1] for b in m_bounds])
+        best = _fit_once(m, st, m_bounds, maxiter, tag=f"pass {k}",
                          fit_progress_modulo=(_FIT_PROGRESS_LOG_MODULO if verbose else 0))
         nfev_total += int(best.nfev)
         tag = ("binning from initial calibration" if k == 1

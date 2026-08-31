@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from .response import INIT_CALIB, INIT_RESOL, calib_model, smear
-from .scaling import BOUNDS_SCALE, scale_model
+from .scaling import scale_model
 from .types import DatasetDetail
 
 DEFAULT_SYS_FRAC = 0.05
@@ -168,13 +168,18 @@ class FitModel:
         d, err, m_raw = self.arrays(calib, resol)
         mask = err > 0
         if not np.any(mask):
-            return 1.0
+            raise ValueError("cannot estimate the initial scale: no usable bins "
+                             "(no positive statistical error)")
         m_prime = np.gradient(m_raw, self.bin_centers)[mask]
         dm, em, mm = d[mask], err[mask], m_raw[mask]
         var = self.error_model(dm, em, m_prime) ** 2
         smm = float(np.sum(mm * mm / var))
         if smm <= 0:
-            return 1.0
+            raise ValueError("cannot estimate the initial scale: zero model "
+                             "normalization in the usable bins")
         s0 = float(np.sum(dm * mm / var) / smm)
-        lo, hi = BOUNDS_SCALE[0]
-        return float(np.clip(s0, lo, hi))
+        if not np.isfinite(s0) or s0 <= 0.0:
+            raise ValueError(
+                f"cannot estimate the initial scale: got non-positive or "
+                f"non-finite value {s0}")
+        return s0

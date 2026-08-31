@@ -53,8 +53,9 @@ class GlobalFitModel:
                 f"global calibration is shared): got {sorted(n_bins)}")
 
         self.channel_max = float(max(m.data.edges[-1] for m in self.models))
-        self.param_space = FitParamSpace(tuple(self.labels))
-        self.x0 = self.param_space.x0([m.initial_scale for m in self.models])
+        self.param_space = FitParamSpace(
+            tuple(self.labels), tuple(m.initial_scale for m in self.models))
+        self.x0 = self.param_space.x0()
         self.bounds = self.param_space.bounds
 
     @property
