@@ -15,16 +15,21 @@ _FIT_PROGRESS_LOG_MODULO = 100
 
 
 def _progress_callback(model, tag: str, fit_progress_modulo: int):
-    """Build a minimize callback that prints the current chi^2/params periodically."""
+    """Build a minimize callback that prints chi^2 and chi^2/ndof periodically."""
     state = {"iter": 0}
 
     def callback(xk, convergence=None):
         state["iter"] += 1
         if state["iter"] % fit_progress_modulo != 0:
             return
-        chi2 = model.evaluate(xk)
-        print(f"[calib]   {tag} iter {state["iter"]}: chi2 = {chi2}",
-              flush=True)
+        det = model.detail(xk)
+        chi2 = float(det.chi2)
+        if det.valid and det.ndof > 0 and np.isfinite(chi2):
+            print(f"[calib]  {tag} iter {state["iter"]}: chi2/ndof = {chi2} / {det.ndof} = {chi2 / det.ndof}",
+                  flush=True)
+        else:
+            print(f"[calib]  {tag} iter {state["iter"]}: chi2 = {chi2}",
+                  flush=True)
     return callback
 
 
