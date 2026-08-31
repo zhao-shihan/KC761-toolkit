@@ -73,7 +73,7 @@ def _progress_callback(model, tag: str, fit_progress_modulo: int,
             return
         det = model.detail(to_physical(np.asarray(xk, dtype=float)))
         chi2 = float(det.chi2)
-        head = f"[calib]   {tag} iter {state['iter']:<5d}:"
+        head = f"[calib]   {tag} iter {state['iter']:<6d}:"
         if det.valid and det.ndof > 0 and np.isfinite(chi2):
             print(f"{head} chi2/ndof = {chi2:>14.4f} / {det.ndof:<6d} = {chi2 / det.ndof:<14.4f}",
                   flush=True)

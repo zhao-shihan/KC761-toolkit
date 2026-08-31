@@ -111,7 +111,7 @@ def reported_calib(calib_params: np.ndarray | list[float], cov_calib: np.ndarray
 
 
 if "NUMBA_NUM_THREADS" not in os.environ:
-    numba.set_num_threads(min(numba.get_num_threads(), 32))
+    numba.set_num_threads(min(numba.get_num_threads(), 16))
 
 _SQRT_2PI_INV = 1.0 / np.sqrt(2.0 * np.pi)
 
