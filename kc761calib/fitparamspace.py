@@ -19,7 +19,6 @@ RESOL = slice(N_CALIB, N_CORE)
 @dataclass(frozen=True)
 class FitParamSpace:
     scale_labels: tuple[str, ...]
-    s2_bounds: tuple[tuple[float, float], ...]
 
     @property
     def n_datasets(self) -> int:
@@ -46,13 +45,10 @@ class FitParamSpace:
     def bounds(self) -> list[tuple[float, float]]:
         bounds = [*BOUNDS_CALIB, *BOUNDS_RESOL]
         for i in range(self.n_datasets):
-            bounds.extend(
-                (BOUNDS_SCALE[0], BOUNDS_SCALE[1], self.s2_bounds[i]))
+            bounds.extend(BOUNDS_SCALE)
         return bounds
 
     def x0(self, init_scales: np.ndarray | list[float]) -> np.ndarray:
-        scale_block = np.zeros(N_SCALE * self.n_datasets)
-        scale_block[::N_SCALE] = np.asarray(init_scales, dtype=float)
-        midpoints = [0.5 * (lo + hi) for (lo, hi) in self.s2_bounds]
-        scale_block[2::N_SCALE] = np.asarray(midpoints, dtype=float)
+        # Flat start: all four knot values equal the constant initial scale.
+        scale_block = np.repeat(np.asarray(init_scales, dtype=float), N_SCALE)
         return np.concatenate([INIT_CALIB, INIT_RESOL, scale_block])

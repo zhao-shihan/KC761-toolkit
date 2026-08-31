@@ -12,7 +12,7 @@ from kc761calib.fitter import run_fit
 from kc761calib.globalfit import DatasetSpec, GlobalFitModel
 from kc761calib.io import load_data_spectrum, load_sim_spectrum
 from kc761calib.fitmodel import DEFAULT_SYS_FRAC
-from kc761calib.scaling import N_SCALE
+from kc761calib.scaling import N_SCALE, PARAM_NAMES_SCALE
 from kc761calib.util import broadcast
 from kc761calib.plot import plot_fit
 from kc761calib.report import print_summary
@@ -93,12 +93,12 @@ def _run_calib(args) -> int:
         lo = i * N_SCALE
         sp = result.scales[lo:lo + N_SCALE]
         se = result.scale_errors[lo:lo + N_SCALE]
+        scale_str = ", ".join(f"{name} = {v:.6g} +/- {e_:.3g}"
+                              for name, v, e_ in zip(PARAM_NAMES_SCALE, sp, se))
         dataset_lines.append(
             f"[calib]   {label}: chi2 = {result.chi2_per_dataset[i]:.2f}, "
             f"{result.detail.bins_per_dataset[i]} bins, "
-            f"scale s0 = {sp[0]:.6g} +/- {se[0]:.3g}, "
-            f"s1 = {sp[1]:.6g} +/- {se[1]:.3g}, "
-            f"s2 = {sp[2]:.6g} +/- {se[2]:.3g}")
+            f"scale {scale_str}")
     print_summary(result, dataset_lines=dataset_lines)
 
     if args.output is not None:

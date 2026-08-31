@@ -1,14 +1,16 @@
 """Energy-dependent normalization scale model.
 
 The scale corrects the overall difference between the simulated and the real
-experimental spectra and is allowed to vary with energy:
+experimental spectra and is allowed to vary with energy.  It is a cubic
+polynomial parameterized by the function values at four fixed energy knots
+inside each dataset's fit window ``[elow, ehigh]``:
 
-   s(E) = s0 * 2 / (1 + exp(s1*(E - s2)))  =  s0 * 2 * expit(s1*(s2 - E)).
+   knots  = (E_min, .75*E_min + .25*E_max, .25*E_min + .75*E_max, E_max)
+   s(E)   = cubic interpolant of the four values (s0, s1, s2, s3) at the knots.
 
-With the defaults ``s1 = s2 = 0`` this reduces to the constant ``s0``.  ``s0``
-and ``s1`` have the fixed bounds below; ``s2``'s bound is per dataset (see
-``fitparamspace.FitParamSpace.s2_bounds``) because it is tied to each dataset's
-fit window.
+With all four values equal the curve reduces to that constant (the initial
+``x0``), matching the old sigmoid's ``s1 = s2 = 0`` behavior.  All four values
+share the fixed bounds below.
 """
 
 from __future__ import annotations
@@ -16,23 +18,47 @@ from __future__ import annotations
 import re
 
 import numpy as np
-from scipy.special import expit
 
-N_SCALE = 3  # (s0, s1, s2)
-PARAM_NAMES_SCALE = ["s0", "s1", "s2"]
-BOUNDS_SCALE = [(1e-3, 1e3), (-0.05, 0.05)]
+N_SCALE = 4  # (s0, s1, s2, s3) values at the four knots
+PARAM_NAMES_SCALE = ["s0", "s1", "s2", "s3"]
+BOUNDS_SCALE = [(1e-3, 1e3)] * N_SCALE
 
 _SCALE_CLEAN = re.compile(r"[^A-Za-z0-9_]")
 
 
 def scale_names(label: str, index: int) -> list[str]:
-    """Per-dataset scale-parameter names ``(s0, s1, s2)``."""
+    """Per-dataset scale-parameter names ``(s0, s1, s2, s3)``."""
     clean = _SCALE_CLEAN.sub("_", str(label)).strip("_") or str(index)
     return [f"{p}_{clean}" for p in PARAM_NAMES_SCALE]
 
 
-def scale_model(s: np.ndarray | list[float], e: np.ndarray | float) -> np.ndarray:
-    """s(E) = s0 * 2 / (1 + exp(s1*(E - s2))) for ``s = [s0, s1, s2]``."""
-    s0, s1, s2 = np.asarray(s, dtype=float)[:3]
+def scale_knots(elow: float, ehigh: float) -> np.ndarray:
+    """Four cubic knots on the fit window ``(E_min, E_max)``."""
+    elow, ehigh = float(elow), float(ehigh)
+    return np.array([elow,
+                     0.75 * elow + 0.25 * ehigh,
+                     0.25 * elow + 0.75 * ehigh,
+                     ehigh])
+
+
+# After normalizing E to t = (E - E_min)/(E_max - E_min) the knots sit at the
+# fixed positions (0, .25, .75, 1), so the monomial coefficients of the
+# interpolating cubic are a fixed linear map of the four values (well
+# conditioned: all nodes lie in [0, 1]).
+_SCALE_KNOTS_T = np.array([0.0, 0.25, 0.75, 1.0])
+_SCALE_COEF_MAP = np.linalg.inv(
+    np.stack([_SCALE_KNOTS_T**k for k in range(N_SCALE)], axis=1))
+
+
+def scale_model(s: np.ndarray | list[float], e: np.ndarray | float,
+                elow: float, ehigh: float) -> np.ndarray:
+    """Cubic s(E) interpolating the four values ``s=[s0, s1, s2, s3]``.
+
+    ``s0``..``s3`` are the scale values at ``scale_knots(elow, ehigh)``; the
+    unique cubic through them is evaluated in monomial form by Horner.
+    """
+    vals = np.asarray(s, dtype=float)[:N_SCALE]
     e = np.asarray(e, dtype=float)
-    return s0 * 2.0 * expit(s1 * (s2 - e))
+    t = (e - elow) / (ehigh - elow)
+    c0, c1, c2, c3 = _SCALE_COEF_MAP @ vals
+    return c0 + t * (c1 + t * (c2 + t * c3))

@@ -3,7 +3,7 @@
 from __future__ import annotations
 from .response import (PARAM_NAMES_B, PARAM_NAMES_C, PARAM_NAMES_K, calib_model,
                        poly_basis, resol_model, reported_calib)
-from .scaling import scale_model
+from .scaling import PARAM_NAMES_SCALE, scale_model
 from .fitparamspace import CALIB_K
 from pathlib import Path
 from matplotlib.gridspec import GridSpecFromSubplotSpec
@@ -27,6 +27,12 @@ def _save_fig(fig, out_pdf: str) -> None:
 def _cap(s: str) -> str:
     s = str(s)
     return s[:1].upper() + s[1:] if s else s
+
+
+def _scale_label(sp) -> str:
+    """Latex "s_i = v" list for plot titles, from PARAM_NAMES_SCALE."""
+    return ",\\ ".join(f"${p} = {v:.4f}$"
+                       for p, v in zip(PARAM_NAMES_SCALE, sp))
 
 
 def _figure_grid(n_datasets: int):
@@ -90,7 +96,7 @@ def _spectrum_panel(ax, ds, title: str | None) -> None:
                 lw=0.8, alpha=0.6, color="tab:blue",
                 label="Data (-bkg, calibrated)")
     centers_full = 0.5 * (ds.bin_edges[:-1] + ds.bin_edges[1:])
-    sb_full = scale_model(ds.scale_params, centers_full)
+    sb_full = scale_model(ds.scale_params, centers_full, ds.elow, ds.ehigh)
     ax.stairs(sb_full * ds.raw_sim, ds.bin_edges,
               color="tab:gray", lw=0.8,
               label="Raw sim. (perfect res., scaled)")
@@ -101,7 +107,9 @@ def _spectrum_panel(ax, ds, title: str | None) -> None:
 
     ax2 = ax.twinx()
     e_curve = np.linspace(ds.elow, ds.ehigh, 300)
-    line_scale, = ax2.plot(e_curve, scale_model(ds.scale_params, e_curve), "-",
+    line_scale, = ax2.plot(e_curve,
+                           scale_model(ds.scale_params, e_curve, ds.elow,
+                                       ds.ehigh), "-",
                            color="tab:green", lw=1.4, label="Scale s(E)")
     ax2.set_ylabel("Scale s(E)")
 
@@ -197,9 +205,7 @@ def plot_fit(result, out_pdf: str) -> None:
     if n > 1:
         scale_note = f"({n} datasets)"
     else:
-        sp0 = det.datasets[0].scale_params
-        scale_note = (f"$s_0 = {sp0[0]:.4f}$, $s_1 = {sp0[1]:.4f}$, "
-                      f"$s_2 = {sp0[2]:.4f}$")
+        scale_note = _scale_label(det.datasets[0].scale_params)
     _title_panel(
         fig.add_subplot(gs[0]),
         f"KC761 calibration  |  "
@@ -209,12 +215,10 @@ def plot_fit(result, out_pdf: str) -> None:
     for i, ds in enumerate(det.datasets):
         ax_spec, ax_pull = _dataset_row(fig, gs, i + 1)
         label = _cap(ds.label)
-        sp = ds.scale_params
         if n > 1:
             spec_title = (f"{label}  [{ds.elow:g}-{ds.ehigh:g} keV]  "
                           f"$\\chi^2 = {ds.chi2:.1f}$, {ds.n_bins} bins, "
-                          f"$s_0 = {sp[0]:.4f}$, $s_1 = {sp[1]:.4f}$, "
-                          f"$s_2 = {sp[2]:.4f}$")
+                          f"{_scale_label(ds.scale_params)}")
             pull_title = f"{label} relative residual"
         else:
             spec_title = None

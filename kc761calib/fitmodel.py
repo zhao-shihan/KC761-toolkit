@@ -116,11 +116,12 @@ class FitModel:
         """Package one dataset's pulls into plot/report diagnostics.
 
         The model prediction is ``s(E) * m(E)`` with the per-bin scale curve
-        ``s(E) = scale_model(scale_params, E)`` evaluated at each bin center; the
-        ``smeared_sim``/``raw_sim`` fields remain unscaled.
+        ``s(E) = scale_model(scale_params, E, elow, ehigh)`` evaluated at each
+        bin center; the ``smeared_sim``/``raw_sim`` fields remain unscaled.
         """
         dm, w, mm, mask = self.pulled(calib, resol)
-        scale_full = scale_model(scale_params, self.bin_centers)
+        scale_full = scale_model(scale_params, self.bin_centers, self.elow,
+                                 self.ehigh)
         scale_masked = scale_full[mask]
         res = (dm - scale_masked * mm) / w
         return DatasetDetail(

@@ -25,7 +25,7 @@ class DatasetDetail:
     smeared_model: np.ndarray  # best-fit, scaled smeared simulation
     smeared_sim: np.ndarray    # resolution-smeared simulation, unscaled
     raw_sim: np.ndarray  # perfect-resolution sim on the bins, unscaled
-    scale_params: np.ndarray   # (s0, s1, s2) scale-curve parameters
+    scale_params: np.ndarray   # (s0, s1, s2, s3) scale-curve values
     chi2: float
     n_bins: int
     bin_edges: np.ndarray
@@ -38,7 +38,7 @@ class FitDetail:
     ndof: int
     calib_params: np.ndarray      # calibration parameters (c0, p, q)
     resol_params: np.ndarray      # resolution parameters (b0, b1, b2)
-    scale_params: np.ndarray      # per-dataset scale-curve (s0,s1,s2) block
+    scale_params: np.ndarray      # per-dataset scale-curve (s0,s1,s2,s3)
     channel_max: float = 0.0      # largest data channel edge across models
     n_channel_bins: int = 0       # smallest data channel count across models
     valid: bool = True
