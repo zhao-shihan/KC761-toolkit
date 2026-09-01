@@ -81,16 +81,22 @@ class FitModel:
                            self.channel_max)
 
     def dataset_arrays(self, conv: Convolution,
-                       mask: np.ndarray | None = None) -> DatasetArrays:
+                       mask: np.ndarray | None = None,
+                       smeared: np.ndarray | None = None) -> DatasetArrays:
         """Assemble the per-dataset data/model/weight arrays on the usable bins.
 
         ``mask`` defaults to the fixed ``usable_mask``; an explicit mask freezes
         bin selection, as required when differencing residuals numerically.
+        ``smeared`` optionally supplies the precomputed full-grid smeared sim
+        (from ``Convolution.smeared_many``); when ``None`` it is computed here.
         """
         if mask is None:
             mask = self.usable_mask
-        bin_slice = conv.grid.channel_slice(self.channel_low, self.channel_high)
-        model_counts = conv.smeared(self.sim)[bin_slice]
+        bin_slice = conv.grid.channel_slice(
+            self.channel_low, self.channel_high)
+        if smeared is None:
+            smeared = conv.smeared(self.sim)
+        model_counts = smeared[bin_slice]
         weights = self.error_model(self.data_counts[mask],
                                    self.data_errors[mask])
         return DatasetArrays(
@@ -102,7 +108,8 @@ class FitModel:
 
     def unsmeared_sim_on_bins(self, conv: Convolution) -> np.ndarray:
         """Rebinned (unconvolved) sim counts on this dataset's bins."""
-        bin_slice = conv.grid.channel_slice(self.channel_low, self.channel_high)
+        bin_slice = conv.grid.channel_slice(
+            self.channel_low, self.channel_high)
         return conv.rebinned(self.sim)[bin_slice]
 
     def dataset_detail(self, label: str, conv: Convolution,

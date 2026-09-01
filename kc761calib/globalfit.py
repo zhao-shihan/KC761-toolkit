@@ -117,10 +117,11 @@ class GlobalFitModel:
                                  resol_params: np.ndarray,
                                  mask_list: list[np.ndarray] | None = None):
         conv = self._build_convolution(calib_params, resol_params)
+        smeared_all = conv.smeared_many([m.sim for m in self.models])
         predictions = []
         for i, m in enumerate(self.models):
             mask = None if mask_list is None else mask_list[i]
-            arrays = m.dataset_arrays(conv, mask=mask)
+            arrays = m.dataset_arrays(conv, mask=mask, smeared=smeared_all[i])
             if len(arrays.data_counts) < m.min_usable_bins:
                 return None
             predictions.append(arrays)

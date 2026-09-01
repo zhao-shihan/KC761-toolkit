@@ -243,7 +243,8 @@ def run_fit(model, x0=None, stage1_maxiter: int = 300,
     x0 = np.asarray(x0, dtype=float)
     if not np.isfinite(x0).all():
         raise ValueError("fit starting point x0 contains NaN/inf")
-    x0 = np.clip(x0, [b[0] for b in model.bounds], [b[1] for b in model.bounds])
+    x0 = np.clip(x0, [b[0] for b in model.bounds], [b[1]
+                 for b in model.bounds])
     if not model.is_valid(x0):
         print("[calib] warning: the starting point is degenerate (insufficient "
               "data coverage); the fit may not be meaningful", file=sys.stderr)

@@ -107,7 +107,8 @@ def _spectrum_panel(ax, ds, title: str | None) -> None:
     ax2.set_ylabel("Scale s(E)")
 
     centers_full = 0.5 * (ds.bin_edges[:-1] + ds.bin_edges[1:])
-    sb_full = scale_model(ds.scale_params, centers_full, ds.scale_lo, ds.scale_hi)
+    sb_full = scale_model(ds.scale_params, centers_full,
+                          ds.scale_lo, ds.scale_hi)
     stairs_handle = ax.stairs(sb_full * ds.unsmeared_sim, ds.bin_edges,
                               color="tab:gray", lw=0.8, zorder=2,
                               label="Raw sim. (scaled)")

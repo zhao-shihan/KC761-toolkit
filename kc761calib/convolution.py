@@ -19,27 +19,30 @@ kernel parameters evaluated at the source-bin center ``c_j`` and ``width_i``
 the output-bin energy width (midpoint-of-PDF times bin-width quadrature;
 columns are not renormalized -- their sums equal 1 up to the ~1e-4
 truncation/quadrature error).  ``A[i, j]`` is kept nonzero only inside the
-kernel support ``[c_j - nsigma sigma_j, c_j + max(nsigma sigma_j,
-ntail tau_j)]`` -- the same condition the grid extension uses, so the two are
+kernel support ``[c_j - n_sigma sigma_j, c_j + max(n_sigma sigma_j,
+n_tail tau_j)]`` -- the same condition the grid extension uses, so the two are
 self-consistent.
 
-The matrix assembly is vectorized (searchsorted band spans, numpy repeat
-bookkeeping) and the density values are computed by a parallel numba kernel;
-the matrix build is the dominant cost of an evaluation.
+The band spans are located with searchsorted and the ``(indptr, indices,
+data)`` triple is assembled by a single fused, parallel numba kernel
+(column-major, i.e. CSC layout), which avoids the numpy fancy-indexing and
+COO->CSR conversion overheads of a vectorized build; the matrix build is the
+dominant cost of an evaluation.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numba
 import numpy as np
 from scipy import sparse
 
-from .response import (calib_model, emg_density_vec, resol_sigma_model,
+from .response import (_emg_density, calib_model, resol_sigma_model,
                        resol_tau_model)
 
-NSIGMA = 4.0
-NTAIL = 10.0
+N_SIGMA = 4.0
+N_TAIL = 10.0
 
 
 @dataclass
@@ -82,8 +85,8 @@ def build_convolution_grid(calib_params: np.ndarray | list[float],
                            resol_params: np.ndarray | list[float],
                            channel_max: float, work_channel_lo: int,
                            work_channel_hi: int, last_channel: int,
-                           nsigma: float = NSIGMA,
-                           ntail: float = NTAIL) -> ConvolutionGrid:
+                           n_sigma: float = N_SIGMA,
+                           n_tail: float = N_TAIL) -> ConvolutionGrid:
     """Extended channel grid covering the work range plus the kernel support.
 
     ``work_channel_lo..work_channel_hi`` (inclusive channel indices) is the
@@ -92,8 +95,8 @@ def build_convolution_grid(calib_params: np.ndarray | list[float],
     the bin-center energy, as in the matrix -- still reaches the work-range
     energy edges:
 
-    * lower side: ``E(k) + max(nsigma sigma, ntail tau) >= E(work_lo - 0.5)``
-    * upper side: ``E(k) - nsigma sigma <= E(work_hi + 0.5)``
+    * lower side: ``E(k) + max(n_sigma sigma, n_tail tau) >= E(work_lo - 0.5)``
+    * upper side: ``E(k) - n_sigma sigma <= E(work_hi + 0.5)``
 
     The scan is evaluated vectorized over all candidate channels (equivalent
     to stopping at the first non-reaching bin when the conditions are
@@ -116,8 +119,8 @@ def build_convolution_grid(calib_params: np.ndarray | list[float],
     if low_channels.size:
         e_low = calib_model(calib_params, low_channels, channel_max)
         support_hi = np.maximum(
-            nsigma * resol_sigma_model(resol_params, e_low),
-            ntail * resol_tau_model(resol_params, e_low))
+            n_sigma * resol_sigma_model(resol_params, e_low),
+            n_tail * resol_tau_model(resol_params, e_low))
         reaches = e_low + support_hi >= e_lo_work
         if reaches.any():
             grid_lo = int(low_channels[np.argmax(reaches)])
@@ -126,11 +129,11 @@ def build_convolution_grid(calib_params: np.ndarray | list[float],
     high_channels = np.arange(work_hi + 1, last + 1, dtype=float)
     if high_channels.size:
         e_hi = calib_model(calib_params, high_channels, channel_max)
-        support_lo = nsigma * resol_sigma_model(resol_params, e_hi)
+        support_lo = n_sigma * resol_sigma_model(resol_params, e_hi)
         reaches = e_hi - support_lo <= e_hi_work
         if reaches.any():
             grid_hi = int(high_channels[reaches.size - 1
-                                       - np.argmax(reaches[::-1])])
+                                        - np.argmax(reaches[::-1])])
 
     channel_edges = np.arange(grid_lo, grid_hi + 2, dtype=float) - 0.5
     energy_edges = calib_model(calib_params, channel_edges, channel_max)
@@ -151,36 +154,63 @@ def build_convolution_grid(calib_params: np.ndarray | list[float],
     )
 
 
+@numba.njit(parallel=True)
+def _assemble_matrix(centers, widths, sigma, tau, lo, hi):
+    """Fused column-major assembly of the response matrix nonzero triple.
+
+    Column ``j`` (true-energy bin) contributes the output rows ``lo[j] ..
+    hi[j]-1``.  Returns ``(indptr, indices, data)`` in CSC layout (``indptr``
+    indexes columns, ``indices`` holds the row of each entry).  A single pass
+    over the nonzeros computes the row indices and the EMG density values,
+    reusing the per-column kernel parameters, so there are no numpy
+    fancy-indexing or ``np.repeat`` intermediates.
+    """
+    n = centers.shape[0]
+    indptr = np.empty(n + 1, dtype=np.int64)
+    indptr[0] = 0
+    for j in range(n):
+        indptr[j + 1] = indptr[j] + (hi[j] - lo[j])
+    nnz = indptr[n]
+    indices = np.empty(nnz, dtype=np.int64)
+    data = np.empty(nnz, dtype=np.float64)
+    for j in numba.prange(n):
+        start = indptr[j]
+        c_j = centers[j]
+        s_j = sigma[j]
+        t_j = tau[j]
+        for k in range(lo[j], hi[j]):
+            idx = start + (k - lo[j])
+            indices[idx] = k
+            data[idx] = _emg_density(centers[k] - c_j, s_j, t_j) * widths[k]
+    return indptr, indices, data
+
+
 def build_convolution_matrix(grid: ConvolutionGrid,
                              resol_params: np.ndarray | list[float],
-                             nsigma: float = NSIGMA,
-                             ntail: float = NTAIL) -> sparse.csr_matrix:
+                             n_sigma: float = N_SIGMA,
+                             n_tail: float = N_TAIL) -> sparse.csc_matrix:
     """Sparse response matrix mapping true grid bins to smeared grid bins.
 
     Row ``i``, column ``j``: ``emg_density(c_i - c_j; sigma_j, tau_j) *
     width_i`` for ``c_i`` inside the kernel support of column ``j``; zero
     otherwise.  Columns are not renormalized (their sums approximate 1).
+
+    The nonzero triple is assembled column-major, so the returned matrix is
+    CSC; ``A @ v`` is bit-identical to the CSR form.
     """
     centers = grid.energy_centers
     widths = grid.energy_widths
     n = centers.size
     sigma = resol_sigma_model(resol_params, centers)
     tau = resol_tau_model(resol_params, centers)
-    support_lo = nsigma * sigma
-    support_hi = np.maximum(nsigma * sigma, ntail * tau)
+    support_lo = n_sigma * sigma
+    support_hi = np.maximum(n_sigma * sigma, n_tail * tau)
 
     lo = np.searchsorted(centers, centers - support_lo)
     hi = np.searchsorted(centers, centers + support_hi, side="right")
-    counts = hi - lo
-    nnz = int(counts.sum())
-
-    cols = np.repeat(np.arange(n), counts)
-    starts = np.repeat(np.concatenate(([0], np.cumsum(counts)[:-1])), counts)
-    rows = np.repeat(lo, counts) + (np.arange(nnz) - starts)
-
-    offsets = centers[rows] - centers[cols]
-    values = emg_density_vec(offsets, sigma[cols], tau[cols]) * widths[rows]
-    return sparse.csr_matrix((values, (rows, cols)), shape=(n, n))
+    indptr, indices, data = _assemble_matrix(
+        centers, widths, sigma, tau, lo, hi)
+    return sparse.csc_matrix((data, indices, indptr), shape=(n, n))
 
 
 def rebin_exact(counts: np.ndarray, edges: np.ndarray,
@@ -209,7 +239,7 @@ class Convolution:
     applies the same matrix, and slices its own channel range.
     """
 
-    def __init__(self, grid: ConvolutionGrid, matrix: sparse.csr_matrix):
+    def __init__(self, grid: ConvolutionGrid, matrix: sparse.csc_matrix):
         self.grid = grid
         self.matrix = matrix
 
@@ -217,12 +247,12 @@ class Convolution:
     def build(cls, calib_params: np.ndarray | list[float],
               resol_params: np.ndarray | list[float], channel_max: float,
               work_channel_lo: int, work_channel_hi: int, last_channel: int,
-              nsigma: float = NSIGMA, ntail: float = NTAIL) -> "Convolution":
+              n_sigma: float = N_SIGMA, n_tail: float = N_TAIL) -> "Convolution":
         """Construct the grid and matrix for one evaluation."""
         grid = build_convolution_grid(
             calib_params, resol_params, channel_max, work_channel_lo,
-            work_channel_hi, last_channel, nsigma, ntail)
-        matrix = build_convolution_matrix(grid, resol_params, nsigma, ntail)
+            work_channel_hi, last_channel, n_sigma, n_tail)
+        matrix = build_convolution_matrix(grid, resol_params, n_sigma, n_tail)
         return cls(grid, matrix)
 
     def rebinned(self, sim) -> np.ndarray:
@@ -236,3 +266,15 @@ class Convolution:
     def smeared(self, sim) -> np.ndarray:
         """Rebinned, resolution-smeared sim counts on the grid bins."""
         return self.apply(self.rebinned(sim))
+
+    def smeared_many(self, sims) -> list[np.ndarray]:
+        """Rebinned, resolution-smeared sim counts for several sims at once.
+
+        Rebins each simulation onto the grid, stacks the vectors, and applies
+        the shared response matrix in one sparse @ dense multiply (better
+        reuse of the matrix structure than N separate matvecs).  Returns one
+        grid-bin vector per input sim; each is bit-identical to ``smeared``.
+        """
+        stacked = np.column_stack([self.rebinned(sim) for sim in sims])
+        result = self.matrix @ stacked
+        return [result[:, j] for j in range(result.shape[1])]

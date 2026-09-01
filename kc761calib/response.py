@@ -29,8 +29,9 @@ mean is ``tau`` (not zero), so a smeared peak shifts to higher energy by
 ``~tau(E)``; this is the intended tail effect.
 
 Applying the EMG to histograms is done by the extended-grid, sparse-matrix
-convolution in :mod:`kc761calib.convolution`, which uses the vectorized
-``emg_density_vec`` defined here.
+convolution in :mod:`kc761calib.convolution`, whose fused assembly kernel
+calls :func:`_emg_density` directly.  :func:`emg_density_vec` remains as a
+standalone vectorized utility with the same numerics.
 """
 
 from __future__ import annotations
