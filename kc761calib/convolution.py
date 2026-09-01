@@ -16,12 +16,12 @@ Matrix convention: ``A[i, j]`` is the probability that a count in input
 (true-energy) bin ``j`` is detected in output (smeared) bin ``i``:
 ``A[i, j] = emg_density(c_i - c_j; sigma_j, tau_j) * width_i``, with the
 kernel parameters evaluated at the source-bin center ``c_j`` and ``width_i``
-the output-bin energy width (midpoint-of-PDF times bin-width quadrature;
-columns are not renormalized -- their sums equal 1 up to the ~1e-4
-truncation/quadrature error).  ``A[i, j]`` is kept nonzero only inside the
-kernel support ``[c_j - n_sigma sigma_j, c_j + max(n_sigma sigma_j,
-n_tail tau_j)]`` -- the same condition the grid extension uses, so the two are
-self-consistent.
+the output-bin energy width (midpoint-of-PDF times bin-width quadrature).
+``A[i, j]`` is kept nonzero only inside the kernel support
+``[c_j - n_sigma sigma_j, c_j + max(n_sigma sigma_j, n_tail tau_j)]`` -- the
+same condition the grid extension uses, so the two are self-consistent -- and
+each column is then renormalized to sum exactly 1, absorbing the ~1e-4
+truncation/quadrature error of the finite support.
 
 The band spans are located with searchsorted and the ``(indptr, indices,
 data)`` triple is assembled by a single fused, parallel numba kernel
@@ -193,7 +193,8 @@ def build_convolution_matrix(grid: ConvolutionGrid,
 
     Row ``i``, column ``j``: ``emg_density(c_i - c_j; sigma_j, tau_j) *
     width_i`` for ``c_i`` inside the kernel support of column ``j``; zero
-    otherwise.  Columns are not renormalized (their sums approximate 1).
+    otherwise.  Columns are renormalized to sum exactly 1, absorbing the
+    truncation/quadrature error of the finite kernel support.
 
     The nonzero triple is assembled column-major, so the returned matrix is
     CSC; ``A @ v`` is bit-identical to the CSR form.
@@ -210,6 +211,8 @@ def build_convolution_matrix(grid: ConvolutionGrid,
     hi = np.searchsorted(centers, centers + support_hi, side="right")
     indptr, indices, data = _assemble_matrix(
         centers, widths, sigma, tau, lo, hi)
+    col_sums = np.add.reduceat(data, indptr[:-1])
+    data /= np.repeat(col_sums, np.diff(indptr))
     return sparse.csc_matrix((data, indices, indptr), shape=(n, n))
 
 
