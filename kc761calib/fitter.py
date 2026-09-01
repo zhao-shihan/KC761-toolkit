@@ -10,6 +10,7 @@ to convergence.
 from __future__ import annotations
 
 import sys
+import time
 
 import numpy as np
 from scipy import optimize
@@ -65,20 +66,21 @@ def _progress_callback(model, tag: str, fit_progress_modulo: int,
     """
     if to_physical is None:
         def to_physical(x): return x
-    state = {"iter": 0}
+    state = {"iter": 0, "start": time.perf_counter()}
 
     def callback(xk, convergence=None):
         state["iter"] += 1
         if state["iter"] % fit_progress_modulo != 0:
             return
+        avg_ms = (time.perf_counter() - state["start"]) / state["iter"] * 1e3
         det = model.detail(to_physical(np.asarray(xk, dtype=float)))
         chi2 = float(det.chi2)
-        head = f"[calib] {tag} iter {state['iter']:<6d}:"
+        line_text = f"[calib] {tag} iter {state['iter']:<6d}:"
         if det.valid and det.ndof > 0 and np.isfinite(chi2):
-            print(f"{head} chi2/ndof = {chi2:>14.4f} / {det.ndof:<6d} = {chi2 / det.ndof:<14.4f}",
-                  flush=True)
+            line_text += f" chi2/ndof = {chi2:>14.4f} / {det.ndof:<6d} = {chi2 / det.ndof:<14.4f}"
         else:
-            print(f"{head} chi2      = {chi2:<14.4f}", flush=True)
+            line_text += f" chi2      = {chi2:<14.6f}"
+        print(f"{line_text} ({avg_ms:.2f} ms/iter)", flush=True)
     return callback
 
 

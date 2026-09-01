@@ -27,6 +27,10 @@ real ``(b0, b1, b2)``.  ``tau`` is a direct Bezier curve floored at ``MIN_TAU``
 (0.001 keV), so it is positive without any control-value constraint.  The EMG
 mean is ``tau`` (not zero), so a smeared peak shifts to higher energy by
 ``~tau(E)``; this is the intended tail effect.
+
+Applying the EMG to histograms is done by the extended-grid, sparse-matrix
+convolution in :mod:`kc761calib.convolution`, which uses the vectorized
+``emg_density_vec`` defined here.
 """
 
 from __future__ import annotations
@@ -126,7 +130,7 @@ def reported_calib(calib_params: np.ndarray | list[float], calib_cov: np.ndarray
     return c, err, cov
 
 # --------------------------------------------------------------------------
-# resolution EMG (sigma, tau) and histogram convolution
+# resolution EMG (sigma, tau)
 
 
 if "NUMBA_NUM_THREADS" not in os.environ:
@@ -165,26 +169,27 @@ def _emg_density(d, sigma, tau):
 
 
 @numba.njit(parallel=True)
-def _smear_kernel(ec, f, sig_j, tau_j, mu, sig_i, tau_i, widths, nsigma, ntail):
-    """EMG blur of sim counts ``f`` at centers ``ec`` onto target centers ``mu``.
+def _emg_density_vec_kernel(d, sigma, tau, out):
+    """Elementwise EMG density into ``out`` over a parallelized flat loop."""
+    for i in numba.prange(d.shape[0]):
+        out[i] = _emg_density(d[i], sigma[i], tau[i])
 
-    Each sim center contributes ``f[j] * emg_density(mu[i] - ec[j])`` (the EMG
-    density is normalized to unit integral).  Only centers within the asymmetric
-    window ``[-nsigma*sigma_i, max(nsigma*sigma_i, ntail*tau_i)]`` contribute;
-    ``searchsorted`` finds that contiguous span in the sorted ``ec`` grid.
+
+def emg_density_vec(d: np.ndarray, sigma: np.ndarray | float,
+                    tau: np.ndarray | float) -> np.ndarray:
+    """Vectorized EMG probability density at offsets ``d``.
+
+    ``sigma`` and ``tau`` are per-offset kernel parameters, broadcast against
+    ``d``; numerically identical to ``_emg_density`` applied elementwise.
+    ``d`` must be a 1-D array.
     """
-    out = np.empty(mu.shape[0], dtype=np.float64)
-    for i in numba.prange(mu.shape[0]):
-        r_lo = nsigma * sig_i[i]
-        t_lo = ntail * tau_i[i]
-        if t_lo > r_lo:
-            r_lo = t_lo
-        lo = np.searchsorted(ec, mu[i] - r_lo)
-        hi = np.searchsorted(ec, mu[i] + nsigma * sig_i[i])
-        s = 0.0
-        for j in range(lo, hi):
-            s += f[j] * _emg_density(mu[i] - ec[j], sig_j[j], tau_j[j])
-        out[i] = widths[i] * s
+    d = np.ascontiguousarray(d, dtype=np.float64)
+    sigma = np.ascontiguousarray(np.broadcast_to(
+        np.asarray(sigma, dtype=np.float64), d.shape))
+    tau = np.ascontiguousarray(np.broadcast_to(
+        np.asarray(tau, dtype=np.float64), d.shape))
+    out = np.empty(d.shape, dtype=np.float64)
+    _emg_density_vec_kernel(d, sigma, tau, out)
     return out
 
 
@@ -211,46 +216,3 @@ def resol_tau_model(resol_params: np.ndarray | list[float], energy: np.ndarray |
     energy = np.asarray(energy, dtype=float)
     tau = bezier2_basis(energy / RESOL_T_SCALE) @ resol_params[3:6]
     return np.maximum(tau, MIN_TAU)
-
-
-def smear_on_bins(sim_counts: np.ndarray, sim_edges: np.ndarray,
-                  t_lo: np.ndarray, t_hi: np.ndarray,
-                  resol_params: np.ndarray | list[float], nsigma: float = 4.0, ntail: float = 10.0,
-                  sim_centers: np.ndarray | None = None) -> np.ndarray:
-    """Convolve sim counts with an energy-dependent EMG onto target bins.
-
-    The target bins ``[t_lo, t_hi]`` may be non-uniform: each output bin is
-    ``width_i * density(mu_i - E_sim)`` with ``width_i = t_hi[i] - t_lo[i]``.
-    """
-    resol_params = np.asarray(resol_params, dtype=float)
-    if sim_centers is None:
-        sim_centers = 0.5 * (sim_edges[:-1] + sim_edges[1:])
-    mu = 0.5 * (t_lo + t_hi)
-    sig_i = resol_sigma_model(resol_params, mu)
-    tau_i = resol_tau_model(resol_params, mu)
-
-    pad_lo = max(nsigma * np.max(sig_i), ntail * np.max(tau_i)) if sig_i.size else 0.0
-    pad_hi = nsigma * np.max(sig_i) if sig_i.size else 0.0
-    jsel = (sim_centers >= mu.min() -
-            pad_lo) & (sim_centers <= mu.max() + pad_hi)
-    js = np.where(jsel)[0]
-    if js.size == 0:
-        return np.zeros_like(mu)
-
-    ec = sim_centers[js]
-    f = sim_counts[js]
-    sig_j = resol_sigma_model(resol_params, ec)
-    tau_j = resol_tau_model(resol_params, ec)
-
-    return _smear_kernel(
-        ec, f, sig_j, tau_j, mu, sig_i, tau_i, t_hi - t_lo, nsigma, ntail)
-
-
-def smear(sim_counts: np.ndarray, sim_edges: np.ndarray,
-          target_edges: np.ndarray, resol_params: np.ndarray | list[float],
-          nsigma: float = 4.0, ntail: float = 10.0,
-          sim_centers: np.ndarray | None = None) -> np.ndarray:
-    return smear_on_bins(
-        sim_counts, sim_edges,
-        target_edges[:-1], target_edges[1:], resol_params, nsigma, ntail,
-        sim_centers=sim_centers)

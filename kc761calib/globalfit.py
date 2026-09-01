@@ -3,20 +3,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
+from .convolution import Convolution
 from .fitmodel import DEFAULT_SYS_FRAC, FitModel
 from .fitparamspace import CALIB, RESOL, FitParamSpace
+from .response import INIT_CALIB, INIT_RESOL
 from .scaling import scale_model
 from .types import FitDetail
 from .util import broadcast
 
+if TYPE_CHECKING:
+    from .io import Spectrum
+
 
 @dataclass
 class DatasetSpec:
-    data: object
-    sim: object
+    data: Spectrum
+    sim: Spectrum
     channel_low: int
     channel_high: int
 
@@ -38,20 +44,34 @@ class GlobalFitModel:
         self.labels = [str(l) for l in
                        broadcast(labels, self.n_datasets, "labels")]
 
-        self.models = [
-            FitModel(s.data, s.sim, s.channel_low, s.channel_high,
-                     sys_frac=self.sys_fracs[i],
-                     init_calib=init_calib)
-            for i, s in enumerate(self.specs)
-        ]
-
-        n_bins = {m.data.n_bins for m in self.models}
+        n_bins = {s.data.n_bins for s in self.specs}
         if len(n_bins) != 1:
             raise ValueError(
                 "all datasets must have the same channel count (a "
                 f"global calibration is shared): got {sorted(n_bins)}")
 
-        self.channel_max = float(max(m.data.edges[-1] for m in self.models))
+        # Shared channel geometry: the work range is the union of the datasets'
+        # fit ranges; the extended grid and response matrix are built around it
+        # once per evaluation.
+        self.channel_max = float(max(s.data.edges[-1] for s in self.specs))
+        self.last_channel = int(min(n_bins)) - 1
+        self.work_channel_lo = min(s.channel_low for s in self.specs)
+        self.work_channel_hi = max(s.channel_high for s in self.specs)
+
+        init_calib = INIT_CALIB if init_calib is None else np.asarray(
+            init_calib, dtype=float)
+        self.init_convolution = Convolution.build(
+            init_calib, INIT_RESOL, self.channel_max, self.work_channel_lo,
+            self.work_channel_hi, self.last_channel)
+
+        self.models = [
+            FitModel(s.data, s.sim, s.channel_low, s.channel_high,
+                     sys_frac=self.sys_fracs[i],
+                     init_calib=init_calib,
+                     init_convolution=self.init_convolution)
+            for i, s in enumerate(self.specs)
+        ]
+
         self.param_space = FitParamSpace(
             tuple(self.labels), tuple(m.initial_scale for m in self.models))
         self.x0 = self.param_space.x0()
@@ -86,11 +106,21 @@ class GlobalFitModel:
         """Per-dataset usable-bin masks (fixed; frozen for numerical Jacobians)."""
         return [m.usable_mask for m in self.models]
 
-    def _per_dataset_predictions(self, calib_params, resol_params, mask_list=None):
+    def _build_convolution(self, calib_params: np.ndarray,
+                           resol_params: np.ndarray) -> Convolution:
+        """One shared grid + response matrix for this evaluation."""
+        return Convolution.build(
+            calib_params, resol_params, self.channel_max, self.work_channel_lo,
+            self.work_channel_hi, self.last_channel)
+
+    def _per_dataset_predictions(self, calib_params: np.ndarray,
+                                 resol_params: np.ndarray,
+                                 mask_list: list[np.ndarray] | None = None):
+        conv = self._build_convolution(calib_params, resol_params)
         predictions = []
         for i, m in enumerate(self.models):
             mask = None if mask_list is None else mask_list[i]
-            arrays = m.dataset_arrays(calib_params, resol_params, mask=mask)
+            arrays = m.dataset_arrays(conv, mask=mask)
             if len(arrays.data_counts) < m.min_usable_bins:
                 return None
             predictions.append(arrays)
@@ -142,23 +172,26 @@ class GlobalFitModel:
     def detail(self, q) -> FitDetail:
         """Full diagnostics; degenerate states yield chi2=inf and valid=False."""
         q = np.asarray(q, dtype=float)
-        calib_params = np.asarray(q[CALIB], dtype=float)
-        resol_params = np.asarray(q[RESOL], dtype=float)
-        scale_params = np.asarray(q[self.param_space.scale_block], dtype=float)
-        base = dict(calib_params=calib_params, resol_params=resol_params,
-                    scale_params=scale_params,
+        base = dict(calib_params=np.asarray(q[CALIB], dtype=float),
+                    resol_params=np.asarray(q[RESOL], dtype=float),
+                    scale_params=np.asarray(q[self.param_space.scale_block],
+                                            dtype=float),
                     channel_max=self.channel_max,
                     n_channel_bins=self.n_channel_bins)
 
         gate = self._gate(q)
+        if gate is None:
+            return FitDetail(datasets=[], chi2=np.inf, ndof=0,
+                             **base, valid=False)
+        calib_params, resol_params = gate
+        conv = self._build_convolution(calib_params, resol_params)
 
         entries = []
         for i, m in enumerate(self.models):
-            entries.append(m.dataset_detail(self.labels[i], calib_params,
-                                            resol_params,
+            entries.append(m.dataset_detail(self.labels[i], conv,
                                             q[self.param_space.scale(i)]))
-        if gate is None or any(ds.n_bins < m.min_usable_bins
-                               for ds, m in zip(entries, self.models)):
+        if any(ds.n_bins < m.min_usable_bins
+               for ds, m in zip(entries, self.models)):
             return FitDetail(datasets=[], chi2=np.inf, ndof=0,
                              **base, valid=False)
 

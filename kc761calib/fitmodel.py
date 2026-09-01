@@ -1,10 +1,18 @@
-"""Per-dataset forward model: channel-aligned energy bins, smearing, weighting."""
+"""Per-dataset forward model on the shared convolution grid.
+
+Each dataset keeps its raw channel counts/errors on a fixed channel range;
+energy is a relabeling of the channels via the calibration.  The
+resolution-smeared model comes from the shared :class:`Convolution` that
+:class:`GlobalFitModel` builds once per chi-square evaluation and reuses
+across datasets.
+"""
 
 from __future__ import annotations
 
 import numpy as np
 
-from .response import INIT_CALIB, INIT_RESOL, calib_model, smear
+from .convolution import Convolution
+from .response import INIT_CALIB, calib_model
 from .scaling import scale_model
 from .types import DatasetArrays, DatasetDetail
 
@@ -16,13 +24,15 @@ class FitModel:
 
     The fit window is a fixed channel range ``[channel_low, channel_high]``
     (0-based, inclusive).  Each channel bin maps to one energy bin with edges
-    ``E(channel_edges)``, so the data counts/errors are the raw channel values and
-    never change with the calibration; only the bin energy positions and the
-    smeared model are recomputed each evaluation.
+    ``E(channel_edges)``, so the data counts/errors are the raw channel values
+    and never change with the calibration; only the bin energy positions and
+    the smeared model are recomputed each evaluation, the latter from the
+    shared convolution.
     """
 
     def __init__(self, data, sim, channel_low: int, channel_high: int,
-                 sys_frac: float = DEFAULT_SYS_FRAC, *, init_calib=None):
+                 sys_frac: float = DEFAULT_SYS_FRAC, *, init_calib=None,
+                 init_convolution=None):
         self.data = data
         self.sim = sim
         self.channel_low = int(channel_low)
@@ -33,11 +43,13 @@ class FitModel:
                 f"satisfy 0 <= channel_low <= channel_high < {data.n_bins}")
         if data.errors is None:
             raise ValueError("data spectrum must carry per-bin errors")
+        if init_convolution is None:
+            raise ValueError("FitModel requires the shared init_convolution "
+                             "(built by GlobalFitModel)")
         self.sys_frac = float(sys_frac)
 
         self._ch_edges = data.edges
         self.channel_max = float(data.edges[-1])
-        self._sim_centers = 0.5 * (self.sim.edges[:-1] + self.sim.edges[1:])
 
         self.channel_slice = slice(self.channel_low, self.channel_high + 1)
         self.edge_slice = slice(self.channel_low, self.channel_high + 2)
@@ -47,10 +59,9 @@ class FitModel:
         self.min_usable_bins = max(
             10, int(0.1 * (self.channel_high - self.channel_low + 1)))
 
-        init_calib = INIT_CALIB if init_calib is None else np.asarray(
+        self.init_calib = INIT_CALIB if init_calib is None else np.asarray(
             init_calib, dtype=float)
-        self.init_calib = np.asarray(init_calib, dtype=float)
-        self.init_resol = INIT_RESOL
+        self.init_convolution = init_convolution
         self.scale_lo, self.scale_hi = self._scale_refs()
         self.initial_scale = self._initial_scale()
 
@@ -62,11 +73,15 @@ class FitModel:
         return np.sqrt(np.maximum(var, 1.0))  # bound min error to 1
 
     def energy_edges(self, calib_params) -> np.ndarray:
-        """Energy of each selected channel edge (length ``n_selected + 1``)."""
+        """Energy of each selected channel edge (length ``n_selected + 1``).
+
+        Used for the fixed scale reference energies at initialization.
+        """
         return calib_model(calib_params, self._ch_edges[self.edge_slice],
                            self.channel_max)
 
-    def dataset_arrays(self, calib_params, resol_params, mask=None) -> DatasetArrays:
+    def dataset_arrays(self, conv: Convolution,
+                       mask: np.ndarray | None = None) -> DatasetArrays:
         """Assemble the per-dataset data/model/weight arrays on the usable bins.
 
         ``mask`` defaults to the fixed ``usable_mask``; an explicit mask freezes
@@ -74,28 +89,24 @@ class FitModel:
         """
         if mask is None:
             mask = self.usable_mask
-        energy_edges = self.energy_edges(calib_params)
-        full_centers = 0.5 * (energy_edges[:-1] + energy_edges[1:])
-        model_counts = smear(self.sim.counts, self.sim.edges, energy_edges,
-                             resol_params, sim_centers=self._sim_centers)
-        weights = self.error_model(self.data_counts[mask], self.data_errors[mask])
+        bin_slice = conv.grid.channel_slice(self.channel_low, self.channel_high)
+        model_counts = conv.smeared(self.sim)[bin_slice]
+        weights = self.error_model(self.data_counts[mask],
+                                   self.data_errors[mask])
         return DatasetArrays(
             data_counts=self.data_counts[mask],
             weights=weights,
             model_counts=model_counts[mask],
-            bin_centers=full_centers[mask],
+            bin_centers=conv.grid.energy_centers[bin_slice][mask],
         )
 
-    def unsmeared_sim_on_bins(self, calib_params) -> np.ndarray:
-        """Unsmeared simulation integrated onto the bins (plot reference)."""
-        energy_edges = self.energy_edges(calib_params)
-        sim_cum = np.concatenate(([0.0], np.cumsum(self.sim.counts)))
-        counts_low = np.interp(energy_edges[:-1], self.sim.edges, sim_cum)
-        counts_high = np.interp(energy_edges[1:], self.sim.edges, sim_cum)
-        return counts_high - counts_low
+    def unsmeared_sim_on_bins(self, conv: Convolution) -> np.ndarray:
+        """Rebinned (unconvolved) sim counts on this dataset's bins."""
+        bin_slice = conv.grid.channel_slice(self.channel_low, self.channel_high)
+        return conv.rebinned(self.sim)[bin_slice]
 
-    def dataset_detail(self, label: str, calib_params, resol_params,
-                       scale_params) -> DatasetDetail:
+    def dataset_detail(self, label: str, conv: Convolution,
+                       scale_params: np.ndarray | list[float]) -> DatasetDetail:
         """Package one dataset's pulls into plot/report diagnostics.
 
         The model prediction is ``s(E) * m(E)`` with the per-bin scale curve
@@ -103,11 +114,13 @@ class FitModel:
         each bin center; the ``smeared_sim``/``unsmeared_sim`` fields remain
         unscaled.
         """
-        arrays = self.dataset_arrays(calib_params, resol_params)
+        arrays = self.dataset_arrays(conv)
         scale_curve = scale_model(scale_params, arrays.bin_centers,
                                   self.scale_lo, self.scale_hi)
         prediction = scale_curve * arrays.model_counts
         residuals = (arrays.data_counts - prediction) / arrays.weights
+        edge_slice = conv.grid.channel_edge_slice(self.channel_low,
+                                                  self.channel_high)
         return DatasetDetail(
             label=label,
             channel_low=self.channel_low,
@@ -119,11 +132,11 @@ class FitModel:
             data_errors=arrays.weights,
             model_prediction=prediction,
             smeared_sim=arrays.model_counts,
-            unsmeared_sim=self.unsmeared_sim_on_bins(calib_params),
+            unsmeared_sim=self.unsmeared_sim_on_bins(conv),
             scale_params=np.asarray(scale_params, dtype=float),
             chi2=float(residuals @ residuals),
             n_bins=int(len(arrays.data_counts)),
-            bin_edges=self.energy_edges(calib_params),
+            bin_edges=conv.grid.energy_edges[edge_slice],
         )
 
     # ----- validity --------------------------------------------------------
@@ -136,7 +149,7 @@ class FitModel:
         """Whether the fixed channel range has enough usable bins.
 
         ``calib_params`` is accepted for ``GlobalFitModel.is_valid`` compatibility
-        but is no longer needed (bin selection is calibration-independent).
+        but is not needed (bin selection is calibration-independent).
         """
         return self.usable_bins >= self.min_usable_bins
 
@@ -154,7 +167,7 @@ class FitModel:
         return centers[0], centers[-1]
 
     def _initial_scale(self) -> float:
-        arrays = self.dataset_arrays(self.init_calib, self.init_resol)
+        arrays = self.dataset_arrays(self.init_convolution)
         if arrays.data_counts.size == 0:
             raise ValueError("cannot estimate the initial scale: no usable bins "
                              "(no positive statistical error)")

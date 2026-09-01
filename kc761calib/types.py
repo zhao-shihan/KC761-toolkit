@@ -36,7 +36,7 @@ class DatasetDetail:
     data_errors: np.ndarray    # total per-bin uncertainty (stat + sys)
     model_prediction: np.ndarray  # best-fit, scaled smeared simulation
     smeared_sim: np.ndarray    # resolution-smeared simulation, unscaled
-    unsmeared_sim: np.ndarray  # perfect-resolution sim on the bins, unscaled
+    unsmeared_sim: np.ndarray  # rebinned (unconvolved) sim on the bins, unscaled
     scale_params: np.ndarray   # (s0, s1) scale at the lower/upper reference energy
     chi2: float
     n_bins: int
@@ -48,7 +48,7 @@ class FitDetail:
     datasets: list[DatasetDetail]
     chi2: float
     ndof: int
-    calib_params: np.ndarray      # calibration parameters (c0, p, q)
+    calib_params: np.ndarray      # calibration parameters (c0, k1, k2, k3)
     resol_params: np.ndarray      # resolution parameters (b0..b5: sigma, tau)
     scale_params: np.ndarray      # per-dataset linear scale (s0,s1)
     channel_max: float = 0.0      # largest data channel edge across models
