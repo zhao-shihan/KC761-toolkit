@@ -6,7 +6,7 @@ from geant4_pybind import (
     G4ChargeExchangePhysics,
     G4DecayPhysics,
     G4EmExtraPhysics,
-    G4EmStandardPhysics_option4,
+    G4EmLivermorePhysics,
     G4HadronElasticPhysicsXS,
     G4HadronInelasticQBBC,
     G4IonElasticPhysics,
@@ -24,10 +24,11 @@ from .config import Box, Cylinder, Disk, Sandwich, SourceSpec, Sphere
 class PhysicsList(G4VModularPhysicsList):
     def __init__(self):
         super().__init__()
-        self.SetDefaultCutValue(0.7 * mm)
-        self.RegisterPhysics(G4EmStandardPhysics_option4())
+        self.SetDefaultCutValue(0.1 * mm)
+        self.RegisterPhysics(G4EmLivermorePhysics())
         self.RegisterPhysics(G4EmExtraPhysics())
         self.RegisterPhysics(G4DecayPhysics())
+        self.RegisterPhysics(G4RadioactiveDecayPhysics())
         self.RegisterPhysics(G4HadronElasticPhysicsXS())
         self.RegisterPhysics(G4StoppingPhysics())
         self.RegisterPhysics(G4IonPhysicsXS())
@@ -35,7 +36,6 @@ class PhysicsList(G4VModularPhysicsList):
         self.RegisterPhysics(G4HadronInelasticQBBC())
         self.RegisterPhysics(G4ChargeExchangePhysics())
         self.RegisterPhysics(G4NeutronTrackingCut())
-        self.RegisterPhysics(G4RadioactiveDecayPhysics())
 
 
 def configure_radioactive_decay(source: SourceSpec) -> None:
