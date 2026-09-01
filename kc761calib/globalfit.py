@@ -17,9 +17,8 @@ from .util import broadcast
 class DatasetSpec:
     data: object
     sim: object
-    elow: float
-    ehigh: float
-    width: float | None = None
+    channel_low: int
+    channel_high: int
 
 
 class GlobalFitModel:
@@ -40,7 +39,7 @@ class GlobalFitModel:
                        broadcast(labels, self.n_datasets, "labels")]
 
         self.models = [
-            FitModel(s.data, s.sim, s.elow, s.ehigh, width=s.width,
+            FitModel(s.data, s.sim, s.channel_low, s.channel_high,
                      sys_frac=self.sys_fracs[i],
                      init_calib=init_calib)
             for i, s in enumerate(self.specs)
@@ -65,42 +64,36 @@ class GlobalFitModel:
     # ----- feasibility gate -------------------------------------------------
 
     def _gate(self, q) -> tuple[np.ndarray, np.ndarray] | None:
-        """Shared scale/resolution cores for q, or None if non-finite."""
+        """Shared calibration/resolution cores for q, or None if non-finite."""
         q = np.asarray(q, dtype=float)
-        calib = np.asarray(q[CALIB], dtype=float)
-        resol = np.asarray(q[RESOL], dtype=float)
-        if not (np.all(np.isfinite(calib)) and np.all(np.isfinite(resol))):
+        calib_params = np.asarray(q[CALIB], dtype=float)
+        resol_params = np.asarray(q[RESOL], dtype=float)
+        if not (np.all(np.isfinite(calib_params))
+                and np.all(np.isfinite(resol_params))):
             return None
-        return calib, resol
+        return calib_params, resol_params
 
     def is_valid(self, q) -> bool:
         """Advisory check that data coverage supports the fit (for x0)."""
         q = np.asarray(q, dtype=float)
-        calib = np.asarray(q[CALIB], dtype=float)
-        return bool(np.all(np.isfinite(calib))
-                    and all(m.is_valid(calib) for m in self.models))
-
-    def binning_ok(self) -> bool:
-        return all(m.binning_ok() for m in self.models)
+        calib_params = np.asarray(q[CALIB], dtype=float)
+        return bool(np.all(np.isfinite(calib_params))
+                    and all(m.is_valid(calib_params) for m in self.models))
 
     # ----- evaluation -------------------------------------------------------
 
     def masks(self, q) -> list[np.ndarray]:
-        """Per-dataset usable-bin masks at q (frozen for numerical Jacobians)."""
-        gate = self._gate(q)
-        if gate is None:
-            raise ValueError("cannot freeze masks at an infeasible point")
-        calib, _ = gate
-        return [m.rebin_data(calib)[1] > 0 for m in self.models]
+        """Per-dataset usable-bin masks (fixed; frozen for numerical Jacobians)."""
+        return [m.usable_mask for m in self.models]
 
-    def _per_dataset_predictions(self, calib, resol, mask_list=None):
+    def _per_dataset_predictions(self, calib_params, resol_params, mask_list=None):
         predictions = []
         for i, m in enumerate(self.models):
             mask = None if mask_list is None else mask_list[i]
-            dm, w, mm, msk = m.pulled(calib, resol, mask=mask)
-            if len(dm) < m.min_usable_bins:
+            arrays = m.dataset_arrays(calib_params, resol_params, mask=mask)
+            if len(arrays.data_counts) < m.min_usable_bins:
                 return None
-            predictions.append((dm, w, mm, m.bin_centers[msk]))
+            predictions.append(arrays)
         return predictions
 
     def residuals(self, q, mask_list=None) -> np.ndarray:
@@ -108,19 +101,22 @@ class GlobalFitModel:
         if mask_list is not None:
             sizes = [int(np.sum(m)) for m in mask_list]
         else:
-            sizes = [len(m.bin_centers) for m in self.models]
+            sizes = [m.usable_bins for m in self.models]
         gate = self._gate(q)
         if gate is None:
             return np.full(int(sum(sizes)), np.nan)
-        calib, resol = gate
-        predictions = self._per_dataset_predictions(calib, resol, mask_list)
+        calib_params, resol_params = gate
+        predictions = self._per_dataset_predictions(
+            calib_params, resol_params, mask_list)
         if predictions is None:
             return np.full(int(sum(sizes)), np.nan)
         out = []
-        for i, (dm, w, mm, bc) in enumerate(predictions):
-            sb = scale_model(q[self.param_space.scale(i)], bc,
-                             self.models[i].elow, self.models[i].ehigh)
-            out.append((dm - sb * mm) / w)
+        for i, arrays in enumerate(predictions):
+            scale_curve = scale_model(
+                q[self.param_space.scale(i)], arrays.bin_centers,
+                self.models[i].scale_lo, self.models[i].scale_hi)
+            out.append((arrays.data_counts - scale_curve * arrays.model_counts)
+                       / arrays.weights)
         return np.concatenate(out)
 
     def evaluate(self, q) -> float:
@@ -128,17 +124,19 @@ class GlobalFitModel:
         gate = self._gate(q)
         if gate is None:
             return np.inf
-        calib, resol = gate
+        calib_params, resol_params = gate
         q = np.asarray(q, dtype=float)
-        predictions = self._per_dataset_predictions(calib, resol)
+        predictions = self._per_dataset_predictions(calib_params, resol_params)
         if predictions is None:
             return np.inf
         total = 0.0
-        for i, (dm, w, mm, bc) in enumerate(predictions):
-            sb = scale_model(q[self.param_space.scale(i)], bc,
-                             self.models[i].elow, self.models[i].ehigh)
-            res = (dm - sb * mm) / w
-            total += float(res @ res)
+        for i, arrays in enumerate(predictions):
+            scale_curve = scale_model(
+                q[self.param_space.scale(i)], arrays.bin_centers,
+                self.models[i].scale_lo, self.models[i].scale_hi)
+            residuals = (arrays.data_counts
+                         - scale_curve * arrays.model_counts) / arrays.weights
+            total += float(residuals @ residuals)
         return total if np.isfinite(total) else np.inf
 
     def detail(self, q) -> FitDetail:
@@ -168,11 +166,3 @@ class GlobalFitModel:
         ndof = int(sum(ds.n_bins for ds in entries)) - self.param_space.size
         return FitDetail(datasets=entries, chi2=chi2, ndof=ndof,
                          **base, valid=True)
-
-    # ----- binning rebuild ------------------------------------------------------
-
-    def rebuilt(self, calib_core) -> "GlobalFitModel":
-        """Same datasets on a binning derived from the given calibration parameters."""
-        return GlobalFitModel(self.specs, sys_frac=self.sys_fracs,
-                              labels=self.labels,
-                              init_calib=np.asarray(calib_core, dtype=float))

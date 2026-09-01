@@ -18,14 +18,6 @@ from kc761calib.plot import plot_fit
 from kc761calib.report import print_summary
 
 
-def _default_label(path: Path) -> str:
-    stem = Path(path).stem
-    for suffix in ("-data-subbkg", "-subbkg", "-data"):
-        if stem.endswith(suffix):
-            return stem[: -len(suffix)]
-    return stem
-
-
 def _broadcast(values, default, n: int, name: str):
     try:
         return broadcast(values, n, name, default=default)
@@ -38,24 +30,15 @@ def _broadcast(values, default, n: int, name: str):
 
 def _run_calib(args) -> int:
     n = len(args.data_multi)
-    for name, lst in (("--sim", args.sim_multi), ("--elow", args.elow_multi),
-                      ("--ehigh", args.ehigh_multi)):
-        if lst is None or len(lst) != n:
+    for name, lst in (("--sim", args.sim_multi), ("--chlo", args.chlo_multi),
+                      ("--chhi", args.chhi_multi), ("--label", args.label)):
+        if len(lst) != n:
             print(f"[calib] error: {name} must be given once per --data "
-                  f"({n} datasets, got {len(lst) if lst else 0})",
-                  file=sys.stderr)
+                  f"({n} datasets, got {len(lst)})", file=sys.stderr)
             return 1
+    labels = args.label
 
-    widths = _broadcast(args.width, None, n, "--width")
     syss = _broadcast(args.sys, DEFAULT_SYS_FRAC, n, "--sys")
-    if args.label is None:
-        labels = [_default_label(p) for p in args.data_multi]
-    else:
-        if len(args.label) != n:
-            print(f"[calib] error: --label must be given once per --data "
-                  f"({n} datasets, got {len(args.label)})", file=sys.stderr)
-            return 1
-        labels = args.label
 
     specs = []
     print(f"[calib] fitting {n} dataset(s): shared calibration and resolution, "
@@ -63,21 +46,28 @@ def _run_calib(args) -> int:
     for i in range(n):
         data_file = args.data_multi[i].expanduser().resolve()
         sim_file = args.sim_multi[i].expanduser().resolve()
-        elow, ehigh = args.elow_multi[i], args.ehigh_multi[i]
+        channel_low, channel_high = args.chlo_multi[i], args.chhi_multi[i]
         for role, path in (("data", data_file), ("simulation", sim_file)):
             if not path.is_file():
                 print(f"[calib] error: {role} file not found: {path}",
                       file=sys.stderr)
                 return 1
-        if elow >= ehigh:
-            print(f"[calib] error: elow ({elow}) must be < ehigh ({ehigh}) "
-                  f"for dataset {labels[i]}", file=sys.stderr)
+        if channel_low < 0 or channel_low > channel_high:
+            print(f"[calib] error: channel range [{channel_low}, "
+                  f"{channel_high}] must satisfy 0 <= chlo <= chhi for "
+                  f"dataset {labels[i]}", file=sys.stderr)
             return 1
         data = load_data_spectrum(str(data_file))
         sim = load_sim_spectrum(str(sim_file))
-        specs.append(DatasetSpec(data=data, sim=sim, elow=elow, ehigh=ehigh,
-                                 width=widths[i]))
-        print(f"[calib]   [{labels[i]}] range {elow:g}-{ehigh:g} keV, "
+        if channel_high >= data.n_bins:
+            print(f"[calib] error: chhi ({channel_high}) must be < the channel "
+                  f"count ({data.n_bins}) for dataset {labels[i]}",
+                  file=sys.stderr)
+            return 1
+        specs.append(DatasetSpec(data=data, sim=sim,
+                                 channel_low=channel_low,
+                                 channel_high=channel_high))
+        print(f"[calib]   [{labels[i]}] channels {channel_low}-{channel_high}, "
               f"sys {syss[i]:g}, data={data_file}, sim={sim_file}")
 
     gmodel = GlobalFitModel(specs, sys_frac=syss, labels=labels)
@@ -87,20 +77,20 @@ def _run_calib(args) -> int:
 
     result = run_fit(gmodel, x0=x0,
                      stage1_maxiter=args.stage1_maxiter,
-                     stage2_maxiter=args.stage2_maxiter,
-                     n_passes=args.passes)
+                     stage2_maxiter=args.stage2_maxiter)
 
     dataset_lines = []
     for i, label in enumerate(gmodel.labels):
         lo = i * N_SCALE
         sp = result.scales[lo:lo + N_SCALE]
         se = result.scale_errors[lo:lo + N_SCALE]
+        ds = result.detail.datasets[i]
         scale_str = ", ".join(f"{name} = {v:.6g} +/- {e_:.3g}"
                               for name, v, e_ in zip(PARAM_NAMES_SCALE, sp, se))
         dataset_lines.append(
             f"[calib]   {label}: chi2 = {result.chi2_per_dataset[i]:.2f}, "
             f"{result.detail.bins_per_dataset[i]} bins, "
-            f"scale {scale_str}")
+            f"scale [{ds.scale_lo:g}, {ds.scale_hi:g} keV]: {scale_str}")
     print_summary(result, dataset_lines=dataset_lines)
 
     if args.output is not None:
@@ -114,10 +104,6 @@ def _run_calib(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.data_multi is None:
-        print("[calib] error: give at least one --data/--sim/--elow/--ehigh "
-              "group (repeat the groups once per dataset)", file=sys.stderr)
-        return 1
     return _run_calib(args)
 
 

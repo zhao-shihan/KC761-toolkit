@@ -13,22 +13,34 @@ import numpy as np
 
 
 @dataclass
+class DatasetArrays:
+    """Per-dataset arrays shared by the residual/chi2/detail evaluation paths."""
+
+    data_counts: np.ndarray    # background-subtracted counts on the used bins
+    weights: np.ndarray        # total per-bin 1-sigma uncertainty (stat + sys)
+    model_counts: np.ndarray   # resolution-smeared sim, unscaled (used bins)
+    bin_centers: np.ndarray    # energy centers of the used bins (keV)
+
+
+@dataclass
 class DatasetDetail:
-    """Diagnostics for one dataset on its fit binning."""
+    """Diagnostics for one dataset on its channel-range fit binning."""
 
     label: str
-    elow: float                # lower fit-window bound (keV)
-    ehigh: float               # upper fit-window bound (keV)
-    bin_centers: np.ndarray    # centers of the fitted bins (keV)
-    bin_counts: np.ndarray     # rebinned, background-subtracted counts per bin
-    sigma: np.ndarray          # total per-bin uncertainty (stat + sys)
-    smeared_model: np.ndarray  # best-fit, scaled smeared simulation
+    channel_low: int           # first selected channel (0-based, inclusive)
+    channel_high: int          # last selected channel (0-based, inclusive)
+    scale_lo: float            # fixed lower reference energy for the scale (keV)
+    scale_hi: float            # fixed upper reference energy for the scale (keV)
+    bin_centers: np.ndarray    # energy centers of the used bins (keV)
+    data_counts: np.ndarray    # background-subtracted counts per used bin
+    data_errors: np.ndarray    # total per-bin uncertainty (stat + sys)
+    model_prediction: np.ndarray  # best-fit, scaled smeared simulation
     smeared_sim: np.ndarray    # resolution-smeared simulation, unscaled
-    raw_sim: np.ndarray  # perfect-resolution sim on the bins, unscaled
-    scale_params: np.ndarray   # (s0, s1, s2, s3) scale-curve values
+    unsmeared_sim: np.ndarray  # perfect-resolution sim on the bins, unscaled
+    scale_params: np.ndarray   # (s0, s1) scale at the lower/upper reference energy
     chi2: float
     n_bins: int
-    bin_edges: np.ndarray
+    bin_edges: np.ndarray      # energy edges of the full selected range
 
 
 @dataclass
@@ -37,8 +49,8 @@ class FitDetail:
     chi2: float
     ndof: int
     calib_params: np.ndarray      # calibration parameters (c0, p, q)
-    resol_params: np.ndarray      # resolution parameters (b0, b1, b2)
-    scale_params: np.ndarray      # per-dataset scale-curve (s0,s1,s2,s3)
+    resol_params: np.ndarray      # resolution parameters (b0..b5: sigma, tau)
+    scale_params: np.ndarray      # per-dataset linear scale (s0,s1)
     channel_max: float = 0.0      # largest data channel edge across models
     n_channel_bins: int = 0       # smallest data channel count across models
     valid: bool = True

@@ -2,7 +2,7 @@
 
 The fit runs on a normalized ``[0,1]^d`` parameter space (each coordinate scaled
 by its own bounds), so its step sizes and convergence tolerances are uniform
-across parameters with very different physical ranges.  Each pass runs a
+across parameters with very different physical ranges.  A single fit runs a
 stage-1 optimizer to locate the basin, then a stage-2 optimizer from its result
 to convergence.
 """
@@ -73,7 +73,7 @@ def _progress_callback(model, tag: str, fit_progress_modulo: int,
             return
         det = model.detail(to_physical(np.asarray(xk, dtype=float)))
         chi2 = float(det.chi2)
-        head = f"[calib]   {tag} iter {state['iter']:<6d}:"
+        head = f"[calib] {tag} iter {state['iter']:<6d}:"
         if det.valid and det.ndof > 0 and np.isfinite(chi2):
             print(f"{head} chi2/ndof = {chi2:>14.4f} / {det.ndof:<6d} = {chi2 / det.ndof:<14.4f}",
                   flush=True)
@@ -234,76 +234,20 @@ def _finalize(model, q, success: bool = True, message: str = "",
     )
 
 
-def _fit_passes(model, x0, bounds, stage1_maxiter, stage2_maxiter,
-                n_passes, verbose):
-    """Fit repeatedly, re-freezing the energy binning from the fitted anchors.
-
-    Each pass builds its model from the previous optimum and uses that model's
-    own bounds, so the per-dataset scale box is re-derived every pass.
-    """
+def run_fit(model, x0=None, stage1_maxiter: int = 300,
+            stage2_maxiter: int = 100000, verbose: bool = True) -> FitResult:
+    if x0 is None:
+        x0 = model.x0
     x0 = np.asarray(x0, dtype=float)
     if not np.isfinite(x0).all():
         raise ValueError("fit starting point x0 contains NaN/inf")
-    x0 = np.clip(x0, [b[0] for b in bounds], [b[1] for b in bounds])
+    x0 = np.clip(x0, [b[0] for b in model.bounds], [b[1] for b in model.bounds])
     if not model.is_valid(x0):
         print("[calib] warning: the starting point is degenerate (insufficient "
               "data coverage); the fit may not be meaningful", file=sys.stderr)
-    n_passes = max(1, int(n_passes))
-
-    m = None
-    best = None
-    nfev_total = 0
-    for k in range(1, n_passes + 1):
-        st = x0 if best is None else best.x
-        try:
-            m_new = model.rebuilt(st[CALIB])
-        except ValueError as exc:
-            print(f"[calib] warning: pass {k} rebuild failed; using the "
-                  f"previous valid pass ({exc})", file=sys.stderr)
-            break
-        if not (m_new.binning_ok() and m_new.is_valid(st)):
-            break  # report the previous, still-valid pass
-        m = m_new
-        m_bounds = m.bounds
-        st = np.clip(np.asarray(st, dtype=float),
-                     [b[0] for b in m_bounds], [b[1] for b in m_bounds])
-        best = _fit_once(m, st, m_bounds, stage1_maxiter, stage2_maxiter,
-                         tag=f"pass {k}",
-                         fit_progress_modulo=(_STAGE1_PROGRESS_LOG_MODULO if verbose else 0))
-        nfev_total += int(best.nfev)
-        tag = ("binning from initial calibration" if k == 1
-               else "binning from fitted calibration")
-        n_bins = sum(len(mm.bin_centers) for mm in m.models)
-        if verbose:
-            print(f"[calib] pass {k}: {n_bins} bins ({tag}), "
-                  f"best chi2 = {best.fun:.2f}, nfev = {best.nfev}")
-    return m, best, nfev_total
-
-
-def run_fit(model, x0=None, stage1_maxiter: int = 300,
-            stage2_maxiter: int = 100000, n_passes: int = 5,
-            verbose: bool = True) -> FitResult:
-    if x0 is None:
-        x0 = model.x0
-    n_passes = int(n_passes)
-    if n_passes < 0:
-        raise ValueError(f"n_passes must be >= 0, got {n_passes}")
-    if n_passes == 0:
-        # No optimization: report the starting parameters as-is.
-        st = np.clip(np.asarray(x0, dtype=float),
-                     [b[0] for b in model.bounds], [b[1] for b in model.bounds])
-        if not model.is_valid(st):
-            print("[calib] warning: the starting point is degenerate "
-                  "(insufficient data coverage) for --passes 0",
-                  file=sys.stderr)
-        return _finalize(model, st, success=True,
-                         message="no fit passes (initial parameters)", nfev=0)
-    m, best, nfev_total = _fit_passes(model, x0, model.bounds, stage1_maxiter,
-                                      stage2_maxiter, n_passes, verbose)
-    if best is None:
-        # No admissible binning even at the start point; report honestly.
-        return _finalize(model, x0, success=False,
-                         message="degenerate fit: inadmissible starting "
-                                 "binning for all passes")
-    return _finalize(m, best.x, success=bool(best.success),
-                     message=str(best.message), nfev=nfev_total)
+    best = _fit_once(model, x0, model.bounds, stage1_maxiter, stage2_maxiter,
+                     tag="fit",
+                     fit_progress_modulo=(_STAGE1_PROGRESS_LOG_MODULO
+                                          if verbose else 0))
+    return _finalize(model, best.x, success=bool(best.success),
+                     message=str(best.message), nfev=int(best.nfev))
