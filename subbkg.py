@@ -7,7 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from kc761util.frontend import add_root_option, run_macro  # noqa: E402
+from kc761util.rootcxxfrontend import add_root_option, run_macro  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

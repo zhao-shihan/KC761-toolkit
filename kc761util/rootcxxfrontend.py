@@ -1,4 +1,4 @@
-"""Shared infrastructure for the ROOT-macro frontend scripts."""
+"""Shared infrastructure for the ROOT C++ macro frontend scripts."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def add_root_option(parser) -> None:
 def run_macro(macro_rel: str, macro_args: list[str], *,
               root_exe: str | None = None,
               cwd: Path | None = None,
-              echo_prefix: str = "frontend") -> int:
+              echo_prefix: str = "rootcxxfrontend") -> int:
     root = find_root(root_exe)
     if not root:
         print(f"[{echo_prefix}] error: 'root' executable not found on PATH (use --root)",
