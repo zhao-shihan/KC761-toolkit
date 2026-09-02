@@ -9,6 +9,7 @@ across datasets.
 
 from __future__ import annotations
 
+import numba
 import numpy as np
 
 from .folding import Response
@@ -16,6 +17,16 @@ from .scaling import scale_model
 from .types import DatasetArrays, DatasetDetail
 
 DEFAULT_SYS_FRAC = 0.05
+
+
+@numba.njit(inline="always", cache=True)
+def error_model(data_counts, stat_errors, sys_frac):
+    """Total per-bin sigma: statistical + fractional systematic.
+
+    ``var = stat_errors^2 + (sys_frac * data_counts)^2``, bounded below at 1.
+    """
+    var = stat_errors**2 + (sys_frac * data_counts)**2
+    return np.sqrt(np.maximum(var, 1.0))
 
 
 class FitModel:
@@ -59,11 +70,6 @@ class FitModel:
 
     # ----- data / model assembly -----------------------------------------
 
-    def error_model(self, data_counts, stat_errors) -> np.ndarray:
-        """Total per-bin sigma: statistical + fractional systematic."""
-        var = stat_errors**2 + (self.sys_frac * data_counts)**2
-        return np.sqrt(np.maximum(var, 1.0))  # bound min error to 1
-
     def scale_refs(self, resp: Response) -> tuple[float, float]:
         """(lo, hi) scale reference energies at the current calibration.
 
@@ -95,8 +101,8 @@ class FitModel:
         if smeared is None:
             smeared = resp.smeared(self.sim)
         model_counts = smeared[bin_slice]
-        total_errors = self.error_model(self.data_counts[mask],
-                                        self.data_errors[mask])
+        total_errors = error_model(self.data_counts[mask],
+                                   self.data_errors[mask], self.sys_frac)
         return DatasetArrays(
             data_counts=self.data_counts[mask],
             total_errors=total_errors,
@@ -114,7 +120,7 @@ class FitModel:
         return resp.rebinned(self.sim)[bin_slice]
 
     def dataset_detail(self, label: str, resp: Response,
-                       scale_params: np.ndarray | list[float]) -> DatasetDetail:
+                       scale_params: np.ndarray) -> DatasetDetail:
         """Package one dataset's pulls into plot/report diagnostics.
 
         The model prediction is ``s(E) * m(E)`` with the per-bin scale curve

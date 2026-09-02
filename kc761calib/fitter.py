@@ -20,7 +20,7 @@ from .fitparamspace import CALIB, RESOL
 from .types import FitResult
 
 # Progress-line print cadence for each stage (modulo, when verbose).
-_STAGE1_PROGRESS_LOG_MODULO = 3
+_STAGE1_PROGRESS_LOG_MODULO = 5
 _STAGE2_PROGRESS_LOG_MODULO = 100
 
 # The two fit stages, both on the unit cube: the stage-1 optimizer locates the

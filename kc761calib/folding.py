@@ -80,8 +80,7 @@ class ExtendedBinning:
                      channel_high - self.channel_lo + 2)
 
 
-def build_extended_binning(calib_params: np.ndarray | list[float],
-                           resol_params: np.ndarray | list[float],
+def build_extended_binning(calib_params: np.ndarray, resol_params: np.ndarray,
                            channel_max: float, fit_channel_lo: int,
                            fit_channel_hi: int, last_channel: int,
                            n_sigma: float = N_SIGMA) -> ExtendedBinning:
@@ -150,7 +149,7 @@ def build_extended_binning(calib_params: np.ndarray | list[float],
     )
 
 
-@numba.njit(parallel=True)
+@numba.njit(parallel=True, cache=True)
 def _assemble_matrix(centers, widths, sigma, lo, hi):
     """Fused column-major assembly of the response-matrix nonzero triple.
 
@@ -181,7 +180,7 @@ def _assemble_matrix(centers, widths, sigma, lo, hi):
 
 
 def build_response_matrix(binning: ExtendedBinning,
-                          resol_params: np.ndarray | list[float],
+                          resol_params: np.ndarray,
                           n_sigma: float = N_SIGMA) -> sparse.csc_matrix:
     """Sparse response matrix mapping true-energy bins to smeared-energy bins.
 
@@ -207,19 +206,19 @@ def build_response_matrix(binning: ExtendedBinning,
     return sparse.csc_matrix((data, indices, indptr), shape=(n, n))
 
 
-def rebin_exact(counts: np.ndarray, edges: np.ndarray,
-                target_edges: np.ndarray) -> np.ndarray:
+@numba.njit(cache=True)
+def rebin_exact(counts, edges, target_edges):
     """Exact rebin of a piecewise-constant histogram onto ``target_edges``.
 
     Each target bin receives the sum of ``overlap_fraction * counts`` over all
     source bins, computed by interpolating the cumulative counts at the target
     edges.  Outside ``[edges[0], edges[-1]]`` the density is zero, so target
-    bins beyond the source histogram get zero counts.
+    bins beyond the source histogram get zero counts.  All inputs are float64
+    1-D arrays.
     """
-    counts = np.asarray(counts, dtype=float)
-    edges = np.asarray(edges, dtype=float)
-    target_edges = np.asarray(target_edges, dtype=float)
-    cumulative = np.concatenate(([0.0], np.cumsum(counts)))
+    cumulative = np.empty(counts.size + 1, dtype=np.float64)
+    cumulative[0] = 0.0
+    cumulative[1:] = np.cumsum(counts)
     lows = np.interp(target_edges[:-1], edges, cumulative)
     highs = np.interp(target_edges[1:], edges, cumulative)
     return highs - lows
@@ -239,8 +238,8 @@ class Response:
         self.matrix = matrix
 
     @classmethod
-    def build(cls, calib_params: np.ndarray | list[float],
-              resol_params: np.ndarray | list[float], channel_max: float,
+    def build(cls, calib_params: np.ndarray,
+              resol_params: np.ndarray, channel_max: float,
               fit_channel_lo: int, fit_channel_hi: int, last_channel: int,
               n_sigma: float = N_SIGMA) -> Response:
         """Construct the binning and response matrix for one evaluation."""

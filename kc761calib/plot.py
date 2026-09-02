@@ -22,12 +22,12 @@ _COLOR_DATA = "blue"  # experimental counts (errorbars)
 _COLOR_FIT = "red"  # best-fit smeared simulation
 _COLOR_SIM_RAW = "dimgray"  # scaled raw simulation (stairs)
 _COLOR_SCALE = "seagreen"  # scale curve (twin axis)
-_COLOR_RESIDUAL_POINTS = "steelblue"  # residual pull points
+_COLOR_RESIDUAL_POINTS = "darkgoldenrod"  # residual pull points
 _COLOR_RESIDUAL_ZERO = "black"  # residual zero line
 _COLOR_RESIDUAL_LEVEL = "red"  # residual +/- level guides
 _COLOR_REF_LINE = "dimgray"  # reference-energy guide dashes
-_COLOR_CALIB = "sienna"  # calibration curve and band
-_COLOR_RESOL = "saddlebrown"  # resolution curve and band
+_COLOR_CALIB = "saddlebrown"  # calibration curve and band
+_COLOR_RESOL = "firebrick"  # resolution curve and band
 _COLOR_PARAM_BOX = "white"  # parameter box background
 _COLOR_PARAM_EDGE = "gray"  # parameter box edge
 
@@ -263,7 +263,7 @@ def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
     sigma = resol_sigma_model(resol_params, energy)
     rel = 100.0 * sigma / energy
     ax.plot(energy, coeff * rel, "-", color=_COLOR_RESOL, lw=1.5,
-            label=r"$FWHM(E)\,/\,E$" if _RESOL_AS_FWHM else r"$\sigma(E)\,/\,E$")
+            label=r"$\text{FWHM}(E)\,/\,E$" if _RESOL_AS_FWHM else r"$\sigma(E)\,/\,E$")
     if resol_cov is not None:
         finite = _cov_finite_mask(resol_cov)
         if finite.any():

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 
-import numpy as np
+import numba
 
 N_SCALE = 2  # (s0, s1) scale at the lower/upper reference energies
 PARAM_NAMES_SCALE = ["s0", "s1"]
@@ -48,15 +48,14 @@ def scale_names(label: str, index: int) -> list[str]:
     return [f"{p}_{clean}" for p in PARAM_NAMES_SCALE]
 
 
-def scale_model(scale_params: np.ndarray | list[float], energy: np.ndarray | float,
-                energy_low: float, energy_high: float) -> np.ndarray:
+@numba.njit(inline="always", cache=True)
+def scale_model(scale_params, energy, energy_low, energy_high):
     """Linear scale between the two reference points.
 
     ``scale_params = [s0, s1]`` are the scale values at the reference
     energies ``energy_low`` and ``energy_high``; ``s(E) = s0 + (s1 - s0) t``
-    with ``t = (E - energy_low) / (energy_high - energy_low)``.
+    with ``t = (E - energy_low) / (energy_high - energy_low)``.  ``scale_params``
+    is a float64 array of length 2 and ``energy`` a float64 scalar or array.
     """
-    vals = np.asarray(scale_params, dtype=float)
-    energy = np.asarray(energy, dtype=float)
     t = (energy - energy_low) / (energy_high - energy_low)
-    return vals[0] + (vals[1] - vals[0]) * t
+    return scale_params[0] + (scale_params[1] - scale_params[0]) * t

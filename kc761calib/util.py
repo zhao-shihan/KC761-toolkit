@@ -2,11 +2,30 @@
 
 from __future__ import annotations
 
-import math
-
+import numba
 import numpy as np
 
 _MISSING = object()
+
+
+@numba.njit(inline="always", cache=True)
+def _bernstein_basis(t, degree):
+    """JIT core of :func:`bernstein_basis` (no argument validation).
+
+    ``t`` is a float64 scalar or 1-D float64 array; the binomial coefficients
+    are computed with the exact recurrence ``C(d, i) = C(d, i-1) * (d - i +
+    1) / i`` kept in float64, because ``math.comb`` is not available under
+    numba and the int64 form overflows for ``degree`` beyond ~65.
+    """
+    t = np.asarray(t, dtype=np.float64)
+    omt = 1.0 - t
+    out = np.empty(t.shape + (degree + 1,), dtype=np.float64)
+    comb = 1.0
+    for i in range(degree + 1):
+        out[..., i] = comb * omt ** (degree - i) * t ** i
+        if i < degree:
+            comb = comb * (degree - i) / (i + 1)
+    return out
 
 
 def bernstein_basis(t: np.ndarray | float, degree: int) -> np.ndarray:
@@ -22,12 +41,7 @@ def bernstein_basis(t: np.ndarray | float, degree: int) -> np.ndarray:
     """
     if not isinstance(degree, int) or degree < 0:
         raise ValueError(f"degree must be a non-negative integer, got {degree!r}")
-    t = np.asarray(t, dtype=float)
-    omt = 1.0 - t
-    out = np.empty(t.shape + (degree + 1,))
-    for i in range(degree + 1):
-        out[..., i] = math.comb(degree, i) * omt ** (degree - i) * t ** i
-    return out
+    return _bernstein_basis(t, degree)
 
 
 def broadcast(value, n: int, name: str, default=_MISSING):

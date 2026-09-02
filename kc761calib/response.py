@@ -35,7 +35,7 @@ import math
 import numba
 import numpy as np
 
-from .util import bernstein_basis
+from .util import _bernstein_basis
 
 # --------------------------------------------------------------------------
 # initial values and fit bounds
@@ -65,16 +65,19 @@ def poly_basis(x: np.ndarray | float, degree: int) -> np.ndarray:
     return np.stack([x**k for k in range(degree + 1)], axis=-1)
 
 
-def calib_model(calib_params: np.ndarray | list[float], channel: np.ndarray | float,
-                channel_max: float) -> np.ndarray:
+@numba.njit(inline="always", cache=True)
+def calib_model(calib_params, channel, channel_max):
     """Cubic E(channel) from an intercept and three slopes.
 
     ``calib_params = [c0, k1, k2, k3]`` where ``k1 = E'(0)``, ``k2 = E'(channel_max/2)``
     and ``k3 = E'(channel_max)``; ``channel_max`` is the maximum channel number of the
-    acquisition, a fixed constant of the data.
+    acquisition, a fixed constant of the data.  ``calib_params`` is a float64
+    array of length 4 and ``channel`` a float64 scalar or array.
     """
-    c0, k1, k2, k3 = np.asarray(calib_params, dtype=float)
-    channel = np.asarray(channel, dtype=float)
+    c0 = calib_params[0]
+    k1 = calib_params[1]
+    k2 = calib_params[2]
+    k3 = calib_params[3]
     return (c0 + k1 * channel
             + (4 * k2 - 3 * k1 - k3) / (2.0 * channel_max) * channel**2
             + 2.0 * (k1 - 2.0 * k2 + k3) / (3.0 * channel_max**2) * channel**3)
@@ -124,7 +127,7 @@ def reported_calib(calib_params: np.ndarray | list[float], calib_cov: np.ndarray
 # resolution: Gaussian sigma(E)
 
 
-@numba.njit(inline="always")
+@numba.njit(inline="always", cache=True)
 def gaussian_pdf(d, sigma):
     """Normal (Gaussian) probability density at offset ``d`` for ``sigma > 0``.
 
@@ -134,15 +137,15 @@ def gaussian_pdf(d, sigma):
     return math.exp(-0.5 * (d / sigma)**2) / (math.sqrt(2.0 * math.pi) * sigma)
 
 
-def resol_sigma_model(resol_params: np.ndarray | list[float], energy: np.ndarray | float) -> np.ndarray:
+@numba.njit(cache=True)
+def resol_sigma_model(resol_params, energy):
     """sigma(E) from the resolution parameters ``resol_params = [b0, b1, b2]`` (in keV).
 
     ``sigma^2`` is the quadratic Bernstein polynomial in ``t = E / RESOL_E_REF``
     with coefficients ``(b0^2, b1^2, b2^2)``, i.e. a quadratic Bezier curve
     with those coefficients as control values.  The squares keep the variance
-    non-negative; clamped at zero only as a numerical safety.
+    non-negative; clamped at zero only as a numerical safety.  ``resol_params``
+    is a float64 array of length 3 and ``energy`` a float64 scalar or array.
     """
-    resol_params = np.asarray(resol_params, dtype=float)
-    energy = np.asarray(energy, dtype=float)
-    var = bernstein_basis(energy / RESOL_E_REF, 2) @ (resol_params ** 2)
+    var = np.dot(_bernstein_basis(energy / RESOL_E_REF, 2), resol_params ** 2)
     return np.sqrt(np.maximum(var, MIN_SIGMA**2))
