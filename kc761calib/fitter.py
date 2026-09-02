@@ -19,19 +19,19 @@ from .fitparamspace import CALIB, RESOL
 from .types import FitResult
 
 # Progress-line print cadence for each stage (modulo, when verbose).
-_STAGE1_PROGRESS_LOG_MODULO = 1
-_STAGE2_PROGRESS_LOG_MODULO = 300
+_STAGE1_PROGRESS_LOG_MODULO = 3
+_STAGE2_PROGRESS_LOG_MODULO = 100
 
 # The two fit stages, both on the unit cube: the stage-1 optimizer locates the
 # basin, then the stage-2 optimizer polishes from its result to convergence.
 # Each stage's iteration budget is supplied per call in `_fit_once`.
 _STAGE1_OPTIMIZER = dict(
-    method="Powell",
-    options=dict(xtol=1e-6, ftol=1e-6),
+    method="L-BFGS-B",
+    options=dict(ftol=1e-8, maxls=100),
 )
 _STAGE2_OPTIMIZER = dict(
     method="Nelder-Mead",
-    options=dict(fatol=1e-3, adaptive=True),
+    options=dict(fatol=1e-6, adaptive=True),
 )
 
 

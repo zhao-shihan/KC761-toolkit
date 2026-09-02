@@ -22,7 +22,7 @@ def _save_fig(fig, out_pdf: str) -> None:
     if not out.suffix.lower().endswith(".pdf"):
         out = out.with_suffix(".pdf")
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(str(out), bbox_inches="tight")
+    fig.savefig(out, bbox_inches="tight", pad_inches=1.0)
     plt.close(fig)
 
 
@@ -44,7 +44,7 @@ def _figure_grid(n_datasets: int):
 
 def _dataset_row(fig, gs, row: int):
     inner = GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[row],
-                                    wspace=0.45)
+                                    wspace=0.3)
     return (fig.add_subplot(inner[0, 0]),
             fig.add_subplot(inner[0, 1]))
 
@@ -109,15 +109,13 @@ def _spectrum_panel(ax, ds, title: str | None) -> None:
     sb_full = scale_model(ds.scale_params, centers_full,
                           ds.scale_lo, ds.scale_hi)
     stairs_handle = ax.stairs(sb_full * ds.unsmeared_sim, ds.bin_edges,
-                              color="tab:gray", lw=0.8, zorder=2,
+                              lw=0.8, color="tab:gray", zorder=2,
                               label="Raw sim. (scaled)")
-    data_handle = ax.errorbar(ds.bin_centers, ds.data_counts,
-                              yerr=ds.data_errors,
-                              fmt="o", ms=1.5, lw=0.8, alpha=0.6,
-                              color="tab:blue", zorder=3,
+    data_handle = ax.errorbar(ds.bin_centers, ds.data_counts, yerr=ds.data_errors,
+                              fmt="o", ms=1.5, lw=0.8, color="tab:blue", alpha=0.6, zorder=3,
                               label="Data (-bkg, calibrated)")
     line_fit, = ax.plot(ds.bin_centers, ds.model_prediction, "-",
-                        color="tab:red", lw=1.5, zorder=4,
+                        lw=1.5, color="tab:red", alpha=0.8, zorder=4,
                         label="Best fit (smeared sim.)")
     ax.set_yscale("log")
     ax.set_xlim(ds.bin_edges[0], ds.bin_edges[-1])
@@ -143,7 +141,7 @@ def _residual_panel(ax, bin_centers, data_counts, data_errors, model_prediction,
     ok = model_prediction > 0
     rel = (data_counts[ok] - model_prediction[ok]) / model_prediction[ok]
     ax.errorbar(bin_centers[ok], rel, yerr=data_errors[ok] / model_prediction[ok],
-                fmt="o", ms=1.5, lw=0.8, color="tab:gray")
+                fmt="o", ms=1.5, lw=0.8, color="tab:grey", alpha=0.6)
     ax.axhline(0, color="k", lw=0.8)
     for level in (-0.3, 0.3):
         ax.axhline(level, color="tab:red", lw=0.6, ls=":")
@@ -192,16 +190,18 @@ def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
     sigma = resol_sigma_model(resol_params, energy)
     rel = 100.0 * sigma / energy
     ax.plot(energy, rel, "-", color="tab:orange", lw=1.5,
-            label=r"$\sigma\,/\,E$")
+            label=r"$\frac{\sigma(E)}{E} = \text{Bezier}_2\left(\frac{E}{"f"{RESOL_E_REF*1e-3}"r"\,\text{MeV}};b0,b1,b2\right)\,/\,E$")
     if resol_cov is not None and np.all(np.isfinite(resol_cov)):
         grad = w * resol_params / sigma[:, None]
         var = np.maximum(np.sum((grad @ resol_cov) * grad, axis=1), 0.0)
         err = RESOL_BAND_SCALE * 100.0 * np.sqrt(var) / energy
         ax.fill_between(energy, rel - err, rel + err, color="tab:orange",
-                        alpha=0.12, lw=0)
+                        alpha=0.12, lw=0,
+                        label=f"1$\\sigma$ band ($\\mathbf{{\\times "
+                        f"{RESOL_BAND_SCALE:g}}}$)")
     ax.set_ylim(0.0, RESOL_YMAX)
     ax.set_xlabel("Energy (keV)")
-    ax.set_ylabel(r"resolution / $E$ (%)")
+    ax.set_ylabel("Energy resolution (%)")
     ax.set_title(title, fontsize=10)
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8, loc="upper right")
@@ -225,13 +225,9 @@ def plot_fit(result, out_pdf: str) -> None:
     for i, ds in enumerate(det.datasets):
         ax_spec, ax_pull = _dataset_row(fig, gs, i + 1)
         label = _cap(ds.label)
-        if n > 1:
-            spec_title = (f"{label}  [ch {ds.channel_low}-{ds.channel_high}]  "
-                          f"$\\chi^2 = {ds.chi2:.1f}$, {ds.n_bins} bins")
-            res_title = f"{label} residual"
-        else:
-            spec_title = None
-            res_title = "residual"
+        spec_title = (f"{label}  [ch {ds.channel_low}-{ds.channel_high}]  "
+                      f"$\\chi^2 = {ds.chi2:.1f}$, {ds.n_bins} bins")
+        res_title = f"{label} residual"
         _spectrum_panel(ax_spec, ds, spec_title)
         _residual_panel(ax_pull, ds.bin_centers, ds.data_counts, ds.data_errors,
                         ds.model_prediction, ds.bin_edges[0], ds.bin_edges[-1],
