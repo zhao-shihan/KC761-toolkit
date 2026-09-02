@@ -16,7 +16,7 @@ from .folding import Response
 from .scaling import scale_model
 from .types import DatasetArrays, DatasetDetail
 
-DEFAULT_SYS_FRAC = 0.05
+DEFAULT_SYS_FRAC = 0.10
 
 
 @numba.njit(inline="always", cache=True)
@@ -62,6 +62,8 @@ class FitModel:
         self.data_counts = data.counts[channel_slice]
         self.data_errors = data.errors[channel_slice]
         self.usable_mask = self.data_errors > 0
+        self.channel_centers = np.arange(self.channel_low, self.channel_high + 1,
+                                         dtype=np.float64)
         self.min_usable_bins = max(
             10, int(0.1 * (self.channel_high - self.channel_low + 1)))
 
@@ -69,19 +71,6 @@ class FitModel:
         self.initial_scale = self._initial_scale()
 
     # ----- data / model assembly -----------------------------------------
-
-    def scale_refs(self, resp: Response) -> tuple[float, float]:
-        """(lo, hi) scale reference energies at the current calibration.
-
-        The linear scale is anchored at the fit-window lower/upper bin
-        centers evaluated with the calibration the response was built
-        with, so the anchors move with the fit window as the calibration
-        changes during the fit; ``s0`` and ``s1`` are the scale values there.
-        """
-        bin_slice = resp.binning.channel_slice(
-            self.channel_low, self.channel_high)
-        centers = resp.binning.energy_centers[bin_slice]
-        return float(centers[0]), float(centers[-1])
 
     def dataset_arrays(self, resp: Response,
                        mask: np.ndarray | None = None,
@@ -97,7 +86,6 @@ class FitModel:
             mask = self.usable_mask
         bin_slice = resp.binning.channel_slice(
             self.channel_low, self.channel_high)
-        scale_lo, scale_hi = self.scale_refs(resp)
         if smeared is None:
             smeared = resp.smeared(self.sim)
         model_counts = smeared[bin_slice]
@@ -108,8 +96,7 @@ class FitModel:
             total_errors=total_errors,
             model_counts=model_counts[mask],
             bin_centers=resp.binning.energy_centers[bin_slice][mask],
-            scale_lo=scale_lo,
-            scale_hi=scale_hi,
+            channel_centers=self.channel_centers[mask],
         )
 
     def unsmeared_sim_on_bins(self, resp: Response) -> np.ndarray:
@@ -123,15 +110,14 @@ class FitModel:
                        scale_params: np.ndarray) -> DatasetDetail:
         """Package one dataset's pulls into plot/report diagnostics.
 
-        The model prediction is ``s(E) * m(E)`` with the per-bin scale curve
-        ``s(E) = scale_model(scale_params, E, scale_lo, scale_hi)`` evaluated
-        at each bin center; ``scale_lo``/``scale_hi`` are the fit-window
-        lower/upper bin centers at the current calibration, so the anchors
-        track the fit window.  The ``unsmeared_sim`` field remains unscaled.
+        The model prediction is ``s(c) * m(E)`` with the per-bin scale curve
+        ``s(c) = scale_model(scale_params, c, channel_low, channel_high)``
+        evaluated at each channel bin center; the channel window is fixed per
+        dataset.  The ``unsmeared_sim`` field remains unscaled.
         """
         arrays = self.dataset_arrays(resp)
-        scale_curve = scale_model(scale_params, arrays.bin_centers,
-                                  arrays.scale_lo, arrays.scale_hi)
+        scale_curve = scale_model(scale_params, arrays.channel_centers,
+                                  self.channel_low, self.channel_high)
         prediction = scale_curve * arrays.model_counts
         residuals = (arrays.data_counts - prediction) / arrays.total_errors
         edge_slice = resp.binning.channel_edge_slice(self.channel_low,
@@ -140,8 +126,6 @@ class FitModel:
             label=label,
             channel_low=self.channel_low,
             channel_high=self.channel_high,
-            scale_lo=arrays.scale_lo,
-            scale_hi=arrays.scale_hi,
             bin_centers=arrays.bin_centers,
             data_counts=arrays.data_counts,
             total_errors=arrays.total_errors,

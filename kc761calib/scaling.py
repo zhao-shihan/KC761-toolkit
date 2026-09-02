@@ -1,21 +1,24 @@
-"""Energy-dependent normalization scale model.
+"""Per-dataset normalization scale model over the fit channel window.
 
 The scale corrects the overall difference between the simulated and the real
-experimental spectra and is allowed to vary with energy.  It is a linear
-interpolant between two reference energies ``E_lo`` and ``E_hi`` (the
-dataset's fit-window lower/upper bin centers), with 2 parameters per dataset:
+experimental spectra and is allowed to vary across the dataset's fixed fit
+channel window ``[c_lo, c_hi]`` (0-based, inclusive channels).  It is the
+quadratic Bezier curve with control points ``(c_lo, s1)``, ``(s0, s2)`` and
+``(c_hi, s3)`` -- 4 parameters per dataset -- written as a function of the
+channel ``c`` by inverting the control-abscissa curve:
 
-   s(E) = s0 + (s1 - s0) (E - E_lo) / (E_hi - E_lo).
+   t(c) = (c - c_lo) / (s0 - c_lo
+          + sqrt((s0 - c_lo)^2 + (c_lo - 2 s0 + c_hi) (c - c_lo))),
+   s(c) = s1 + 2 (s2 - s1) t(c) + (s1 - 2 s2 + s3) t(c)^2.
 
-``s0`` and ``s1`` are the scale values at ``E_lo`` and ``E_hi`` respectively, so
-both are directly interpretable on-curve values with the same units.  The
-reference energies are not fixed: they are recomputed at every evaluation
-from the current calibration (the fit-window bin centers move with the energy
-calibration), so ``s0``/``s1`` always anchor the current fit window.  With
-``s0 = s1`` the scale reduces to that constant (the initial ``x0``), matching the
-previous constant-scale behavior.  During fitting both values share per-dataset
-bounds relative to the initial overall normalization (``[SCALE_REL_LO,
-SCALE_REL_HI] * initial_scale``).
+``s0`` is the channel of the middle control point (bounded strictly inside the
+fit window, ``c_lo < s0 < c_hi``) and ``s1, s2, s3`` are the scale values at
+the control abscissae ``(c_lo, s0, c_hi)``, so all three are directly
+interpretable on-curve values in scale units.  With ``s1 = s2 = s3`` the scale
+reduces to that constant (the initial ``x0``, whose ``s0`` sits at the window
+midpoint).  During fitting ``s1, s2, s3`` share per-dataset bounds relative to
+the initial overall normalization (``[SCALE_REL_LO, SCALE_REL_HI] *
+initial_scale``).
 """
 
 from __future__ import annotations
@@ -24,38 +27,68 @@ import re
 
 import numba
 
-N_SCALE = 2  # (s0, s1) scale at the lower/upper reference energies
-PARAM_NAMES_SCALE = ["s0", "s1"]
+from .util import quadratic_bezier
 
-# The fitted scale reference values may vary within [LO, HI] * initial_scale
-# around each dataset's initial overall-normalization estimate (both start there).
-SCALE_REL_LO = 0.05
-SCALE_REL_HI = 1.95
+N_SCALE = 4  # (s0, s1, s2, s3) control channel + scale at (c_lo, s0, c_hi)
+PARAM_NAMES_SCALE = ["s0", "s1", "s2", "s3"]
+
+# s0 must stay strictly inside the fit window (c_lo < s0 < c_hi) so that the
+# curve parameter t(c) is well-defined at every bin center.  The bounds are
+# inset by this tiny channel margin; it also keeps the discriminant
+# (s0 - c_lo)^2 + (c_lo - 2 s0 + c_hi)(c - c_lo) strictly positive at the
+# window endpoints in float64: its true minimum there is the margin squared,
+# while the rounding error of the ~window^2 terms is ~1e-16 * window^2, so
+# this margin is safe for any window up to ~2048 channels.
+S0_MARGIN = 1e-3
+
+# The fitted scale values may vary within [LO, HI] * initial_scale around each
+# dataset's initial overall-normalization estimate (all start there).
+SCALE_REL_LO = 0.01
+SCALE_REL_HI = 3.0
 
 
-def scale_bounds(initial_scale: float) -> list[tuple[float, float]]:
-    """Per-dataset scale bounds: each reference value within ``[LO, HI] * initial_scale``."""
+def scale_bounds(initial_scale: float, channel_low: int,
+                 channel_high: int) -> list[tuple[float, float]]:
+    """Per-dataset scale bounds for the fit window ``[channel_low, channel_high]``.
+
+    ``s0`` within ``(channel_low, channel_high)`` inset by ``S0_MARGIN``
+    (implementing the strict constraint ``c_lo < s0 < c_hi``); ``s1, s2, s3``
+    each within ``[SCALE_REL_LO, SCALE_REL_HI] * initial_scale``.
+    """
     initial_scale = float(initial_scale)
-    return [(SCALE_REL_LO * initial_scale, SCALE_REL_HI * initial_scale)] * N_SCALE
+    s0_bounds = (float(channel_low) + S0_MARGIN,
+                 float(channel_high) - S0_MARGIN)
+    if s0_bounds[1] <= s0_bounds[0]:
+        raise ValueError(
+            f"fit channel window [{channel_low}, {channel_high}] is too narrow "
+            "to hold the scale control channel s0")
+    value_bounds = (SCALE_REL_LO * initial_scale, SCALE_REL_HI * initial_scale)
+    return [s0_bounds, value_bounds, value_bounds, value_bounds]
 
 
 _SCALE_CLEAN = re.compile(r"[^A-Za-z0-9_]")
 
 
 def scale_names(label: str, index: int) -> list[str]:
-    """Per-dataset scale-parameter names ``(s0, s1)``."""
+    """Per-dataset scale-parameter names ``(s0, s1, s2, s3)``."""
     clean = _SCALE_CLEAN.sub("_", str(label)).strip("_") or str(index)
     return [f"{p}_{clean}" for p in PARAM_NAMES_SCALE]
 
 
 @numba.njit(inline="always", cache=True)
-def scale_model(scale_params, energy, energy_low, energy_high):
-    """Linear scale between the two reference points.
+def scale_model(scale_params, channel, channel_low, channel_high):
+    """Quadratic Bezier scale over the fixed fit channel window.
 
-    ``scale_params = [s0, s1]`` are the scale values at the reference
-    energies ``energy_low`` and ``energy_high``; ``s(E) = s0 + (s1 - s0) t``
-    with ``t = (E - energy_low) / (energy_high - energy_low)``.  ``scale_params``
-    is a float64 array of length 2 and ``energy`` a float64 scalar or array.
+    ``scale_params = [s0, s1, s2, s3]``: ``s0`` is the middle control channel
+    and ``s1, s2, s3`` are the scale values at the control abscissae
+    ``(channel_low, s0, channel_high)`` -- i.e. the quadratic Bezier curve
+    with control points ``(channel_low, s1)``, ``(s0, s2)``,
+    ``(channel_high, s3)`` evaluated at ``channel``.  ``scale_params`` is a
+    float64 array of length 4 and ``channel`` a float64 scalar or array of
+    channel values; ``channel_low``/``channel_high`` bound the curve's domain.
     """
-    t = (energy - energy_low) / (energy_high - energy_low)
-    return scale_params[0] + (scale_params[1] - scale_params[0]) * t
+    s0 = scale_params[0]
+    s1 = scale_params[1]
+    s2 = scale_params[2]
+    s3 = scale_params[3]
+    return quadratic_bezier(channel, channel_low, channel_high, s0, s1, s2, s3)

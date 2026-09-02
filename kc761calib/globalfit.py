@@ -72,7 +72,8 @@ class GlobalFitModel:
         ]
 
         self.param_space = FitParamSpace(
-            tuple(self.labels), tuple(m.initial_scale for m in self.models))
+            tuple(self.labels), tuple(m.initial_scale for m in self.models),
+            tuple((m.channel_low, m.channel_high) for m in self.models))
         self.x0 = self.param_space.x0()
         self.bounds = self.param_space.bounds
 
@@ -138,9 +139,10 @@ class GlobalFitModel:
             return np.full(int(sum(sizes)), np.nan)
         out = []
         for i, arrays in enumerate(predictions):
+            m = self.models[i]
             scale_curve = scale_model(
-                q[self.param_space.scale(i)], arrays.bin_centers,
-                arrays.scale_lo, arrays.scale_hi)
+                q[self.param_space.scale(i)], arrays.channel_centers,
+                m.channel_low, m.channel_high)
             out.append((arrays.data_counts - scale_curve * arrays.model_counts)
                        / arrays.total_errors)
         return np.concatenate(out)
@@ -157,9 +159,10 @@ class GlobalFitModel:
             return np.inf
         total = 0.0
         for i, arrays in enumerate(predictions):
+            m = self.models[i]
             scale_curve = scale_model(
-                q[self.param_space.scale(i)], arrays.bin_centers,
-                arrays.scale_lo, arrays.scale_hi)
+                q[self.param_space.scale(i)], arrays.channel_centers,
+                m.channel_low, m.channel_high)
             residuals = (arrays.data_counts
                          - scale_curve * arrays.model_counts) / arrays.total_errors
             total += float(residuals @ residuals)

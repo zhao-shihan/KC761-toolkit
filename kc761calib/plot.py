@@ -26,8 +26,8 @@ _COLOR_RESIDUAL_POINTS = "darkgoldenrod"  # residual pull points
 _COLOR_RESIDUAL_ZERO = "black"  # residual zero line
 _COLOR_RESIDUAL_LEVEL = "red"  # residual +/- level guides
 _COLOR_REF_LINE = "dimgray"  # reference-energy guide dashes
-_COLOR_CALIB = "saddlebrown"  # calibration curve and band
-_COLOR_RESOL = "firebrick"  # resolution curve and band
+_COLOR_CALIB = "darkgreen"  # calibration curve and band
+_COLOR_RESOL = "darkolivegreen"  # resolution curve and band
 _COLOR_PARAM_BOX = "white"  # parameter box background
 _COLOR_PARAM_EDGE = "gray"  # parameter box edge
 
@@ -122,7 +122,7 @@ def _parameter_panel(ax, txt: str) -> None:
                       alpha=0.9))
 
 
-def _spectrum_panel(ax, ds, title: str | None) -> None:
+def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
     ax2 = ax.twinx()
     # Draw the scale curve behind the spectrum artists (and the legend): the
     # twin axis sits below the primary axis, whose background is transparent so
@@ -130,17 +130,21 @@ def _spectrum_panel(ax, ds, title: str | None) -> None:
     # Data, Best-fit, Legend.
     ax2.set_zorder(ax.get_zorder() - 1)
     ax.patch.set_visible(False)
-    e_curve = np.linspace(ds.bin_edges[0], ds.bin_edges[-1], 300)
-    scale_curve = scale_model(ds.scale_params, e_curve,
-                              ds.scale_lo, ds.scale_hi),
-    line_scale, = ax2.plot(e_curve, scale_curve[0], "--",
+    # The scale is a function of channel: evaluate it over the channel window
+    # and map the channel axis to energy with the calibration for the twin
+    # (energy) axis.
+    ch_curve = np.linspace(ds.channel_low, ds.channel_high, 300)
+    scale_curve = scale_model(ds.scale_params, ch_curve,
+                              ds.channel_low, ds.channel_high)
+    e_curve = calib_model(calib, ch_curve, channel_max)
+    line_scale, = ax2.plot(e_curve, scale_curve, "--",
                            color=_COLOR_SCALE, lw=0.5, zorder=1,
-                           label="Scale s(E)")
-    ax2.set_ylabel("Scale s(E)")
+                           label="Scale s(c)")
+    ax2.set_ylabel("Scale s(c)")
 
-    centers_full = 0.5 * (ds.bin_edges[:-1] + ds.bin_edges[1:])
-    sb_full = scale_model(ds.scale_params, centers_full,
-                          ds.scale_lo, ds.scale_hi)
+    ch_full = np.arange(ds.channel_low, ds.channel_high + 1, dtype=float)
+    sb_full = scale_model(ds.scale_params, ch_full,
+                          ds.channel_low, ds.channel_high)
     stairs_handle = ax.stairs(sb_full * ds.unsmeared_sim, ds.bin_edges,
                               lw=0.8, color=_COLOR_SIM_RAW, zorder=2,
                               label="Raw sim. (scaled)")
@@ -161,7 +165,7 @@ def _spectrum_panel(ax, ds, title: str | None) -> None:
               ["Data (-bkg, calibrated)",
                "Best fit (smeared sim.)",
                "Raw sim. (scaled)",
-               "Scale s(E)"],
+               "Scale s(c)"],
               fontsize=8, loc="lower left")
     if title is not None:
         ax.set_title(title, fontsize=9)
@@ -312,10 +316,10 @@ def plot_fit(result, out_pdf: str) -> None:
     for i, ds in enumerate(det.datasets):
         ax_spec, ax_pull = _dataset_row(fig, gs, i + 1)
         label = _cap(ds.label)
-        spec_title = (f"{label}  [ch {ds.channel_low}-{ds.channel_high}]  "
+        spec_title = (f"{label}  [ch {ds.channel_low} - {ds.channel_high}]  "
                       f"$\\chi^2 = {ds.chi2:.1f}$, {ds.n_bins} bins")
         res_title = f"{label} residual"
-        _spectrum_panel(ax_spec, ds, spec_title)
+        _spectrum_panel(ax_spec, ds, calib, det.channel_max, spec_title)
         _residual_panel(ax_pull, ds.bin_centers, ds.data_counts, ds.total_errors,
                         ds.model_prediction, ds.bin_edges[0], ds.bin_edges[-1],
                         res_title)

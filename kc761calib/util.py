@@ -40,8 +40,51 @@ def bernstein_basis(t: np.ndarray | float, degree: int) -> np.ndarray:
     their own coordinate to [0, 1].
     """
     if not isinstance(degree, int) or degree < 0:
-        raise ValueError(f"degree must be a non-negative integer, got {degree!r}")
+        raise ValueError(
+            f"degree must be a non-negative integer, got {degree!r}")
     return _bernstein_basis(t, degree)
+
+
+@numba.njit(inline="always", cache=True)
+def quadratic_bezier_param(x, x_lo, x_hi, x_mid):
+    """Curve parameter ``t(x)`` of a quadratic Bezier with control abscissae.
+
+    The control points have abscissae ``(x_lo, x_mid, x_hi)`` with
+    ``x_lo < x_mid < x_hi``.  The curve abscissa is
+
+        x(t) = x_lo + 2 (x_mid - x_lo) t + (x_lo - 2 x_mid + x_hi) t^2,
+
+    strictly increasing on ``t`` in [0, 1] (its derivative is the positive
+    convex combination ``2 ((1 - t)(x_mid - x_lo) + t (x_hi - x_mid))``), so
+    every interval point has a unique parameter: the in-interval root of the
+    quadratic, written in the rationalized form
+
+        t = (x - x_lo) / (x_mid - x_lo + sqrt((x_mid - x_lo)^2
+            + (x_lo - 2 x_mid + x_hi) (x - x_lo))),
+
+    which is exact at both endpoints (t = 0 and t = 1) and free of
+    cancellation for any ``x_mid`` inside the interval.  ``x`` is a float64
+    scalar or array; the result has the same shape.
+    """
+    a = x_mid - x_lo
+    d = x - x_lo
+    return d / (a + np.sqrt(a * a + (x_lo - 2.0 * x_mid + x_hi) * d))
+
+
+@numba.njit(inline="always", cache=True)
+def quadratic_bezier(x, x_lo, x_hi, x_mid, y0, y1, y2):
+    """Quadratic Bezier curve ``y(x)`` with control points ``(x_lo, y0)``,
+    ``(x_mid, y1)`` and ``(x_hi, y2)``, with ``x_lo < x_mid < x_hi``.
+
+    The value is the Bezier ordinate at the curve parameter mapping to ``x``
+    (:func:`quadratic_bezier_param`):
+
+        y = y0 + 2 (y1 - y0) t + (y0 - 2 y1 + y2) t^2.
+
+    ``x`` is a float64 scalar or array; the result has the same shape.
+    """
+    t = quadratic_bezier_param(x, x_lo, x_hi, x_mid)
+    return y0 + (2.0 * (y1 - y0) + (y0 - 2.0 * y1 + y2) * t) * t
 
 
 def broadcast(value, n: int, name: str, default=_MISSING):

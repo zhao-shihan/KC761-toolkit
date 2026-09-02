@@ -20,12 +20,16 @@ RESOL = slice(N_CALIB, N_CORE)
 class FitParamSpace:
     scale_labels: tuple[str, ...]
     init_scales: tuple[float, ...]
+    channel_windows: tuple[tuple[int, int], ...]
 
     def __post_init__(self):
-        if len(self.init_scales) != len(self.scale_labels):
+        if not (len(self.init_scales) == len(self.scale_labels)
+                == len(self.channel_windows)):
             raise ValueError(
-                "init_scales must provide one value per dataset "
-                f"({len(self.scale_labels)} datasets, got {len(self.init_scales)})")
+                "scale_labels, init_scales and channel_windows must provide "
+                "one entry per dataset "
+                f"({len(self.scale_labels)} labels, {len(self.init_scales)} "
+                f"scales, {len(self.channel_windows)} windows)")
 
     @property
     def n_datasets(self) -> int:
@@ -52,11 +56,15 @@ class FitParamSpace:
     def bounds(self) -> list[tuple[float, float]]:
         bounds = [*BOUNDS_CALIB, *BOUNDS_RESOL]
         for i in range(self.n_datasets):
-            bounds.extend(scale_bounds(float(self.init_scales[i])))
+            c_lo, c_hi = self.channel_windows[i]
+            bounds.extend(scale_bounds(float(self.init_scales[i]), c_lo, c_hi))
         return bounds
 
     def x0(self) -> np.ndarray:
-        # Flat start: s0 = s1 = initial_scale (constant scale across the window).
-        scale_block = np.repeat(np.asarray(
-            self.init_scales, dtype=float), N_SCALE)
-        return np.concatenate([INIT_CALIB, INIT_RESOL, scale_block])
+        # Flat start: s1 = s2 = s3 = initial_scale (constant scale across the
+        # window) with the control channel s0 at the window midpoint.
+        scale_blocks = [
+            [0.5 * (c_lo + c_hi)] + [float(s)] * (N_SCALE - 1)
+            for s, (c_lo, c_hi) in zip(self.init_scales, self.channel_windows)]
+        return np.concatenate([INIT_CALIB, INIT_RESOL,
+                               np.asarray(scale_blocks, dtype=float).ravel()])

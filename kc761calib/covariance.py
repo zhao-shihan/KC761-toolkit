@@ -15,11 +15,11 @@ unchanged, while a poor fit inflates the reported errors accordingly.
 
 ``J`` is always obtained by finite differences -- the model has no analytic
 derivatives.  For each parameter the step balances the ``O(h^2)`` truncation
-error against the ``O(eps/h)`` round-off error, giving the textbook-optimal
-relative step ``eps^(1/3) ~ 6e-6`` for central differences (``eps^(1/2)`` for
-the one-sided differences used at bounds).  Each probe that falls outside a
-bound or evaluates to a non-finite residual vector degrades that column
-gracefully: central difference when both probes are usable, one-sided
+error against the ``O(eps/h)`` round-off error, giving the relative step
+``eps^(1/3) ~ 4.9e-3`` for central differences (``eps^(1/2)`` for the
+one-sided differences used at bounds), based on float32 eps.  Each probe that
+falls outside a bound or evaluates to a non-finite residual vector degrades
+that column: central difference when both probes are usable, one-sided
 difference otherwise, and NaN only when the parameter cannot be probed at
 all.  The covariance is assembled by inverting ``J^T J`` on the identifiable
 subspace (SVD rank test); undetermined parameters report NaN errors instead
@@ -30,11 +30,8 @@ from __future__ import annotations
 
 import numpy as np
 
-# Textbook-optimal finite-difference steps for float64: central differences
-# balance O(h^2) truncation against O(eps/h) round-off at eps^(1/3), one-sided
-# differences at eps^(1/2).
-_CENTRAL_STEP = np.finfo(float).eps ** (1.0 / 3.0)
-_ONESIDED_STEP = np.finfo(float).eps ** 0.5
+_CENTRAL_STEP = np.finfo(np.float32).eps ** (1.0 / 3.0)
+_ONESIDED_STEP = np.finfo(np.float32).eps ** 0.5
 
 
 def numerical_jacobian(fun, x: np.ndarray,
@@ -123,7 +120,8 @@ def _inverse_fisher(jac: np.ndarray) -> np.ndarray:
     keep = s > tol
     inv_s = np.zeros_like(s)
     np.divide(1.0, s, out=inv_s, where=keep)
-    cov = (u * inv_s) @ vt  # Moore-Penrose inverse on the identifiable subspace
+    # Moore-Penrose inverse on the identifiable subspace
+    cov = (u * inv_s) @ vt
     if not keep.all():
         null = u[:, ~keep]
         undetermined = np.any(np.abs(null) > 1e-8, axis=1)

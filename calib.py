@@ -85,12 +85,13 @@ def _run_calib(args) -> int:
         sp = result.scales[lo:lo + N_SCALE]
         se = result.scale_errors[lo:lo + N_SCALE]
         ds = result.detail.datasets[i]
-        scale_str = ", ".join(f"{name} = {v:.6g} +/- {e_:.3g}"
-                              for name, v, e_ in zip(PARAM_NAMES_SCALE, sp, se))
+        scale_str = ", ".join(
+            f"{name} = {v:.6g} +/- {e_:.3g}"
+            for name, v, e_ in zip(PARAM_NAMES_SCALE, sp, se))
         dataset_lines.append(
             f"[calib]   {label}: chi2 = {result.chi2_per_dataset[i]:.2f}, "
             f"{result.detail.bins_per_dataset[i]} bins, "
-            f"scale [{ds.scale_lo:g}, {ds.scale_hi:g} keV]: {scale_str}")
+            f"scale [ch {ds.channel_low} - {ds.channel_high}]: {scale_str}")
     print_summary(result, dataset_lines=dataset_lines)
 
     if args.output is not None:

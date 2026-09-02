@@ -20,8 +20,7 @@ class DatasetArrays:
     total_errors: np.ndarray  # total per-bin 1-sigma uncertainty (stat + sys)
     model_counts: np.ndarray  # resolution-smeared sim, unscaled (used bins)
     bin_centers: np.ndarray  # energy centers of the used bins (keV)
-    scale_lo: float  # lower scale ref energy at the current calibration (keV)
-    scale_hi: float  # upper scale ref energy at the current calibration (keV)
+    channel_centers: np.ndarray  # channel numbers of the used bins
 
 
 @dataclass
@@ -31,14 +30,12 @@ class DatasetDetail:
     label: str
     channel_low: int  # first selected channel (0-based, inclusive)
     channel_high: int  # last selected channel (0-based, inclusive)
-    scale_lo: float  # lower ref energy for the scale at the fitted calibration (keV)
-    scale_hi: float  # upper ref energy for the scale at the fitted calibration (keV)
     bin_centers: np.ndarray  # energy centers of the used bins (keV)
     data_counts: np.ndarray  # background-subtracted counts per used bin
     total_errors: np.ndarray  # total per-bin uncertainty (stat + sys)
     model_prediction: np.ndarray  # best-fit, scaled smeared simulation
     unsmeared_sim: np.ndarray  # rebinned sim on the bins, unscaled
-    scale_params: np.ndarray  # scale at the lower/upper ref energy
+    scale_params: np.ndarray  # (s0, s1, s2, s3) quadratic-Bezier scale
     chi2: float
     n_bins: int
     bin_edges: np.ndarray  # energy edges of the full selected range
@@ -49,7 +46,7 @@ class FitDetail:
     datasets: list[DatasetDetail]
     chi2: float
     ndof: int
-    scale_params: np.ndarray  # per-dataset linear scale (s0,s1)
+    scale_params: np.ndarray  # per-dataset quadratic-Bezier scale (s0..s3)
     channel_max: float = 0.0  # largest data channel edge across models
     valid: bool = True
 

@@ -28,7 +28,7 @@ _STAGE2_PROGRESS_LOG_MODULO = 100
 # Each stage's iteration budget is supplied per call in `_fit_once`.
 _STAGE1_OPTIMIZER = dict(
     method="L-BFGS-B",
-    options=dict(ftol=1e-8, maxls=100),
+    options=dict(maxls=300),
 )
 _STAGE2_OPTIMIZER = dict(
     method="Nelder-Mead",
