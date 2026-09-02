@@ -13,32 +13,18 @@ check).  Reported coefficients are the plain cubic form ``(c0, c1, c2, c3)`` wit
 ``c3 = 2 (k1 - 2 k2 + k3)/(3 channel_max^2)`` via the constant, invertible map
 ``c0k1k2k3_to_c0c1c2c3``.
 
-Resolution is an exponentially modified Gaussian (EMG): a Gaussian core with
-standard deviation ``sigma`` convolved with a one-sided exponential of mean
-``tau``, giving full-energy peaks a high-energy tail.  ``sigma^2`` is a
-quadratic Bezier curve in ``t = E / RESOL_E_REF`` (``RESOL_E_REF = 2000``
-keV):
+Resolution is a pure Gaussian with energy-dependent standard deviation
+``sigma(E)``.  ``sigma^2`` is a quadratic Bezier curve in ``t = E /
+RESOL_E_REF`` (``RESOL_E_REF = 2000`` keV):
 
    sigma^2(t) = (1-t)^2 b0^2 + 2(1-t)t b1^2 + t^2 b2^2
 
 ``sigma`` keeps squared control values, so it is real and non-negative for any
-real ``(b0, b1, b2)``.  ``tau(E)`` is a linear ramp between ``b3`` at
-``E = 0`` and ``b4`` at ``E = Eref``, floored at ``MIN_TAU``:
+real ``(b0, b1, b2)``.
 
-   tau(E) = max(b3 (1 - E/Eref) + b4 (E/Eref), MIN_TAU),   Eref = RESOL_E_REF,
-
-so ``tau(Eref) = b4`` and the slope is ``(b4 - b3)/Eref``.  The fit bounds
-enforce ``b3 > 0`` and ``b4 > 0``, so the linear part is non-negative for
-``E >= 0``; the floor can only bind at negative energies when ``b4 > b3``
-(``MIN_TAU`` = 0.001 keV remains as a numerical safety for the EMG kernel).
-Monotone increase over ``[0, Eref]`` requires ``b4 > b3``, which the
-per-parameter bounds do not enforce.  The EMG
-mean is ``tau`` (not zero), so a smeared peak shifts to higher energy by
-``~tau(E)``; this is the intended tail effect.
-
-Applying the EMG to histograms is done by the extended-grid, sparse-matrix
-convolution in :mod:`kc761calib.convolution`, whose fused assembly kernel
-calls :func:`_emg_density` directly.
+Applying the Gaussian to histograms is done by the extended-grid,
+sparse-matrix convolution in :mod:`kc761calib.convolution`, whose fused
+assembly kernel calls :func:`gaussian_pdf` directly.
 """
 
 from __future__ import annotations
@@ -57,20 +43,16 @@ N_CALIB = 4  # (c0, k1, k2, k3)
 INIT_CALIB = np.array([-180.0, 1.5, 2.5, 3.5])
 BOUNDS_CALIB = [(-300.0, -100.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)]
 
-N_RESOL = 5  # (b0, b1, b2) sigma; (b3, b4) tau
-RESOL_E_REF = 2000.0  # keV, shared reference energy
+N_RESOL = 3  # (b0, b1, b2)
+RESOL_E_REF = 2000.0  # keV, reference energy
 MIN_SIGMA = 0.001  # keV, sigma floor (numerical safety)
-MIN_TAU = 0.001  # keV, tau floor
-INIT_RESOL = np.array([2.0, 20.0, 40.0,
-                       0.0, 0.0])
-BOUNDS_RESOL = [(0.0, 10.0), (0.0, 80.0), (0.0, 100.0),
-                (-100.0, 0.0), (0.0, 100.0)]
+INIT_RESOL = np.array([2.0, 20.0, 40.0])
+BOUNDS_RESOL = [(0.0, 10.0), (0.0, 80.0), (0.0, 100.0)]
 
-PARAM_NAMES_CORE = ["c0", "k1", "k2", "k3",
-                    "b0", "b1", "b2", "b3", "b4"]
+PARAM_NAMES_CORE = ["c0", "k1", "k2", "k3", "b0", "b1", "b2"]
 PARAM_NAMES_C = ["c0", "c1", "c2", "c3"]
 PARAM_NAMES_K = ["k1", "k2", "k3"]
-PARAM_NAMES_B = ["b0", "b1", "b2", "b3", "b4"]
+PARAM_NAMES_B = ["b0", "b1", "b2"]
 
 
 # --------------------------------------------------------------------------
@@ -138,89 +120,26 @@ def reported_calib(calib_params: np.ndarray | list[float], calib_cov: np.ndarray
     return c, err, cov
 
 # --------------------------------------------------------------------------
-# resolution EMG (sigma, tau)
+# resolution: Gaussian sigma(E)
 
 
 @numba.njit(inline="always")
-def _erfcx(z):
-    """Scaled complementary error function ``erfcx(z) = exp(z^2) erfc(z)`` for ``z >= 0``.
+def gaussian_pdf(d, sigma):
+    """Normal (Gaussian) probability density at offset ``d`` for ``sigma > 0``.
 
-    The exact ``exp(z^2) * erfc(z)`` is used below ``z = 8`` (no overflow); above
-    it the asymptotic series ``sqrt(pi) erfcx(z) = 1/z - 1/(2z^3) + 3/(4z^5)
-    - 15/(8z^7) + 105/(16z^9)`` is used, accurate to ``~945/(32 z^10)`` relative.
+    ``exp(-d^2 / (2 sigma^2)) / (sqrt(2 pi) sigma)``; the normalization uses
+    ``math`` constants, which numba constant-folds inside the kernel.
     """
-    if z < 8.0:
-        return math.exp(z * z) * math.erfc(z)
-    invz = 1.0 / z
-    z2 = invz * invz
-    return invz / math.sqrt(math.pi) * (
-        1.0 + z2 * (-0.5 + z2 * (0.75 + z2 * (-1.875 + z2 * 6.5625))))
-
-
-@numba.njit(inline="always")
-def _emg_density(d, sigma, tau):
-    """EMG probability density at offset ``d``, stable for all ``sigma, tau > 0``.
-
-    Uses the erfcx-scaled form so the ``sigma >> tau`` (near-Gaussian) limit does
-    not overflow; the ``z < 0`` branch switches to the exponential-tail form.
-    """
-    z = (sigma / tau - d / sigma) / math.sqrt(2.0)
-    if z >= 0.0:
-        return 0.5 / tau * math.exp(-0.5 * (d / sigma) * (d / sigma)) * _erfcx(z)
-    t1 = math.exp(-d / tau + 0.5 * (sigma / tau) * (sigma / tau)) / tau
-    t2 = 0.5 / tau * math.exp(-0.5 * (d / sigma) * (d / sigma)) * _erfcx(-z)
-    return t1 - t2
+    return math.exp(-0.5 * (d / sigma)**2) / (math.sqrt(2.0 * math.pi) * sigma)
 
 
 def resol_sigma_model(resol_params: np.ndarray | list[float], energy: np.ndarray | float) -> np.ndarray:
-    """sigma(E) from the sigma Bezier control values ``resol_params[0:3]`` (in keV).
+    """sigma(E) from the sigma Bezier control values ``resol_params = [b0, b1, b2]`` (in keV).
 
-    ``resol_params`` is the full 5-vector ``[b0, ..., b4]``; only the first three control
-    values are used, and ``t = E / RESOL_E_REF``.  The squared control values
-    keep the variance non-negative; clamped at zero only as a numerical safety.
+    ``t = E / RESOL_E_REF``.  The squared control values keep the variance
+    non-negative; clamped at zero only as a numerical safety.
     """
     resol_params = np.asarray(resol_params, dtype=float)
     energy = np.asarray(energy, dtype=float)
-    var = bezier2_basis(energy / RESOL_E_REF) @ (resol_params[:3] ** 2)
+    var = bezier2_basis(energy / RESOL_E_REF) @ (resol_params ** 2)
     return np.sqrt(np.maximum(var, MIN_SIGMA**2))
-
-
-def resol_tau_model(resol_params: np.ndarray | list[float], energy: np.ndarray | float) -> np.ndarray:
-    """tau(E) from the tau parameters ``resol_params[3:5]`` (in keV).
-
-    Linear ramp between ``b3`` at ``E = 0`` and ``b4`` at ``E = Eref``:
-
-       tau(E) = max(b3 (1 - E/Eref) + b4 (E/Eref), MIN_TAU),   Eref = RESOL_E_REF,
-
-    so ``tau(Eref) = b4`` and the slope is ``(b4 - b3)/Eref``.  The fit
-    bounds keep ``b3 > 0`` and ``b4 > 0``, so the linear part is non-negative
-    for ``E >= 0``; the floor can only bind at negative energies when
-    ``b4 > b3``.  ``MIN_TAU`` is kept as a numerical safety for the EMG
-    kernel.
-    """
-    resol_params = np.asarray(resol_params, dtype=float)
-    energy = np.asarray(energy, dtype=float)
-    b3, b4 = resol_params[3:5]
-    u = energy / RESOL_E_REF
-    tau = b3 * (1.0 - u) + b4 * u
-    return np.maximum(tau, MIN_TAU)
-
-
-def resol_tau_grad(resol_params: np.ndarray | list[float],
-                   energy: np.ndarray | float) -> np.ndarray:
-    """Analytic d(tau)/d(resol_params), shape ``energy.shape + (5,)``.
-
-    The sigma columns (``0:3``) are zero.  Used for the uncertainty band of
-    the tau/std curves in :mod:`kc761calib.plot`; the MIN_TAU floor is
-    ignored (it can only bind at negative energies when ``b4 > b3``):
-
-       dtau/db3 = 1 - E/Eref,
-       dtau/db4 = E/Eref.
-    """
-    resol_params = np.asarray(resol_params, dtype=float)
-    energy = np.asarray(energy, dtype=float)
-    u = energy / RESOL_E_REF
-    grad = np.zeros(np.shape(energy) + (5,), dtype=float)
-    grad[..., 3] = 1.0 - u
-    grad[..., 4] = u
-    return grad

@@ -84,9 +84,9 @@ class FitResult:
 
     @property
     def scale_errors(self) -> np.ndarray:
-        tail = slice(len(self.params) - len(self.detail.scale_params),
-                     len(self.params))
-        return self.errors[tail]
+        scale_slice = slice(len(self.params) - len(self.detail.scale_params),
+                            len(self.params))
+        return self.errors[scale_slice]
 
     @property
     def chi2_per_dataset(self) -> np.ndarray:

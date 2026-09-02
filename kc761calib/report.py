@@ -27,13 +27,9 @@ def print_summary(result, dataset_lines: list[str] | None = None) -> None:
     for name, v, e in zip(PARAM_NAMES_K, result.calib_params[CALIB_K],
                           result.calib_errors[CALIB_K]):
         print(f"[calib]   {name:<3s} = {v: .6g} +/- {e:.3g}")
-    print("[calib] resolution parameters b0..b4\n"
+    print("[calib] resolution parameters b0..b2\n"
           "[calib]  sigma^2(t) = Bezier2(b0, b1, b2), t = E/Eref,\n"
-          "[calib]  tau(E)     = max(b3*(1 - E/Eref) + b4*(E/Eref), MIN_TAU),\n"
-          f"[calib]  (Eref = {RESOL_E_REF} keV, b3 > 0, b4 > 0):")
-    for name, v, e in zip(PARAM_NAMES_B[:3], result.resol_params[:3],
-                          result.resol_errors[:3]):
-        print(f"[calib]   {name:<3s} = {v: .6g} +/- {e:.3g}")
-    for name, v, e in zip(PARAM_NAMES_B[3:5], result.resol_params[3:5],
-                          result.resol_errors[3:5]):
+          f"[calib]  (Eref = {RESOL_E_REF} keV):")
+    for name, v, e in zip(PARAM_NAMES_B, result.resol_params,
+                          result.resol_errors):
         print(f"[calib]   {name:<3s} = {v: .6g} +/- {e:.3g}")

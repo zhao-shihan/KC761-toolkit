@@ -3,7 +3,7 @@
 from __future__ import annotations
 from .response import (PARAM_NAMES_B, PARAM_NAMES_C, PARAM_NAMES_K,
                        RESOL_E_REF, calib_model, poly_basis, reported_calib,
-                       resol_sigma_model, resol_tau_grad, resol_tau_model)
+                       resol_sigma_model)
 from .scaling import scale_model
 from .fitparamspace import CALIB_K
 from .util import bezier2_basis
@@ -77,8 +77,7 @@ def _parameter_text(result) -> str:
     return ("\n".join([
         rows(PARAM_NAMES_C, coeffs, coeff_errors),
         rows(PARAM_NAMES_K, calib[CALIB_K], calib_err[CALIB_K]),
-        rows(PARAM_NAMES_B[:3], resol[:3], resol_err[:3]),
-        rows(PARAM_NAMES_B[3:5], resol[3:5], resol_err[3:5]),
+        rows(PARAM_NAMES_B, resol, resol_err),
     ]))
 
 
@@ -189,33 +188,17 @@ def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
     resol_params = np.asarray(resol_params, dtype=float)
     energy = np.linspace(1.0, energy_max, 300)
     w = bezier2_basis(energy / RESOL_E_REF)
-    tau_grad = resol_tau_grad(resol_params, energy)
 
     sigma = resol_sigma_model(resol_params, energy)
-    tau = resol_tau_model(resol_params, energy)
-    std = np.sqrt(sigma * sigma + tau * tau)
-
-    curves = [
-        ("sigma", sigma, r"$\sigma\,/\,E$", "tab:orange"),
-        ("tau", tau, r"$\tau\,/\,E$", "tab:green"),
-        ("std", std, r"$\sqrt{\sigma^2+\tau^2}\,/\,E$", "tab:red"),
-    ]
-    for name, g, label, color in curves:
-        rel = 100.0 * g / energy
-        ax.plot(energy, rel, "-", color=color, lw=1.5, label=label)
-        if resol_cov is not None and np.all(np.isfinite(resol_cov)):
-            grad = np.zeros((len(energy), 5))
-            if name == "sigma":
-                grad[:, 0:3] = w * resol_params[:3] / sigma[:, None]
-            elif name == "tau":
-                grad[:, 3:5] = tau_grad[:, 3:5]
-            else:  # std = sqrt(sigma^2 + tau^2)
-                grad[:, 0:3] = w * resol_params[:3] / std[:, None]
-                grad[:, 3:5] = tau_grad[:, 3:5] * (tau / std)[:, None]
-            var = np.maximum(np.sum((grad @ resol_cov) * grad, axis=1), 0.0)
-            err = RESOL_BAND_SCALE * 100.0 * np.sqrt(var) / energy
-            ax.fill_between(energy, rel - err, rel + err, color=color,
-                            alpha=0.12, lw=0)
+    rel = 100.0 * sigma / energy
+    ax.plot(energy, rel, "-", color="tab:orange", lw=1.5,
+            label=r"$\sigma\,/\,E$")
+    if resol_cov is not None and np.all(np.isfinite(resol_cov)):
+        grad = w * resol_params / sigma[:, None]
+        var = np.maximum(np.sum((grad @ resol_cov) * grad, axis=1), 0.0)
+        err = RESOL_BAND_SCALE * 100.0 * np.sqrt(var) / energy
+        ax.fill_between(energy, rel - err, rel + err, color="tab:orange",
+                        alpha=0.12, lw=0)
     ax.set_ylim(0.0, RESOL_YMAX)
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel(r"resolution / $E$ (%)")
