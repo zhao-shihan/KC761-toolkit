@@ -49,6 +49,8 @@ _RESOL_YMAX_SIGMA = 10.0
 
 
 def _save_fig(fig, out_pdf: str) -> None:
+    for ax in fig.axes:
+        ax.tick_params(direction="in", which="both")
     out = Path(out_pdf)
     if not out.suffix.lower().endswith(".pdf"):
         out = out.with_suffix(".pdf")
@@ -160,7 +162,7 @@ def _spectrum_panel(ax, ds, title: str | None) -> None:
                "Best fit (smeared sim.)",
                "Raw sim. (scaled)",
                "Scale s(E)"],
-              fontsize=8, loc="upper right")
+              fontsize=8, loc="lower left")
     if title is not None:
         ax.set_title(title, fontsize=9)
 
@@ -170,7 +172,7 @@ def _residual_panel(ax, bin_centers, data_counts, data_errors, model_prediction,
     ok = model_prediction > 0
     rel = (data_counts[ok] - model_prediction[ok]) / model_prediction[ok]
     ax.errorbar(bin_centers[ok], rel, yerr=data_errors[ok] / model_prediction[ok],
-                fmt="o", ms=1.5, lw=0.8, color=_COLOR_RESIDUAL_POINTS, alpha=0.6)
+                fmt="o", ms=1.5, lw=0.8, color=_COLOR_RESIDUAL_POINTS, alpha=0.8)
     ax.axhline(0, color=_COLOR_RESIDUAL_ZERO, lw=0.8)
     for level in (-0.3, 0.3):
         ax.axhline(level, color=_COLOR_RESIDUAL_LEVEL, lw=0.6, ls=":")
