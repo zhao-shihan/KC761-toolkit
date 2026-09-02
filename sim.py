@@ -83,9 +83,8 @@ def _selected_source(args: argparse.Namespace) -> str:
 
 def interactive_mode(source_key: str, seed: int, verbose: int, output_stem_: str) -> None:
     """Start an initialized Geant4 UI/visualization session."""
-    run_manager = runner.prepare_run_manager(
-        config.SOURCES[source_key], output_stem_, seed=seed, verbose=verbose
-    )
+    runner.prepare_run_manager(
+        config.SOURCES[source_key], output_stem_, seed=seed, verbose=verbose)
 
     vis_manager = G4VisExecutive("quiet")
     vis_manager.Initialize()

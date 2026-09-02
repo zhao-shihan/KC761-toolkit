@@ -231,7 +231,6 @@ def _finalize(model, q, success: bool = True, message: str = "",
         calib_errors=calib_err, calib_cov=calib_cov,
         resol_params=np.asarray(q[RESOL], dtype=float),
         resol_errors=resol_err, resol_cov=resol_cov,
-        model=model,
         detail=det,
     )
 

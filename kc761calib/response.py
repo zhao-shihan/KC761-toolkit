@@ -38,14 +38,12 @@ mean is ``tau`` (not zero), so a smeared peak shifts to higher energy by
 
 Applying the EMG to histograms is done by the extended-grid, sparse-matrix
 convolution in :mod:`kc761calib.convolution`, whose fused assembly kernel
-calls :func:`_emg_density` directly.  :func:`emg_density_vec` remains as a
-standalone vectorized utility with the same numerics.
+calls :func:`_emg_density` directly.
 """
 
 from __future__ import annotations
 
 import math
-import os
 
 import numba
 import numpy as np
@@ -66,7 +64,7 @@ MIN_TAU = 0.001  # keV, tau floor
 INIT_RESOL = np.array([2.0, 20.0, 40.0,
                        0.0, 0.0])
 BOUNDS_RESOL = [(0.0, 10.0), (0.0, 80.0), (0.0, 100.0),
-                (-10.0, 0.0), (0.0, 20.0)]
+                (-100.0, 0.0), (0.0, 100.0)]
 
 PARAM_NAMES_CORE = ["c0", "k1", "k2", "k3",
                     "b0", "b1", "b2", "b3", "b4"]
@@ -172,31 +170,6 @@ def _emg_density(d, sigma, tau):
     t1 = math.exp(-d / tau + 0.5 * (sigma / tau) * (sigma / tau)) / tau
     t2 = 0.5 / tau * math.exp(-0.5 * (d / sigma) * (d / sigma)) * _erfcx(-z)
     return t1 - t2
-
-
-@numba.njit(parallel=True)
-def _emg_density_vec_kernel(d, sigma, tau, out):
-    """Elementwise EMG density into ``out`` over a parallelized flat loop."""
-    for i in numba.prange(d.shape[0]):
-        out[i] = _emg_density(d[i], sigma[i], tau[i])
-
-
-def emg_density_vec(d: np.ndarray, sigma: np.ndarray | float,
-                    tau: np.ndarray | float) -> np.ndarray:
-    """Vectorized EMG probability density at offsets ``d``.
-
-    ``sigma`` and ``tau`` are per-offset kernel parameters, broadcast against
-    ``d``; numerically identical to ``_emg_density`` applied elementwise.
-    ``d`` must be a 1-D array.
-    """
-    d = np.ascontiguousarray(d, dtype=np.float64)
-    sigma = np.ascontiguousarray(np.broadcast_to(
-        np.asarray(sigma, dtype=np.float64), d.shape))
-    tau = np.ascontiguousarray(np.broadcast_to(
-        np.asarray(tau, dtype=np.float64), d.shape))
-    out = np.empty(d.shape, dtype=np.float64)
-    _emg_density_vec_kernel(d, sigma, tau, out)
-    return out
 
 
 def resol_sigma_model(resol_params: np.ndarray | list[float], energy: np.ndarray | float) -> np.ndarray:

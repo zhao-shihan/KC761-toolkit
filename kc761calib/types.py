@@ -37,7 +37,6 @@ class DatasetDetail:
     data_counts: np.ndarray  # background-subtracted counts per used bin
     data_errors: np.ndarray  # total per-bin uncertainty (stat + sys)
     model_prediction: np.ndarray  # best-fit, scaled smeared simulation
-    smeared_sim: np.ndarray  # resolution-smeared simulation, unscaled
     unsmeared_sim: np.ndarray  # rebinned sim on the bins, unscaled
     scale_params: np.ndarray  # scale at the lower/upper ref energy
     chi2: float
@@ -50,11 +49,8 @@ class FitDetail:
     datasets: list[DatasetDetail]
     chi2: float
     ndof: int
-    calib_params: np.ndarray  # calibration parameters (c0, k1, k2, k3)
-    resol_params: np.ndarray  # resolution parameters (b0..b4: sigma, tau)
     scale_params: np.ndarray  # per-dataset linear scale (s0,s1)
     channel_max: float = 0.0  # largest data channel edge across models
-    n_channel_bins: int = 0  # smallest data channel count across models
     valid: bool = True
 
     @property
@@ -80,7 +76,6 @@ class FitResult:
     resol_params: np.ndarray
     resol_errors: np.ndarray
     resol_cov: np.ndarray
-    model: object = None
     detail: FitDetail | None = None
 
     @property

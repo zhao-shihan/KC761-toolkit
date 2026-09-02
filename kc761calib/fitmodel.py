@@ -47,8 +47,6 @@ class FitModel:
                              "(built by GlobalFitModel)")
         self.sys_frac = float(sys_frac)
 
-        self.channel_max = float(data.edges[-1])
-
         self.channel_slice = slice(self.channel_low, self.channel_high + 1)
         self.data_counts = data.counts[self.channel_slice]
         self.data_errors = data.errors[self.channel_slice]
@@ -122,8 +120,7 @@ class FitModel:
         ``s(E) = scale_model(scale_params, E, scale_lo, scale_hi)`` evaluated
         at each bin center; ``scale_lo``/``scale_hi`` are the fit-window
         lower/upper bin centers at the current calibration, so the anchors
-        track the fit window.  The ``smeared_sim``/``unsmeared_sim`` fields
-        remain unscaled.
+        track the fit window.  The ``unsmeared_sim`` field remains unscaled.
         """
         arrays = self.dataset_arrays(conv)
         scale_curve = scale_model(scale_params, arrays.bin_centers,
@@ -142,7 +139,6 @@ class FitModel:
             data_counts=arrays.data_counts,
             data_errors=arrays.weights,
             model_prediction=prediction,
-            smeared_sim=arrays.model_counts,
             unsmeared_sim=self.unsmeared_sim_on_bins(conv),
             scale_params=np.asarray(scale_params, dtype=float),
             chi2=float(residuals @ residuals),

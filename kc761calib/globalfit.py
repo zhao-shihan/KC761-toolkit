@@ -76,10 +76,6 @@ class GlobalFitModel:
         self.x0 = self.param_space.x0()
         self.bounds = self.param_space.bounds
 
-    @property
-    def n_channel_bins(self) -> int:
-        return min(m.data.n_bins for m in self.models)
-
     # ----- feasibility gate -------------------------------------------------
 
     def _gate(self, q) -> tuple[np.ndarray, np.ndarray] | None:
@@ -172,12 +168,9 @@ class GlobalFitModel:
     def detail(self, q) -> FitDetail:
         """Full diagnostics; degenerate states yield chi2=inf and valid=False."""
         q = np.asarray(q, dtype=float)
-        base = dict(calib_params=np.asarray(q[CALIB], dtype=float),
-                    resol_params=np.asarray(q[RESOL], dtype=float),
-                    scale_params=np.asarray(q[self.param_space.scale_block],
+        base = dict(scale_params=np.asarray(q[self.param_space.scale_block],
                                             dtype=float),
-                    channel_max=self.channel_max,
-                    n_channel_bins=self.n_channel_bins)
+                    channel_max=self.channel_max)
 
         gate = self._gate(q)
         if gate is None:
