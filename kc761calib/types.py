@@ -17,7 +17,7 @@ class DatasetArrays:
     """Per-dataset arrays shared by the residual/chi2/detail evaluation paths."""
 
     data_counts: np.ndarray  # background-subtracted counts on the used bins
-    weights: np.ndarray  # total per-bin 1-sigma uncertainty (stat + sys)
+    total_errors: np.ndarray  # total per-bin 1-sigma uncertainty (stat + sys)
     model_counts: np.ndarray  # resolution-smeared sim, unscaled (used bins)
     bin_centers: np.ndarray  # energy centers of the used bins (keV)
     scale_lo: float  # lower scale ref energy at the current calibration (keV)
@@ -35,7 +35,7 @@ class DatasetDetail:
     scale_hi: float  # upper ref energy for the scale at the fitted calibration (keV)
     bin_centers: np.ndarray  # energy centers of the used bins (keV)
     data_counts: np.ndarray  # background-subtracted counts per used bin
-    data_errors: np.ndarray  # total per-bin uncertainty (stat + sys)
+    total_errors: np.ndarray  # total per-bin uncertainty (stat + sys)
     model_prediction: np.ndarray  # best-fit, scaled smeared simulation
     unsmeared_sim: np.ndarray  # rebinned sim on the bins, unscaled
     scale_params: np.ndarray  # scale at the lower/upper ref energy

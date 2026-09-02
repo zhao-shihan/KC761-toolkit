@@ -14,16 +14,17 @@ check).  Reported coefficients are the plain cubic form ``(c0, c1, c2, c3)`` wit
 ``c0k1k2k3_to_c0c1c2c3``.
 
 Resolution is a pure Gaussian with energy-dependent standard deviation
-``sigma(E)``.  ``sigma^2`` is a quadratic Bezier curve in ``t = E /
-RESOL_E_REF`` (``RESOL_E_REF = 2000`` keV):
+``sigma(E)``.  ``sigma^2`` is a quadratic Bernstein polynomial in
+``t = E / RESOL_E_REF`` (``RESOL_E_REF = 2000`` keV), equivalently a
+quadratic Bezier curve with control values ``(b0^2, b1^2, b2^2)``:
 
    sigma^2(t) = (1-t)^2 b0^2 + 2(1-t)t b1^2 + t^2 b2^2
 
-``sigma`` keeps squared control values, so it is real and non-negative for any
-real ``(b0, b1, b2)``.
+``sigma`` is the square root of this expansion, so the squared coefficients
+keep it real and non-negative for any real ``(b0, b1, b2)``.
 
-Applying the Gaussian to histograms is done by the extended-grid,
-sparse-matrix convolution in :mod:`kc761calib.convolution`, whose fused
+Folding the Gaussian response into histograms is done by the extended
+binning and sparse response matrix in :mod:`kc761calib.folding`, whose fused
 assembly kernel calls :func:`gaussian_pdf` directly.
 """
 
@@ -34,7 +35,7 @@ import math
 import numba
 import numpy as np
 
-from .util import bezier2_basis
+from .util import bernstein_basis
 
 # --------------------------------------------------------------------------
 # initial values and fit bounds
@@ -59,7 +60,7 @@ PARAM_NAMES_B = ["b0", "b1", "b2"]
 # energy calibration E(x)
 
 def poly_basis(x: np.ndarray | float, degree: int) -> np.ndarray:
-    """Design matrix [1, x, ..., x^degree]."""
+    """Monomial basis vector [1, x, ..., x^degree] on the last axis."""
     x = np.asarray(x, dtype=float)
     return np.stack([x**k for k in range(degree + 1)], axis=-1)
 
@@ -134,12 +135,14 @@ def gaussian_pdf(d, sigma):
 
 
 def resol_sigma_model(resol_params: np.ndarray | list[float], energy: np.ndarray | float) -> np.ndarray:
-    """sigma(E) from the sigma Bezier control values ``resol_params = [b0, b1, b2]`` (in keV).
+    """sigma(E) from the resolution parameters ``resol_params = [b0, b1, b2]`` (in keV).
 
-    ``t = E / RESOL_E_REF``.  The squared control values keep the variance
+    ``sigma^2`` is the quadratic Bernstein polynomial in ``t = E / RESOL_E_REF``
+    with coefficients ``(b0^2, b1^2, b2^2)``, i.e. a quadratic Bezier curve
+    with those coefficients as control values.  The squares keep the variance
     non-negative; clamped at zero only as a numerical safety.
     """
     resol_params = np.asarray(resol_params, dtype=float)
     energy = np.asarray(energy, dtype=float)
-    var = bezier2_basis(energy / RESOL_E_REF) @ (resol_params ** 2)
+    var = bernstein_basis(energy / RESOL_E_REF, 2) @ (resol_params ** 2)
     return np.sqrt(np.maximum(var, MIN_SIGMA**2))

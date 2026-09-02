@@ -6,7 +6,7 @@ from .response import (PARAM_NAMES_B, PARAM_NAMES_C, PARAM_NAMES_K,
                        resol_sigma_model)
 from .scaling import scale_model
 from .fitparamspace import CALIB_K
-from .util import bezier2_basis
+from .util import bernstein_basis
 from pathlib import Path
 from scipy import optimize
 import numpy as np
@@ -144,7 +144,7 @@ def _spectrum_panel(ax, ds, title: str | None) -> None:
     stairs_handle = ax.stairs(sb_full * ds.unsmeared_sim, ds.bin_edges,
                               lw=0.8, color=_COLOR_SIM_RAW, zorder=2,
                               label="Raw sim. (scaled)")
-    data_handle = ax.errorbar(ds.bin_centers, ds.data_counts, yerr=ds.data_errors,
+    data_handle = ax.errorbar(ds.bin_centers, ds.data_counts, yerr=ds.total_errors,
                               fmt="o", ms=1.5, lw=0.8, color=_COLOR_DATA,
                               alpha=0.6, zorder=3,
                               label="Data (-bkg, calibrated)")
@@ -167,11 +167,11 @@ def _spectrum_panel(ax, ds, title: str | None) -> None:
         ax.set_title(title, fontsize=9)
 
 
-def _residual_panel(ax, bin_centers, data_counts, data_errors, model_prediction,
+def _residual_panel(ax, bin_centers, data_counts, total_errors, model_prediction,
                     energy_low, energy_high, title: str) -> None:
     ok = model_prediction > 0
     rel = (data_counts[ok] - model_prediction[ok]) / model_prediction[ok]
-    ax.errorbar(bin_centers[ok], rel, yerr=data_errors[ok] / model_prediction[ok],
+    ax.errorbar(bin_centers[ok], rel, yerr=total_errors[ok] / model_prediction[ok],
                 fmt="o", ms=1.5, lw=0.8, color=_COLOR_RESIDUAL_POINTS, alpha=0.8)
     ax.axhline(0, color=_COLOR_RESIDUAL_ZERO, lw=0.8)
     for level in (-0.3, 0.3):
@@ -257,7 +257,7 @@ def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
                       title: str = "Energy resolution") -> None:
     resol_params = np.asarray(resol_params, dtype=float)
     energy = np.linspace(1.0, energy_max, 300)
-    w = bezier2_basis(energy / RESOL_E_REF)
+    basis = bernstein_basis(energy / RESOL_E_REF, 2)
 
     coeff = 2*np.sqrt(2*np.log(2)) if _RESOL_AS_FWHM else 1.0
     sigma = resol_sigma_model(resol_params, energy)
@@ -267,7 +267,7 @@ def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
     if resol_cov is not None:
         finite = _cov_finite_mask(resol_cov)
         if finite.any():
-            grad = w * resol_params / sigma[:, None]
+            grad = basis * resol_params / sigma[:, None]
             grad_f = grad[:, finite]
             cov_f = np.asarray(resol_cov, dtype=float)[np.ix_(finite, finite)]
             var = np.maximum(np.sum((grad_f @ cov_f) * grad_f, axis=1), 0.0)
@@ -316,7 +316,7 @@ def plot_fit(result, out_pdf: str) -> None:
                       f"$\\chi^2 = {ds.chi2:.1f}$, {ds.n_bins} bins")
         res_title = f"{label} residual"
         _spectrum_panel(ax_spec, ds, spec_title)
-        _residual_panel(ax_pull, ds.bin_centers, ds.data_counts, ds.data_errors,
+        _residual_panel(ax_pull, ds.bin_centers, ds.data_counts, ds.total_errors,
                         ds.model_prediction, ds.bin_edges[0], ds.bin_edges[-1],
                         res_title)
 

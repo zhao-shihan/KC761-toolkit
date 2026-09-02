@@ -46,10 +46,6 @@ class Spectrum:
         self.edges = edges
 
     @property
-    def centers(self) -> np.ndarray:
-        return 0.5 * (self.edges[:-1] + self.edges[1:])
-
-    @property
     def n_bins(self) -> int:
         return len(self.counts)
 

@@ -28,7 +28,8 @@ def print_summary(result, dataset_lines: list[str] | None = None) -> None:
                           result.calib_errors[CALIB_K]):
         print(f"[calib]   {name:<3s} = {v: .6g} +/- {e:.3g}")
     print("[calib] resolution parameters b0..b2\n"
-          f"[calib] sigma^2(E) = Bezier_2(E/({RESOL_E_REF} keV); b0, b1, b2) :")
+          f"[calib] sigma^2(E) = Bernstein_2(E/({RESOL_E_REF} keV); "
+          "b0^2, b1^2, b2^2) :")
     for name, v, e in zip(PARAM_NAMES_B, result.resol_params,
                           result.resol_errors):
         print(f"[calib]   {name:<3s} = {v: .6g} +/- {e:.3g}")
