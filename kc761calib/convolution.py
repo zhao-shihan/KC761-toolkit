@@ -20,8 +20,13 @@ the output-bin energy width (midpoint-of-PDF times bin-width quadrature).
 ``A[i, j]`` is kept nonzero only inside the kernel support
 ``[c_j - n_sigma sigma_j, c_j + n_sigma sigma_j]`` -- the same condition the
 grid extension uses, so the two are self-consistent -- and each column is then
-renormalized to sum exactly 1, absorbing the ~1e-4 truncation/quadrature error
-of the finite support.
+renormalized to sum exactly 1, absorbing the ~1e-6 truncation/quadrature error
+of the finite support.  ``n_sigma = 5`` places the cutoff deep in the Gaussian
+tail (``exp(-12.5) ~ 3.7e-6``), which makes the truncation negligible and keeps
+the residual smooth in the resolution parameters to numerical precision:
+finite-difference covariance steps (``~1e-6`` relative) then sample the same
+derivative everywhere instead of catching the bin enter/leave jumps that a
+tighter cutoff produces.
 
 The band spans are located with searchsorted and the ``(indptr, indices,
 data)`` triple is assembled by a single fused, parallel numba kernel
@@ -40,7 +45,7 @@ from scipy import sparse
 
 from .response import (gaussian_pdf, calib_model, resol_sigma_model)
 
-N_SIGMA = 4.0
+N_SIGMA = 5.0
 
 
 @dataclass

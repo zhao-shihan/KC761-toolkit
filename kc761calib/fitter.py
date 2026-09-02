@@ -15,6 +15,7 @@ import time
 import numpy as np
 from scipy import optimize
 
+from .covariance import parameter_covariance
 from .fitparamspace import CALIB, RESOL
 from .types import FitResult
 
@@ -77,9 +78,9 @@ def _progress_callback(model, tag: str, fit_progress_modulo: int,
         chi2 = float(det.chi2)
         line_text = f"[calib] {tag} iter {state['iter']:<6d}:"
         if det.valid and det.ndof > 0 and np.isfinite(chi2):
-            line_text += f" chi2/ndof = {chi2:>14.4f} / {det.ndof:<6d} = {chi2 / det.ndof:<14.6f}"
+            line_text += f" chi2/ndof = {chi2:>12.4f} / {det.ndof:<6d} = {chi2 / det.ndof:<12.6f}"
         else:
-            line_text += f" chi2      = {chi2:<14.6f}"
+            line_text += f" chi2      = {chi2:<12.6f}"
         print(f"{line_text} ({avg_ms:.2f} ms/iter)", flush=True)
     return callback
 
@@ -134,61 +135,12 @@ def _fit_once(model, x0, bounds, stage1_maxiter, stage2_maxiter,
     return res
 
 
-def finite_difference_jacobian(fun, x0: np.ndarray,
-                               bounds: list[tuple[float, float]],
-                               rel_step: float = 1e-4) -> np.ndarray:
-    """Central-difference Jacobian of a vector-valued fun.
-
-    Steps are clipped to stay inside bounds.  When one probe falls outside
-    the bounds or into a rejected (non-finite) region -- e.g. at an optimum
-    sitting on the feasibility boundary -- the column degrades gracefully
-    to a one-sided difference; only if neither side evaluates is it NaN.
-    """
-    x0 = np.asarray(x0, dtype=float)
-    f0 = np.asarray(fun(x0), dtype=float)
-    jac = np.empty((len(f0), len(x0)))
-    for k in range(len(x0)):
-        h = rel_step * max(1.0, abs(x0[k]))
-        lo, hi = bounds[k]
-        h = min(h, hi - x0[k], x0[k] - lo)
-        if not np.isfinite(h) or h <= 0.0:
-            jac[:, k] = np.nan
-            continue
-        q_p, q_m = np.array(x0), np.array(x0)
-        q_p[k] += h
-        q_m[k] -= h
-        f_p = np.asarray(fun(q_p))
-        f_m = np.asarray(fun(q_m))
-        ok_p, ok_m = bool(np.all(np.isfinite(f_p))), bool(
-            np.all(np.isfinite(f_m)))
-        if ok_p and ok_m:
-            jac[:, k] = (f_p - f_m) / (2.0 * h)
-        elif ok_p:
-            jac[:, k] = (f_p - f0) / h
-        elif ok_m:
-            jac[:, k] = (f0 - f_m) / h
-        else:
-            jac[:, k] = np.nan
-    return jac
-
-
-def _covariance(model, q) -> np.ndarray:
-    """Inverse Fisher matrix from frozen-mask residuals; NaN when singular."""
-    mask_list = model.masks(q)
-    def fun(qq): return model.residuals(qq, mask_list)
-    jac = finite_difference_jacobian(fun, q, model.bounds)
-    n_q = len(q)
-    if (np.all(np.isfinite(jac)) and jac.shape[0] > n_q):
-        try:
-            return np.linalg.inv(jac.T @ jac)
-        except np.linalg.LinAlgError:
-            pass
-    return np.full((n_q, n_q), np.nan)
-
-
 def _fit_statistics(model, q):
+    """Diagnostics, covariance and per-block errors at the fitted point."""
     det = model.detail(q)
-    cov = _covariance(model, q)
+    reduced = (det.chi2 / det.ndof if det.valid and det.ndof > 0
+               and np.isfinite(det.chi2) else None)
+    cov = parameter_covariance(model, q, reduced_chi2=reduced)
     perr = np.sqrt(np.maximum(np.diag(cov), 0.0))
 
     calib_cov = np.asarray(cov[CALIB, CALIB], dtype=float)
