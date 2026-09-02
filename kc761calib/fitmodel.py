@@ -12,7 +12,6 @@ from __future__ import annotations
 import numpy as np
 
 from .convolution import Convolution
-from .response import INIT_CALIB, calib_model
 from .scaling import scale_model
 from .types import DatasetArrays, DatasetDetail
 
@@ -31,7 +30,7 @@ class FitModel:
     """
 
     def __init__(self, data, sim, channel_low: int, channel_high: int,
-                 sys_frac: float = DEFAULT_SYS_FRAC, *, init_calib=None,
+                 sys_frac: float = DEFAULT_SYS_FRAC, *,
                  init_convolution=None):
         self.data = data
         self.sim = sim
@@ -48,21 +47,16 @@ class FitModel:
                              "(built by GlobalFitModel)")
         self.sys_frac = float(sys_frac)
 
-        self._ch_edges = data.edges
         self.channel_max = float(data.edges[-1])
 
         self.channel_slice = slice(self.channel_low, self.channel_high + 1)
-        self.edge_slice = slice(self.channel_low, self.channel_high + 2)
         self.data_counts = data.counts[self.channel_slice]
         self.data_errors = data.errors[self.channel_slice]
         self.usable_mask = self.data_errors > 0
         self.min_usable_bins = max(
             10, int(0.1 * (self.channel_high - self.channel_low + 1)))
 
-        self.init_calib = INIT_CALIB if init_calib is None else np.asarray(
-            init_calib, dtype=float)
         self.init_convolution = init_convolution
-        self.scale_lo, self.scale_hi = self._scale_refs()
         self.initial_scale = self._initial_scale()
 
     # ----- data / model assembly -----------------------------------------
@@ -72,13 +66,18 @@ class FitModel:
         var = stat_errors**2 + (self.sys_frac * data_counts)**2
         return np.sqrt(np.maximum(var, 1.0))  # bound min error to 1
 
-    def energy_edges(self, calib_params) -> np.ndarray:
-        """Energy of each selected channel edge (length ``n_selected + 1``).
+    def scale_refs(self, conv: Convolution) -> tuple[float, float]:
+        """(lo, hi) scale reference energies at the current calibration.
 
-        Used for the fixed scale reference energies at initialization.
+        The linear scale is anchored at the fit-window lower/upper bin
+        centers evaluated with the calibration the convolution was built
+        with, so the anchors move with the fit window as the calibration
+        changes during the fit; ``s0`` and ``s1`` are the scale values there.
         """
-        return calib_model(calib_params, self._ch_edges[self.edge_slice],
-                           self.channel_max)
+        bin_slice = conv.grid.channel_slice(
+            self.channel_low, self.channel_high)
+        centers = conv.grid.energy_centers[bin_slice]
+        return float(centers[0]), float(centers[-1])
 
     def dataset_arrays(self, conv: Convolution,
                        mask: np.ndarray | None = None,
@@ -94,6 +93,7 @@ class FitModel:
             mask = self.usable_mask
         bin_slice = conv.grid.channel_slice(
             self.channel_low, self.channel_high)
+        scale_lo, scale_hi = self.scale_refs(conv)
         if smeared is None:
             smeared = conv.smeared(self.sim)
         model_counts = smeared[bin_slice]
@@ -104,6 +104,8 @@ class FitModel:
             weights=weights,
             model_counts=model_counts[mask],
             bin_centers=conv.grid.energy_centers[bin_slice][mask],
+            scale_lo=scale_lo,
+            scale_hi=scale_hi,
         )
 
     def unsmeared_sim_on_bins(self, conv: Convolution) -> np.ndarray:
@@ -117,13 +119,15 @@ class FitModel:
         """Package one dataset's pulls into plot/report diagnostics.
 
         The model prediction is ``s(E) * m(E)`` with the per-bin scale curve
-        ``s(E) = scale_model(scale_params, E, scale_lo, scale_hi)`` evaluated at
-        each bin center; the ``smeared_sim``/``unsmeared_sim`` fields remain
-        unscaled.
+        ``s(E) = scale_model(scale_params, E, scale_lo, scale_hi)`` evaluated
+        at each bin center; ``scale_lo``/``scale_hi`` are the fit-window
+        lower/upper bin centers at the current calibration, so the anchors
+        track the fit window.  The ``smeared_sim``/``unsmeared_sim`` fields
+        remain unscaled.
         """
         arrays = self.dataset_arrays(conv)
         scale_curve = scale_model(scale_params, arrays.bin_centers,
-                                  self.scale_lo, self.scale_hi)
+                                  arrays.scale_lo, arrays.scale_hi)
         prediction = scale_curve * arrays.model_counts
         residuals = (arrays.data_counts - prediction) / arrays.weights
         edge_slice = conv.grid.channel_edge_slice(self.channel_low,
@@ -132,8 +136,8 @@ class FitModel:
             label=label,
             channel_low=self.channel_low,
             channel_high=self.channel_high,
-            scale_lo=self.scale_lo,
-            scale_hi=self.scale_hi,
+            scale_lo=arrays.scale_lo,
+            scale_hi=arrays.scale_hi,
             bin_centers=arrays.bin_centers,
             data_counts=arrays.data_counts,
             data_errors=arrays.weights,
@@ -161,17 +165,6 @@ class FitModel:
         return self.usable_bins >= self.min_usable_bins
 
     # ----- initialization helpers ------------------------------------------
-
-    def _scale_refs(self) -> tuple[float, float]:
-        """(lo, hi) energy bounds of the initial calibration's selected range.
-
-        The linear scale is anchored at these two fixed reference energies (the
-        initial fit-window lower/upper bin centers); the fit parameters ``s0``,
-        ``s1`` are the scale values there.
-        """
-        edges = self.energy_edges(self.init_calib)
-        centers = 0.5 * (edges[:-1] + edges[1:])
-        return centers[0], centers[-1]
 
     def _initial_scale(self) -> float:
         arrays = self.dataset_arrays(self.init_convolution)

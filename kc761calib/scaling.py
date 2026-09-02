@@ -2,14 +2,16 @@
 
 The scale corrects the overall difference between the simulated and the real
 experimental spectra and is allowed to vary with energy.  It is a linear
-interpolant between two fixed reference energies ``E_lo`` and ``E_hi`` (the
-dataset's initial fit-window lower/upper bin centers), with 2 parameters per
-dataset:
+interpolant between two reference energies ``E_lo`` and ``E_hi`` (the
+dataset's fit-window lower/upper bin centers), with 2 parameters per dataset:
 
    s(E) = s0 + (s1 - s0) (E - E_lo) / (E_hi - E_lo).
 
 ``s0`` and ``s1`` are the scale values at ``E_lo`` and ``E_hi`` respectively, so
-both are directly interpretable on-curve values with the same units.  With
+both are directly interpretable on-curve values with the same units.  The
+reference energies are not fixed: they are recomputed at every evaluation
+from the current calibration (the fit-window bin centers move with the energy
+calibration), so ``s0``/``s1`` always anchor the current fit window.  With
 ``s0 = s1`` the scale reduces to that constant (the initial ``x0``), matching the
 previous constant-scale behavior.  During fitting both values share per-dataset
 bounds relative to the initial overall normalization (``[SCALE_REL_LO,
@@ -50,7 +52,7 @@ def scale_model(scale_params: np.ndarray | list[float], energy: np.ndarray | flo
                 energy_low: float, energy_high: float) -> np.ndarray:
     """Linear scale between the two reference points.
 
-    ``scale_params = [s0, s1]`` are the scale values at the fixed reference
+    ``scale_params = [s0, s1]`` are the scale values at the reference
     energies ``energy_low`` and ``energy_high``; ``s(E) = s0 + (s1 - s0) t``
     with ``t = (E - energy_low) / (energy_high - energy_low)``.
     """

@@ -15,16 +15,24 @@ check).  Reported coefficients are the plain cubic form ``(c0, c1, c2, c3)`` wit
 
 Resolution is an exponentially modified Gaussian (EMG): a Gaussian core with
 standard deviation ``sigma`` convolved with a one-sided exponential of mean
-``tau``, giving full-energy peaks a high-energy tail.  Both parameters are
-quadratic Bezier curves in ``t = E / RESOL_T_SCALE`` (``RESOL_T_SCALE = 2000``
+``tau``, giving full-energy peaks a high-energy tail.  ``sigma^2`` is a
+quadratic Bezier curve in ``t = E / RESOL_E_REF`` (``RESOL_E_REF = 2000``
 keV):
 
    sigma^2(t) = (1-t)^2 b0^2 + 2(1-t)t b1^2 + t^2 b2^2
-   tau(t)     = relu((1-t)^2 b3 + 2(1-t)t b4 + t^2 b5)
 
 ``sigma`` keeps squared control values, so it is real and non-negative for any
-real ``(b0, b1, b2)``.  ``tau`` is a direct Bezier curve floored at ``MIN_TAU``
-(0.001 keV), so it is positive without any control-value constraint.  The EMG
+real ``(b0, b1, b2)``.  ``tau(E)`` is a linear ramp between ``b3`` at
+``E = 0`` and ``b4`` at ``E = Eref``, floored at ``MIN_TAU``:
+
+   tau(E) = max(b3 (1 - E/Eref) + b4 (E/Eref), MIN_TAU),   Eref = RESOL_E_REF,
+
+so ``tau(Eref) = b4`` and the slope is ``(b4 - b3)/Eref``.  The fit bounds
+enforce ``b3 > 0`` and ``b4 > 0``, so the linear part is non-negative for
+``E >= 0``; the floor can only bind at negative energies when ``b4 > b3``
+(``MIN_TAU`` = 0.001 keV remains as a numerical safety for the EMG kernel).
+Monotone increase over ``[0, Eref]`` requires ``b4 > b3``, which the
+per-parameter bounds do not enforce.  The EMG
 mean is ``tau`` (not zero), so a smeared peak shifts to higher energy by
 ``~tau(E)``; this is the intended tail effect.
 
@@ -51,19 +59,20 @@ N_CALIB = 4  # (c0, k1, k2, k3)
 INIT_CALIB = np.array([-180.0, 1.5, 2.5, 3.5])
 BOUNDS_CALIB = [(-300.0, -100.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)]
 
-N_RESOL = 6  # (b0, b1, b2) sigma; (b3, b4, b5) tau
-RESOL_T_SCALE = 2000.0  # keV
+N_RESOL = 5  # (b0, b1, b2) sigma; (b3, b4) tau
+RESOL_E_REF = 2000.0  # keV, shared reference energy
 MIN_SIGMA = 0.001  # keV, sigma floor (numerical safety)
 MIN_TAU = 0.001  # keV, tau floor
 INIT_RESOL = np.array([2.0, 20.0, 40.0,
-                       0.0, 0.0, 50.0])
+                       0.0, 0.0])
 BOUNDS_RESOL = [(0.0, 10.0), (0.0, 80.0), (0.0, 100.0),
-                (-10.0, 10.0), (-50.0, 50.0), (0.0, 200.0)]
+                (-10.0, 0.0), (0.0, 20.0)]
 
-PARAM_NAMES_CORE = ["c0", "k1", "k2", "k3", "b0", "b1", "b2", "b3", "b4", "b5"]
+PARAM_NAMES_CORE = ["c0", "k1", "k2", "k3",
+                    "b0", "b1", "b2", "b3", "b4"]
 PARAM_NAMES_C = ["c0", "c1", "c2", "c3"]
 PARAM_NAMES_K = ["k1", "k2", "k3"]
-PARAM_NAMES_B = ["b0", "b1", "b2", "b3", "b4", "b5"]
+PARAM_NAMES_B = ["b0", "b1", "b2", "b3", "b4"]
 
 
 # --------------------------------------------------------------------------
@@ -134,10 +143,6 @@ def reported_calib(calib_params: np.ndarray | list[float], calib_cov: np.ndarray
 # resolution EMG (sigma, tau)
 
 
-if "NUMBA_NUM_THREADS" not in os.environ:
-    numba.set_num_threads(numba.get_num_threads())
-
-
 @numba.njit(inline="always")
 def _erfcx(z):
     """Scaled complementary error function ``erfcx(z) = exp(z^2) erfc(z)`` for ``z >= 0``.
@@ -197,23 +202,52 @@ def emg_density_vec(d: np.ndarray, sigma: np.ndarray | float,
 def resol_sigma_model(resol_params: np.ndarray | list[float], energy: np.ndarray | float) -> np.ndarray:
     """sigma(E) from the sigma Bezier control values ``resol_params[0:3]`` (in keV).
 
-    ``resol_params`` is the full 6-vector ``[b0, ..., b5]``; only the first three control
-    values are used, and ``t = E / RESOL_T_SCALE``.  The squared control values
+    ``resol_params`` is the full 5-vector ``[b0, ..., b4]``; only the first three control
+    values are used, and ``t = E / RESOL_E_REF``.  The squared control values
     keep the variance non-negative; clamped at zero only as a numerical safety.
     """
     resol_params = np.asarray(resol_params, dtype=float)
     energy = np.asarray(energy, dtype=float)
-    var = bezier2_basis(energy / RESOL_T_SCALE) @ (resol_params[:3] ** 2)
+    var = bezier2_basis(energy / RESOL_E_REF) @ (resol_params[:3] ** 2)
     return np.sqrt(np.maximum(var, MIN_SIGMA**2))
 
 
 def resol_tau_model(resol_params: np.ndarray | list[float], energy: np.ndarray | float) -> np.ndarray:
-    """tau(E) from the tau Bezier control values ``resol_params[3:6]`` (in keV).
+    """tau(E) from the tau parameters ``resol_params[3:5]`` (in keV).
 
-    The control values are used directly (no squaring); the curve is floored at
-    ``MIN_TAU`` to keep the EMG mean positive.
+    Linear ramp between ``b3`` at ``E = 0`` and ``b4`` at ``E = Eref``:
+
+       tau(E) = max(b3 (1 - E/Eref) + b4 (E/Eref), MIN_TAU),   Eref = RESOL_E_REF,
+
+    so ``tau(Eref) = b4`` and the slope is ``(b4 - b3)/Eref``.  The fit
+    bounds keep ``b3 > 0`` and ``b4 > 0``, so the linear part is non-negative
+    for ``E >= 0``; the floor can only bind at negative energies when
+    ``b4 > b3``.  ``MIN_TAU`` is kept as a numerical safety for the EMG
+    kernel.
     """
     resol_params = np.asarray(resol_params, dtype=float)
     energy = np.asarray(energy, dtype=float)
-    tau = bezier2_basis(energy / RESOL_T_SCALE) @ resol_params[3:6]
+    b3, b4 = resol_params[3:5]
+    u = energy / RESOL_E_REF
+    tau = b3 * (1.0 - u) + b4 * u
     return np.maximum(tau, MIN_TAU)
+
+
+def resol_tau_grad(resol_params: np.ndarray | list[float],
+                   energy: np.ndarray | float) -> np.ndarray:
+    """Analytic d(tau)/d(resol_params), shape ``energy.shape + (5,)``.
+
+    The sigma columns (``0:3``) are zero.  Used for the uncertainty band of
+    the tau/std curves in :mod:`kc761calib.plot`; the MIN_TAU floor is
+    ignored (it can only bind at negative energies when ``b4 > b3``):
+
+       dtau/db3 = 1 - E/Eref,
+       dtau/db4 = E/Eref.
+    """
+    resol_params = np.asarray(resol_params, dtype=float)
+    energy = np.asarray(energy, dtype=float)
+    u = energy / RESOL_E_REF
+    grad = np.zeros(np.shape(energy) + (5,), dtype=float)
+    grad[..., 3] = 1.0 - u
+    grad[..., 4] = u
+    return grad

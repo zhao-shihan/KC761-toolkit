@@ -77,7 +77,7 @@ def _progress_callback(model, tag: str, fit_progress_modulo: int,
         chi2 = float(det.chi2)
         line_text = f"[calib] {tag} iter {state['iter']:<6d}:"
         if det.valid and det.ndof > 0 and np.isfinite(chi2):
-            line_text += f" chi2/ndof = {chi2:>14.4f} / {det.ndof:<6d} = {chi2 / det.ndof:<14.4f}"
+            line_text += f" chi2/ndof = {chi2:>14.4f} / {det.ndof:<6d} = {chi2 / det.ndof:<14.6f}"
         else:
             line_text += f" chi2      = {chi2:<14.6f}"
         print(f"{line_text} ({avg_ms:.2f} ms/iter)", flush=True)

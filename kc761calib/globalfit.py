@@ -67,7 +67,6 @@ class GlobalFitModel:
         self.models = [
             FitModel(s.data, s.sim, s.channel_low, s.channel_high,
                      sys_frac=self.sys_fracs[i],
-                     init_calib=init_calib,
                      init_convolution=self.init_convolution)
             for i, s in enumerate(self.specs)
         ]
@@ -145,7 +144,7 @@ class GlobalFitModel:
         for i, arrays in enumerate(predictions):
             scale_curve = scale_model(
                 q[self.param_space.scale(i)], arrays.bin_centers,
-                self.models[i].scale_lo, self.models[i].scale_hi)
+                arrays.scale_lo, arrays.scale_hi)
             out.append((arrays.data_counts - scale_curve * arrays.model_counts)
                        / arrays.weights)
         return np.concatenate(out)
@@ -164,7 +163,7 @@ class GlobalFitModel:
         for i, arrays in enumerate(predictions):
             scale_curve = scale_model(
                 q[self.param_space.scale(i)], arrays.bin_centers,
-                self.models[i].scale_lo, self.models[i].scale_hi)
+                arrays.scale_lo, arrays.scale_hi)
             residuals = (arrays.data_counts
                          - scale_curve * arrays.model_counts) / arrays.weights
             total += float(residuals @ residuals)

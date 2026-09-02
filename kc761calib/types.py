@@ -20,6 +20,8 @@ class DatasetArrays:
     weights: np.ndarray  # total per-bin 1-sigma uncertainty (stat + sys)
     model_counts: np.ndarray  # resolution-smeared sim, unscaled (used bins)
     bin_centers: np.ndarray  # energy centers of the used bins (keV)
+    scale_lo: float  # lower scale ref energy at the current calibration (keV)
+    scale_hi: float  # upper scale ref energy at the current calibration (keV)
 
 
 @dataclass
@@ -29,8 +31,8 @@ class DatasetDetail:
     label: str
     channel_low: int  # first selected channel (0-based, inclusive)
     channel_high: int  # last selected channel (0-based, inclusive)
-    scale_lo: float  # fixed lower ref energy for the scale (keV)
-    scale_hi: float  # fixed upper ref energy for the scale (keV)
+    scale_lo: float  # lower ref energy for the scale at the fitted calibration (keV)
+    scale_hi: float  # upper ref energy for the scale at the fitted calibration (keV)
     bin_centers: np.ndarray  # energy centers of the used bins (keV)
     data_counts: np.ndarray  # background-subtracted counts per used bin
     data_errors: np.ndarray  # total per-bin uncertainty (stat + sys)
@@ -49,7 +51,7 @@ class FitDetail:
     chi2: float
     ndof: int
     calib_params: np.ndarray  # calibration parameters (c0, k1, k2, k3)
-    resol_params: np.ndarray  # resolution parameters (b0..b5: sigma, tau)
+    resol_params: np.ndarray  # resolution parameters (b0..b4: sigma, tau)
     scale_params: np.ndarray  # per-dataset linear scale (s0,s1)
     channel_max: float = 0.0  # largest data channel edge across models
     n_channel_bins: int = 0  # smallest data channel count across models
