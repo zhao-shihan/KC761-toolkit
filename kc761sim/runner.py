@@ -76,7 +76,7 @@ def prepare_run_manager(
             spec, det, output_stem, event_offset, verbose)
     )
     apply_verbosity(run_manager, verbose)
-    run_manager.SetPrintProgress(1000)
+    run_manager.SetPrintProgress(5000)
     run_manager.Initialize()
     physics.configure_radioactive_decay(spec)
     physics.configure_gps(spec, det)
