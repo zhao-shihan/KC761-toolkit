@@ -57,7 +57,7 @@ PARAM_NAMES_B = ["b0", "b1", "b2"]
 
 
 # --------------------------------------------------------------------------
-# energy calibration E(x)
+# energy calibration E(ch)
 
 def poly_basis(x: np.ndarray | float, degree: int) -> np.ndarray:
     """Monomial basis vector [1, x, ..., x^degree] on the last axis."""

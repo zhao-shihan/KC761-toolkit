@@ -110,8 +110,8 @@ class FitModel:
                        scale_params: np.ndarray) -> DatasetDetail:
         """Package one dataset's pulls into plot/report diagnostics.
 
-        The model prediction is ``s(c) * m(E)`` with the per-bin scale curve
-        ``s(c) = scale_model(scale_params, c, channel_low, channel_high)``
+        The model prediction is ``s(ch) * m(E)`` with the per-bin scale curve
+        ``s(ch) = scale_model(scale_params, ch, channel_low, channel_high)``
         evaluated at each channel bin center; the channel window is fixed per
         dataset.  The ``unsmeared_sim`` field remains unscaled.
         """

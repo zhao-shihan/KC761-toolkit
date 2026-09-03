@@ -142,8 +142,8 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
     e_curve = calib_model(calib, ch_curve, channel_max)
     line_scale, = ax2.plot(e_curve, scale_curve, "--",
                            color=_COLOR_SCALE, lw=0.5, zorder=1,
-                           label="Scale s(c)")
-    ax2.set_ylabel("Scale s(c)")
+                           label="Scale s(ch)")
+    ax2.set_ylabel("Scale s(ch)")
 
     ch_full = np.arange(ds.channel_low, ds.channel_high + 1, dtype=float)
     sb_full = scale_model(ds.scale_params, ch_full,
@@ -168,7 +168,7 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
               ["Data (-bkg, calibrated)",
                "Best fit (smeared sim.)",
                "Raw sim. (scaled)",
-               "Scale s(c)"],
+               "Scale s(ch)"],
               fontsize=8, loc="lower left")
     if title is not None:
         ax.set_title(title, fontsize=9)
@@ -224,7 +224,7 @@ def _calibration_panel(ax, calib, channel_max: float = 2048.0,
     channel = np.linspace(0.0, channel_max, 400)
     energy = calib_model(calib, channel, channel_max)
     ax.plot(channel, energy, "-", color=_COLOR_CALIB, lw=1.5,
-            label="$E(x) = c_0 + c_1 x + c_2 x^2 + c_3 x^3$")
+            label="$E(ch) = c_0 + c_1 ch + c_2 ch^2 + c_3 ch^3$")
     err = None
     if calib_cov is not None:
         finite = _cov_finite_mask(calib_cov)
@@ -237,7 +237,7 @@ def _calibration_panel(ax, calib, channel_max: float = 2048.0,
                             color=_COLOR_CALIB, alpha=0.3, lw=0,
                             label=f"1$\\sigma$ band ($\\mathbf{{\\times "
                             f"{_CALIB_BAND_SCALE:g}}}$)")
-    # Reference lines: E(x) is strictly increasing, so each energy inverts to
+    # Reference lines: E(ch) is strictly increasing, so each energy inverts to
     # a unique channel; the guides stop on the curve and run to the axis
     # edges (padded limits, so nothing is cut short at 0).
     y_lo = np.min(energy - err) if err is not None else np.min(energy)

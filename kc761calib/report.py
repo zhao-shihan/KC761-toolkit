@@ -19,7 +19,7 @@ def print_summary(result, dataset_lines: list[str] | None = None) -> None:
     coeffs, coeff_errors, _ = reported_calib(result.calib_params,
                                              result.calib_cov, channel_max)
     print("[calib] calibration parameters c0..c3\n"
-          "[calib] E(x) = c0 + c1*x + c2*x^2 + c3*x^3 :")
+          "[calib] E(ch) = c0 + c1*ch + c2*ch^2 + c3*ch^3 :")
     for name, v, e in zip(PARAM_NAMES_C, coeffs, coeff_errors):
         print(f"[calib]   {name:<3s} = {v: .6g} +/- {e:.3g}")
     print("[calib] calibration slope parameters\n"

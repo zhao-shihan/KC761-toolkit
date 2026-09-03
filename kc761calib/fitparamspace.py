@@ -56,15 +56,15 @@ class FitParamSpace:
     def bounds(self) -> list[tuple[float, float]]:
         bounds = [*BOUNDS_CALIB, *BOUNDS_RESOL]
         for i in range(self.n_datasets):
-            c_lo, c_hi = self.channel_windows[i]
-            bounds.extend(scale_bounds(float(self.init_scales[i]), c_lo, c_hi))
+            ch_lo, ch_hi = self.channel_windows[i]
+            bounds.extend(scale_bounds(float(self.init_scales[i]), ch_lo, ch_hi))
         return bounds
 
     def x0(self) -> np.ndarray:
         # Flat start: s1 = s2 = s3 = initial_scale (constant scale across the
         # window) with the control channel s0 at the window midpoint.
         scale_blocks = [
-            [0.5 * (c_lo + c_hi)] + [float(s)] * (N_SCALE - 1)
-            for s, (c_lo, c_hi) in zip(self.init_scales, self.channel_windows)]
+            [0.5 * (ch_lo + ch_hi)] + [float(s)] * (N_SCALE - 1)
+            for s, (ch_lo, ch_hi) in zip(self.init_scales, self.channel_windows)]
         return np.concatenate([INIT_CALIB, INIT_RESOL,
                                np.asarray(scale_blocks, dtype=float).ravel()])

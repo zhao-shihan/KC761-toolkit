@@ -2,18 +2,18 @@
 
 The scale corrects the overall difference between the simulated and the real
 experimental spectra and is allowed to vary across the dataset's fixed fit
-channel window ``[c_lo, c_hi]`` (0-based, inclusive channels).  It is the
-quadratic Bezier curve with control points ``(c_lo, s1)``, ``(s0, s2)`` and
-``(c_hi, s3)`` -- 4 parameters per dataset -- written as a function of the
-channel ``c`` by inverting the control-abscissa curve:
+channel window ``[ch_lo, ch_hi]`` (0-based, inclusive channels).  It is the
+quadratic Bezier curve with control points ``(ch_lo, s1)``, ``(s0, s2)`` and
+``(ch_hi, s3)`` -- 4 parameters per dataset -- written as a function of the
+channel ``ch`` by inverting the control-abscissa curve:
 
-   t(c) = (c - c_lo) / (s0 - c_lo
-          + sqrt((s0 - c_lo)^2 + (c_lo - 2 s0 + c_hi) (c - c_lo))),
-   s(c) = s1 + 2 (s2 - s1) t(c) + (s1 - 2 s2 + s3) t(c)^2.
+   t(ch) = (ch - ch_lo) / (s0 - ch_lo
+           + sqrt((s0 - ch_lo)^2 + (ch_lo - 2 s0 + ch_hi) (ch - ch_lo))),
+   s(ch) = s1 + 2 (s2 - s1) t(ch) + (s1 - 2 s2 + s3) t(ch)^2.
 
 ``s0`` is the channel of the middle control point (bounded strictly inside the
-fit window, ``c_lo < s0 < c_hi``) and ``s1, s2, s3`` are the scale values at
-the control abscissae ``(c_lo, s0, c_hi)``, so all three are directly
+fit window, ``ch_lo < s0 < ch_hi``) and ``s1, s2, s3`` are the scale values at
+the control abscissae ``(ch_lo, s0, ch_hi)``, so all three are directly
 interpretable on-curve values in scale units.  With ``s1 = s2 = s3`` the scale
 reduces to that constant (the initial ``x0``, whose ``s0`` sits at the window
 midpoint).  During fitting ``s1, s2, s3`` share per-dataset bounds relative to
@@ -29,13 +29,13 @@ import numba
 
 from .util import quadratic_bezier
 
-N_SCALE = 4  # (s0, s1, s2, s3) control channel + scale at (c_lo, s0, c_hi)
+N_SCALE = 4  # (s0, s1, s2, s3) control channel + scale at (ch_lo, s0, ch_hi)
 PARAM_NAMES_SCALE = ["s0", "s1", "s2", "s3"]
 
-# s0 must stay strictly inside the fit window (c_lo < s0 < c_hi) so that the
-# curve parameter t(c) is well-defined at every bin center.  The bounds are
+# s0 must stay strictly inside the fit window (ch_lo < s0 < ch_hi) so that the
+# curve parameter t(ch) is well-defined at every bin center.  The bounds are
 # inset by this tiny channel margin; it also keeps the discriminant
-# (s0 - c_lo)^2 + (c_lo - 2 s0 + c_hi)(c - c_lo) strictly positive at the
+# (s0 - ch_lo)^2 + (ch_lo - 2 s0 + ch_hi)(ch - ch_lo) strictly positive at the
 # window endpoints in float64: its true minimum there is the margin squared,
 # while the rounding error of the ~window^2 terms is ~1e-16 * window^2, so
 # this margin is safe for any window up to ~2048 channels.
@@ -52,7 +52,7 @@ def scale_bounds(initial_scale: float, channel_low: int,
     """Per-dataset scale bounds for the fit window ``[channel_low, channel_high]``.
 
     ``s0`` within ``(channel_low, channel_high)`` inset by ``S0_MARGIN``
-    (implementing the strict constraint ``c_lo < s0 < c_hi``); ``s1, s2, s3``
+    (implementing the strict constraint ``ch_lo < s0 < ch_hi``); ``s1, s2, s3``
     each within ``[SCALE_REL_LO, SCALE_REL_HI] * initial_scale``.
     """
     initial_scale = float(initial_scale)
