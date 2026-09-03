@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from geant4_pybind import (
+    G4GeneralParticleSource,
     G4RootAnalysisManager,
     G4UserEventAction,
     G4UserRunAction,
     G4UserSteppingAction,
     G4VUserActionInitialization,
+    G4VUserPrimaryGeneratorAction,
     keV,
     s,
     us,
@@ -19,7 +21,6 @@ from .paths import (
     SPECTRUM_HIST_NAME,
     ntuple_title,
 )
-from .source import PrimarySource
 
 G4AnalysisManager = G4RootAnalysisManager
 
@@ -35,6 +36,16 @@ _NTUPLE_COLUMN_CREATORS = {
 _EDEP_HISTOGRAM_BINS = 4096
 _EDEP_HISTOGRAM_MAX_KEV = 4096.0
 RESOLUTION_TIME = 10 * us
+
+
+class PrimaryGeneratorAction(G4VUserPrimaryGeneratorAction):
+    def __init__(self, source: SourceSpec):
+        super().__init__()
+        self.source = source
+        self.gps = G4GeneralParticleSource()
+
+    def GeneratePrimaries(self, event) -> None:
+        self.gps.GeneratePrimaryVertex(event)
 
 
 class RunAction(G4UserRunAction):
@@ -156,7 +167,7 @@ class ActionInitialization(G4VUserActionInitialization):
         )
 
     def Build(self) -> None:
-        self.SetUserAction(PrimarySource(self.source, self.detector))
+        self.SetUserAction(PrimaryGeneratorAction(self.source))
         self.SetUserAction(
             RunAction(self.output_stem, self.source.name, self.verbose)
         )

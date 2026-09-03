@@ -22,11 +22,11 @@ from geant4_pybind import (
 )
 from .config import (
     Box,
-    CoatedSphere,
     Cylinder,
     Disk,
     Sandwich,
     SourceSpec,
+    Sphere,
     Tube,
 )
 
@@ -64,8 +64,7 @@ def _tube_center_z(tube: Tube, near_z: float) -> float:
 
 
 def _bare_source_center_z(
-    geometry: Box | Cylinder | Disk | Sandwich | CoatedSphere,
-    near_z: float,
+    geometry: Box | Cylinder | Disk | Sandwich | Sphere, near_z: float
 ) -> float:
     """Center z of a bare (container-less) source given its near face."""
     match geometry:
@@ -75,8 +74,8 @@ def _bare_source_center_z(
             return near_z + geometry.thickness / 2.0
         case Sandwich():
             return near_z + geometry.total_thickness / 2.0
-        case CoatedSphere():
-            return near_z + geometry.outer_radius
+        case Sphere():
+            return near_z + geometry.radius
         case Cylinder():
             if geometry.axis != "z":
                 raise ValueError(
@@ -224,11 +223,6 @@ class DetectorConstruction(G4VUserDetectorConstruction):
             )
             self._construct_sandwich(geometry, position, world_lv)
             return
-        if isinstance(geometry, CoatedSphere):
-            self._construct_coated_sphere(
-                geometry, self.materials[spec.material], position, world_lv
-            )
-            return
 
         material = self.materials[spec.material]
         solid = self._build_source_solid(geometry)
@@ -256,6 +250,16 @@ class DetectorConstruction(G4VUserDetectorConstruction):
                     0.0,
                     twopi,
                 )
+            case Sphere():
+                return G4Sphere(
+                    "SourceSphere",
+                    0.0,
+                    geometry.radius * mm,
+                    0.0,
+                    twopi,
+                    0.0,
+                    math.pi,
+                )
             case Cylinder():
                 return G4Tubs(
                     "SourceCylinder",
@@ -267,58 +271,6 @@ class DetectorConstruction(G4VUserDetectorConstruction):
                 )
             case _:
                 raise ValueError(f"unsupported source geometry: {geometry!r}")
-
-    def _construct_coated_sphere(
-        self,
-        geometry: CoatedSphere,
-        coating_material: G4Material,
-        position: G4ThreeVector,
-        world_lv: G4LogicalVolume,
-    ) -> None:
-        """Place the passive support ball and the active coating shell.
-
-        The coating hugs the ball's outer surface on the detector-facing
-        side; the ball itself is passive and only shields/attenuates.
-        """
-        ball_solid = G4Sphere(
-            "SourceBall", 0.0, geometry.radius * mm, 0.0, twopi, 0.0, math.pi
-        )
-        ball_lv = G4LogicalVolume(
-            ball_solid, self.materials[geometry.ball_material], "SourceBall"
-        )
-        G4PVPlacement(
-            None,
-            position,
-            ball_lv,
-            "SourceBall",
-            world_lv,
-            False,
-            0,
-            self.check_overlaps,
-        )
-
-        theta_min = math.radians(geometry.theta_min)
-        delta_theta = math.radians(geometry.theta_max - geometry.theta_min)
-        shell_solid = G4Sphere(
-            "SourceShell",
-            geometry.radius * mm,
-            geometry.outer_radius * mm,
-            0.0,
-            twopi,
-            theta_min,
-            delta_theta,
-        )
-        shell_lv = G4LogicalVolume(shell_solid, coating_material, "Source")
-        G4PVPlacement(
-            None,
-            position,
-            shell_lv,
-            "Source",
-            world_lv,
-            False,
-            0,
-            self.check_overlaps,
-        )
 
     def _construct_sandwich(
         self,

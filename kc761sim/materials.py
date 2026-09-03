@@ -6,7 +6,7 @@ from typing import Any
 
 from geant4_pybind import G4Material, G4NistManager, cm3, g
 
-from .config import CoatedSphere, Sandwich, SourceSpec
+from .config import Sandwich, SourceSpec
 
 ABS_DENSITY_G_CM3 = 1.05
 
@@ -73,20 +73,11 @@ def build_thorium_nitrate_pentahydrate(
     return mat
 
 
-def build_zns(nist: G4NistManager, density: float) -> G4Material:
-    """Zinc sulfide phosphor coating (ZnS)."""
-    mat = G4Material("ZnS", density * g / cm3, 2)
-    mat.AddElementByNumberOfAtoms(_element(nist, "Zn"), 1)
-    mat.AddElementByNumberOfAtoms(_element(nist, "S"), 1)
-    return mat
-
-
 # Builders for custom source materials; each receives (nist, density).
 _CUSTOM_MATERIAL_BUILDERS = {
     "K2CO3": build_k2co3,
     "Lu2O3": build_lu2o3,
     "Th(NO3)4-5H2O": build_thorium_nitrate_pentahydrate,
-    "ZnS": build_zns,
 }
 
 
@@ -149,9 +140,6 @@ def build_all_materials(*specs: SourceSpec) -> dict[str, G4Material]:
         if isinstance(geometry, Sandwich):
             for layer in geometry.layers:
                 _require_material(mats, nist, densities, layer.material, None)
-        if isinstance(geometry, CoatedSphere):
-            _require_material(mats, nist, densities,
-                              geometry.ball_material, None)
         if spec.container_material is not None:
             _require_material(mats, nist, densities, spec.container_material,
                               None)

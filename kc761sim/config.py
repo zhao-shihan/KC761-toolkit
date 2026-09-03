@@ -94,58 +94,13 @@ class Sandwich:
 
 
 @dataclass(frozen=True)
-class CoatedSphere:
-    """Passive support sphere with a thin spherical-cap coating in mm/deg.
-
-    The coating hugs the support sphere's outer surface on the side facing
-    the detector (-z pole, ``theta_max`` = 180 deg) and is the active source
-    volume. ``theta_min``/``theta_max`` are polar angles from the +z axis
-    in degrees; the coating spans ``[theta_min, theta_max]``.
-    """
+class Sphere:
+    """Full sphere with outer radius in mm."""
 
     radius: float
-    ball_material: str
-    thickness: float
-    theta_min: float
-    theta_max: float = 180.0
-
-    @property
-    def outer_radius(self) -> float:
-        return self.radius + self.thickness
-
-    @classmethod
-    def touching_tube(
-        cls,
-        radius: float,
-        thickness: float,
-        ball_material: str,
-        tube_inner_radius: float,
-    ) -> "CoatedSphere":
-        """Coating cap on the detector-facing side that ends where its edge
-        just touches the inner wall of a coaxial tube.
-
-        The cap covers the -z pole down to the polar angle at which the
-        coating's outer surface meets the tube wall:
-        ``sin(180 deg - theta_min) = tube_inner / (radius + thickness)``.
-        """
-        theta_min = 180.0 - math.degrees(
-            math.asin(tube_inner_radius / (radius + thickness))
-        )
-        return cls(
-            radius=radius,
-            ball_material=ball_material,
-            thickness=thickness,
-            theta_min=theta_min,
-        )
 
     def volume_cm3(self) -> float:
-        inner = self.radius / 10.0
-        outer = self.outer_radius / 10.0
-        cos_min = math.cos(math.radians(self.theta_min))
-        cos_max = math.cos(math.radians(self.theta_max))
-        return 2.0 / 3.0 * math.pi * (outer**3 - inner**3) * (
-            cos_min - cos_max
-        )
+        return 4.0 / 3.0 * math.pi * (self.radius / 10.0) ** 3
 
 
 @dataclass(frozen=True)
@@ -171,7 +126,7 @@ class SourceSpec:
     key: str
     name: str
     nuclide: Tuple[int, int]
-    geometry: Box | Cylinder | Disk | Sandwich | CoatedSphere
+    geometry: Box | Cylinder | Disk | Sandwich | Sphere
     material: str
     density: Optional[float] = None
     mass_g: Optional[float] = None
@@ -255,20 +210,10 @@ SOURCES: dict[str, SourceSpec] = {
     ),
     "ra226": SourceSpec(
         key="ra226",
-        name="Ra-226 in 100-um ZnS layer on glass ball (diameter 5 mm) "
-             "in stainless-steel tube",
+        name="Ra-226 in glass ball (diameter 5 mm) in stainless-steel tube",
         nuclide=(88, 226),
-        # The coating cap ends where its outer surface (r = 2.6 mm) just
-        # touches the tube's inner wall (rho = 2.5 mm); beyond this polar
-        # angle it would overlap the stainless steel.
-        geometry=CoatedSphere.touching_tube(
-            radius=2.5,
-            thickness=0.1,
-            ball_material="G4_GLASS_PLATE",
-            tube_inner_radius=2.5,
-        ),
-        material="ZnS",
-        density=4.09,
+        geometry=Sphere(radius=2.5),
+        material="G4_GLASS_PLATE",
         container=Tube(inner_radius=2.5, outer_radius=3.0,
                        half_length=2.5, axis="z"),
         container_material="G4_STAINLESS-STEEL",
