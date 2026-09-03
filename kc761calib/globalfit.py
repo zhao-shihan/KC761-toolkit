@@ -104,7 +104,7 @@ class GlobalFitModel:
 
     def _build_response(self, calib_params: np.ndarray,
                         resol_params: np.ndarray) -> Response:
-        """One shared binning + response matrix for this evaluation."""
+        """One shared binning + energy-to-channel response matrix per evaluation."""
         return Response.build(
             calib_params, resol_params, self.channel_max, self.fit_channel_lo,
             self.fit_channel_hi, self.last_channel)

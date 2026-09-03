@@ -20,12 +20,17 @@ quadratic Bezier curve with control values ``(b0^2, b1^2, b2^2)``:
 
    sigma^2(t) = (1-t)^2 b0^2 + 2(1-t)t b1^2 + t^2 b2^2
 
-``sigma`` is the square root of this expansion, so the squared coefficients
-keep it real and non-negative for any real ``(b0, b1, b2)``.
+The Bernstein basis is a non-negative partition of unity only on
+``t`` in [0, 1], so ``t`` is clamped at 0 before evaluation: for
+``E <= 0`` the resolution saturates at ``b0``, keeping the variance
+non-negative at the low-energy edge and preventing a degenerate delta
+response there.  Above ``RESOL_E_REF`` the polynomial continues unclamped;
+``MIN_SIGMA`` remains as numerical safety.
 
 Folding the Gaussian response into histograms is done by the extended
-binning and sparse response matrix in :mod:`kc761calib.folding`, whose fused
-assembly kernel calls :func:`gaussian_pdf` directly.
+binning and sparse response matrix in :mod:`kc761calib.folding`, which maps
+true-energy bins to detected channel bins; its fused assembly kernel calls
+:func:`gaussian_pdf` directly.
 """
 
 from __future__ import annotations
@@ -46,7 +51,7 @@ BOUNDS_CALIB = [(-300.0, -100.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)]
 
 N_RESOL = 3  # (b0, b1, b2)
 RESOL_E_REF = 2000.0  # keV, reference energy
-MIN_SIGMA = 0.001  # keV, sigma floor (numerical safety)
+MIN_SIGMA = 0.001  # keV, sigma floor (numerical safety for negative-variance corners)
 INIT_RESOL = np.array([2.0, 20.0, 40.0])
 BOUNDS_RESOL = [(0.0, 10.0), (0.0, 80.0), (0.0, 100.0)]
 
@@ -143,9 +148,17 @@ def resol_sigma_model(resol_params, energy):
 
     ``sigma^2`` is the quadratic Bernstein polynomial in ``t = E / RESOL_E_REF``
     with coefficients ``(b0^2, b1^2, b2^2)``, i.e. a quadratic Bezier curve
-    with those coefficients as control values.  The squares keep the variance
-    non-negative; clamped at zero only as a numerical safety.  ``resol_params``
-    is a float64 array of length 3 and ``energy`` a float64 scalar or array.
+    with those coefficients as control values.  ``t`` is clamped at 0 before
+    evaluation, so ``sigma^2`` is a non-negative convex combination of the
+    squared coefficients for ``0 <= t <= 1`` -- the Bernstein basis is not
+    non-negative for negative ``t``, and clamping is what keeps the variance
+    from going negative there.  Physically this saturates the resolution at
+    the low-energy edge: ``sigma(E <= 0) = b0``.  Above ``RESOL_E_REF`` the
+    polynomial continues unclamped, so ``sigma`` keeps growing with energy as
+    before and the plotted model band stays consistent with it.  The
+    ``MIN_SIGMA`` floor is numerical safety only.  ``resol_params`` is a
+    float64 array of length 3 and ``energy`` a float64 scalar or array.
     """
-    var = np.dot(_bernstein_basis(energy / RESOL_E_REF, 2), resol_params ** 2)
+    t = np.clip(np.asarray(energy), 0.0, np.inf) / RESOL_E_REF
+    var = np.dot(_bernstein_basis(t, 2), resol_params ** 2)
     return np.sqrt(np.maximum(var, MIN_SIGMA**2))

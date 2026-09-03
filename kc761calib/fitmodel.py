@@ -1,10 +1,10 @@
-"""Per-dataset forward model on the shared response binning.
+"""Per-dataset forward model on the shared energy-to-channel response.
 
 Each dataset keeps its raw channel counts/errors on a fixed channel range;
-energy is a relabeling of the channels via the calibration.  The
-resolution-smeared model comes from the shared :class:`Response` that
-:class:`GlobalFitModel` builds once per chi-square evaluation and reuses
-across datasets.
+the true-energy axis is only the calibration image of those channels, used
+to place the simulation before folding.  The resolution-smeared per-channel
+model comes from the shared :class:`Response` that :class:`GlobalFitModel`
+builds once per chi-square evaluation and reuses across datasets.
 """
 
 from __future__ import annotations
@@ -30,14 +30,16 @@ def error_model(data_counts, stat_errors, sys_frac):
 
 
 class FitModel:
-    """One dataset binned as channels; energy is a relabeling via the calibration.
+    """One dataset binned as channels; the smeared model lives in channel space.
 
     The fit window is a fixed channel range ``[channel_low, channel_high]``
-    (0-based, inclusive).  Each channel bin maps to one energy bin with edges
-    ``E(channel_edges)``, so the data counts/errors are the raw channel values
-    and never change with the calibration; only the bin energy positions and
-    the smeared model are recomputed each evaluation, the latter from the
-    shared response.
+    (0-based, inclusive).  The data counts/errors are the raw channel values
+    and never change with the calibration.  Each evaluation, the simulation
+    is rebinned onto the true-energy bins (the calibration image of the
+    channels) and folded through the shared energy-to-channel response, so
+    the smeared model is predicted per channel bin and compares directly to
+    the data; the bin energy positions (calibration image of the channel
+    centers) are recomputed for display only.
     """
 
     def __init__(self, data, sim, channel_low: int, channel_high: int,
@@ -79,7 +81,7 @@ class FitModel:
 
         ``mask`` defaults to the fixed ``usable_mask``; an explicit mask freezes
         bin selection, as required when differencing residuals numerically.
-        ``smeared`` optionally supplies the precomputed full-binning smeared sim
+        ``smeared`` optionally supplies the precomputed per-channel smeared sim
         (from ``Response.smeared_many``); when ``None`` it is computed here.
         """
         if mask is None:
@@ -100,8 +102,8 @@ class FitModel:
         )
 
     def unsmeared_sim_on_bins(self, resp: Response) -> np.ndarray:
-        """Rebinned sim counts on this dataset's bins, prior to folding with
-        the response matrix."""
+        """Rebinned sim counts on this dataset's true-energy bins, prior to
+        folding through the response matrix."""
         bin_slice = resp.binning.channel_slice(
             self.channel_low, self.channel_high)
         return resp.rebinned(self.sim)[bin_slice]
@@ -110,9 +112,10 @@ class FitModel:
                        scale_params: np.ndarray) -> DatasetDetail:
         """Package one dataset's pulls into plot/report diagnostics.
 
-        The model prediction is ``s(ch) * m(E)`` with the per-bin scale curve
-        ``s(ch) = scale_model(scale_params, ch, channel_low, channel_high)``
-        evaluated at each channel bin center; the channel window is fixed per
+        The model prediction is ``s(ch) * m(ch)`` with the per-bin scale
+        curve ``s(ch) = scale_model(scale_params, ch, channel_low,
+        channel_high)`` evaluated at each channel bin center and ``m(ch)``
+        the per-channel smeared simulation; the channel window is fixed per
         dataset.  The ``unsmeared_sim`` field remains unscaled.
         """
         arrays = self.dataset_arrays(resp)
