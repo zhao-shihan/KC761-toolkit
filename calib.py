@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from kc761calib.cli import parse_args
+from kc761calib.export import build_full_response, write_export_file
 from kc761calib.fitter import run_fit
 from kc761calib.globalfit import DatasetSpec, GlobalFitModel
 from kc761calib.io import load_data_spectrum, load_sim_spectrum
@@ -16,6 +17,8 @@ from kc761calib.scaling import N_SCALE, PARAM_NAMES_SCALE
 from kc761calib.util import broadcast
 from kc761calib.plot import plot_fit
 from kc761calib.report import print_summary
+from kc761util.rootcxxfrontend import (find_root, format_macro_cmd,
+                                       run_macro)
 
 
 def _broadcast(values, default, n: int, name: str):
@@ -39,6 +42,22 @@ def _run_calib(args) -> int:
     labels = args.label
 
     syss = _broadcast(args.sys, DEFAULT_SYS_FRAC, n, "--sys")
+
+    # Fail fast when the ROOT export is enabled but ROOT is unavailable,
+    # instead of running the whole fit and only then failing.
+    if not args.no_root_output:
+        root = find_root(args.root)
+        if root is None:
+            print("[calib] error: the ROOT export is enabled by default but "
+                  "no 'root' executable was found on PATH; install ROOT, "
+                  "pass --root <path>, or use --no-root-output",
+                  file=sys.stderr)
+            return 1
+        if not Path(root).is_file():
+            print(f"[calib] error: ROOT executable not found: {root} (from "
+                  "--root); pass --root <path> to a valid ROOT executable "
+                  "or use --no-root-output", file=sys.stderr)
+            return 1
 
     specs = []
     print(f"[calib] fitting {n} dataset(s): shared calibration and resolution, "
@@ -94,12 +113,56 @@ def _run_calib(args) -> int:
             f"scale [ch {ds.channel_low} - {ds.channel_high}]: {scale_str}")
     print_summary(result, dataset_lines=dataset_lines)
 
-    if args.output is not None:
-        out_pdf = args.output.expanduser().resolve()
+    if args.plot_output is not None:
+        out_plot = args.plot_output.expanduser().resolve()
     else:
-        out_pdf = Path.cwd() / ("-".join(labels) + "-calib.pdf")
-    plot_fit(result, str(out_pdf))
-    print(f"[calib] wrote {out_pdf}")
+        out_plot = Path.cwd() / ("-".join(labels) + "-calib.pdf")
+    out_plot = plot_fit(result, str(out_plot))
+    print(f"[calib] wrote {out_plot}")
+
+    if args.no_root_output:
+        return 0
+
+    # Export the fitted detector response to ROOT: build the complete
+    # energy-to-channel response matrix on the full channel range, serialize
+    # it with the model formulas and parameters into a temporary file, and
+    # convert it with the ROOT macro (which deletes the temporary file).
+    if args.root_output is not None:
+        root_out = args.root_output.expanduser().resolve()
+    else:
+        root_out = out_plot.with_suffix(".root")
+    try:
+        response = build_full_response(result.calib_params, result.resol_params,
+                                       result.detail.channel_max,
+                                       gmodel.last_channel)
+    except ValueError as exc:
+        print(f"[calib] error: cannot build the full response matrix: {exc}",
+              file=sys.stderr)
+        return 1
+    export_file = write_export_file(response)
+    print(f"[calib] full response matrix: {response.n_channels} x "
+          f"{response.n_channels} channel bins "
+          f"({response.n_channels ** 2} entries)")
+    col_sums = response.matrix.sum(axis=0)
+    n_trunc = int((col_sums < 1.0 - 1e-9).sum())
+    print(f"[calib] response column sums: min = {col_sums.min():.6g}, "
+          f"max = {col_sums.max():.6g} "
+          f"({n_trunc} columns truncated at the detector range edges)")
+
+    rc = run_macro("kc761calib/calib2root.cxx", [export_file, str(root_out)],
+                   root_exe=args.root, echo_prefix="calib2root")
+    if rc != 0:
+        cmd = format_macro_cmd("kc761calib/calib2root.cxx",
+                               [export_file, str(root_out)],
+                               root_exe=args.root)
+        re_run = (f"\n[calib]   manual re-run: {' '.join(cmd)}"
+                  if cmd is not None else "")
+        print(f"[calib] error: ROOT export failed (exit code {rc}); the "
+              f"temporary export file was kept for inspection:"
+              f"\n[calib]   {export_file}{re_run}",
+              file=sys.stderr)
+        return 1
+    print(f"[calib] wrote {root_out}")
     return 0
 
 

@@ -1,4 +1,9 @@
-"""PDF figures of the fit result."""
+"""Figures of the fit result.
+
+The output format is inferred from the file extension (any
+matplotlib-supported format); when the extension is missing or
+unrecognized, the figure is written as PDF.
+"""
 
 from __future__ import annotations
 from .response import (PARAM_NAMES_B, PARAM_NAMES_C, PARAM_NAMES_K,
@@ -12,6 +17,7 @@ from scipy import optimize
 import numpy as np
 import matplotlib
 from matplotlib import pyplot as plt
+from matplotlib.backend_bases import FigureCanvasBase
 from matplotlib.gridspec import GridSpecFromSubplotSpec
 
 matplotlib.use("Agg")
@@ -48,15 +54,23 @@ _RESOL_AS_FWHM = True
 _RESOL_YMAX_SIGMA = 10.0
 
 
-def _save_fig(fig, out_pdf: str) -> None:
+def _save_fig(fig, out_plot: str) -> Path:
+    """Save the figure, inferring the format from the file extension.
+
+    The extension (case-insensitive) is matched against the formats
+    matplotlib can write; a missing or unrecognized extension falls back
+    to PDF.  Returns the final output path.
+    """
     for ax in fig.axes:
         ax.tick_params(direction="in", which="both")
-    out = Path(out_pdf)
-    if not out.suffix.lower().endswith(".pdf"):
+    out = Path(out_plot)
+    fmt = out.suffix.lower().lstrip(".")
+    if fmt not in FigureCanvasBase.get_supported_filetypes():
         out = out.with_suffix(".pdf")
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, bbox_inches="tight", pad_inches=1.0)
     plt.close(fig)
+    return out
 
 
 def _cap(s: str) -> str:
@@ -108,11 +122,11 @@ def _parameter_text(result) -> str:
     resol = result.resol_params
     resol_err = result.resol_errors
     return ("\n".join([
-        "=== Calibration coefficients  ===",
+        "=== Calibration coefficients ===",
         rows(PARAM_NAMES_C, coeffs, coeff_errors),
-        "=== Calibration slope params. ===",
+        "=== Calibration slope parameters ===",
         rows(PARAM_NAMES_K, calib[CALIB_K], calib_err[CALIB_K]),
-        "=== Resolution Berns. params. ===",
+        "=== Resolution parameters ===",
         rows(PARAM_NAMES_B, resol, resol_err),
     ]))
 
@@ -154,7 +168,7 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
     data_handle = ax.errorbar(ds.bin_centers, ds.data_counts, yerr=ds.total_errors,
                               fmt="o", ms=1.5, lw=0.8, color=_COLOR_DATA,
                               alpha=0.6, zorder=3,
-                              label="Data (-bkg, calibrated)")
+                              label="Data (bkg-subtracted)")
     line_fit, = ax.plot(ds.bin_centers, ds.model_prediction, "-",
                         lw=1.5, color=_COLOR_FIT, alpha=0.8, zorder=4,
                         label="Best fit (smeared sim.)")
@@ -165,7 +179,7 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
 
     # Legend order (top->bottom): Data, Best-fit, Raw sim., Scale.
     ax.legend([data_handle, line_fit, stairs_handle, line_scale],
-              ["Data (-bkg, calibrated)",
+              ["Data (bkg-subtracted)",
                "Best fit (smeared sim.)",
                "Raw sim. (scaled)",
                "Scale s(ch)"],
@@ -301,7 +315,13 @@ def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
     ax.legend(fontsize=8, loc="upper right")
 
 
-def plot_fit(result, out_pdf: str) -> None:
+def plot_fit(result, out_plot: str) -> Path:
+    """Render the fit result into the output plot file.
+
+    Returns the final output path (the requested path with a PDF fallback
+    when the extension is missing or unrecognized), so callers can derive
+    sibling output names from it.
+    """
     det = result.detail
     calib = result.calib_params
     resol_params = result.resol_params
@@ -340,4 +360,4 @@ def plot_fit(result, out_pdf: str) -> None:
                       resol_cov=result.resol_cov, title=res_title)
     _parameter_panel(ax_params, _parameter_text(result))
 
-    _save_fig(fig, out_pdf)
+    return _save_fig(fig, out_plot)

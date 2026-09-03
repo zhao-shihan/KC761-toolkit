@@ -30,7 +30,11 @@ channel bin.  ``R[i, j]`` is kept nonzero only inside the kernel support
 ``[c_j - n_sigma sigma_j, c_j + n_sigma sigma_j]`` -- the same condition the
 binning extension uses, so the two are self-consistent -- and each column is
 then renormalized to sum exactly 1, absorbing the ~1e-6 truncation/quadrature
-error of the finite support.  The resolution ``sigma`` saturates at the
+error of the finite support.  That renormalization is a fit-internal choice:
+the exported full-range matrix (:mod:`kc761calib.export`) keeps the columns
+unnormalized, so the probability beyond the detector channel range stays
+truncated -- physically lost -- instead of being redistributed onto the
+edge bins.  The resolution ``sigma`` saturates at the
 low-energy edge of its model domain (``E = 0``; see
 :mod:`kc761calib.response`), so the kernel support never collapses to a
 sub-bin delta from negative-variance clamping below the fit range.

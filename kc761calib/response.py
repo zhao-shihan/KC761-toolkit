@@ -35,8 +35,6 @@ true-energy bins to detected channel bins; its fused assembly kernel calls
 
 from __future__ import annotations
 
-import math
-
 import numba
 import numpy as np
 
@@ -59,6 +57,28 @@ PARAM_NAMES_CORE = ["c0", "k1", "k2", "k3", "b0", "b1", "b2"]
 PARAM_NAMES_C = ["c0", "c1", "c2", "c3"]
 PARAM_NAMES_K = ["k1", "k2", "k3"]
 PARAM_NAMES_B = ["b0", "b1", "b2"]
+
+
+# --------------------------------------------------------------------------
+# canonical model formulas
+#
+# The single source of truth for the model formula texts: stored verbatim in
+# the ROOT export (kc761calib.export) and printed by the console report
+# (kc761calib.report).  They must stay consistent with calib_model and
+# resol_sigma_model.
+
+# Calibration formula with the plain cubic coefficients (c0, c1, c2, c3),
+# the parameterization reported by c0k1k2k3_to_c0c1c2c3.
+CALIB_FORMULA = ("E(ch) = c0 + c1*ch + c2*ch^2 + c3*ch^3"
+                 "   (E in keV, ch = channel)")
+
+# Resolution formula: sigma^2 is the quadratic Bernstein polynomial (a
+# quadratic Bezier curve with control values b0^2, b1^2, b2^2) in
+# t = E / RESOL_E_REF.  t is clamped at 0, so sigma saturates at b0 for
+# E <= 0, where the polynomial is not usable.
+RESOL_FORMULA = (f"sigma^2(E) = (1-t)^2*b0^2 + 2*(1-t)*t*b1^2 + t^2*b2^2,"
+                 f"   t = max(E, 0)/{RESOL_E_REF:g} keV"
+                 f"   (sigma in keV, saturated at b0 for E <= 0)")
 
 
 # --------------------------------------------------------------------------
@@ -136,10 +156,13 @@ def reported_calib(calib_params: np.ndarray | list[float], calib_cov: np.ndarray
 def gaussian_pdf(d, sigma):
     """Normal (Gaussian) probability density at offset ``d`` for ``sigma > 0``.
 
-    ``exp(-d^2 / (2 sigma^2)) / (sqrt(2 pi) sigma)``; the normalization uses
-    ``math`` constants, which numba constant-folds inside the kernel.
+    ``exp(-d^2 / (2 sigma^2)) / (sqrt(2 pi) sigma)``, elementwise: ``d`` and
+    ``sigma`` are float64 scalars or broadcastable float64 arrays (the result
+    has the broadcast shape).  ``np.exp``/``np.sqrt`` are numba intrinsics
+    and constant-fold inside the fused kernel, so the scalar hot path in
+    :mod:`kc761calib.folding` is unchanged.
     """
-    return math.exp(-0.5 * (d / sigma)**2) / (math.sqrt(2.0 * math.pi) * sigma)
+    return np.exp(-0.5 * (d / sigma)**2) / (np.sqrt(2.0 * np.pi) * sigma)
 
 
 @numba.njit(cache=True)

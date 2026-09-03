@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from .fitparamspace import CALIB_K
-from .response import RESOL_E_REF, PARAM_NAMES_B, PARAM_NAMES_C, PARAM_NAMES_K, reported_calib
+from .response import (CALIB_FORMULA, PARAM_NAMES_B, PARAM_NAMES_C,
+                       PARAM_NAMES_K, RESOL_FORMULA, reported_calib)
 
 
 def print_summary(result, dataset_lines: list[str] | None = None) -> None:
@@ -18,18 +19,17 @@ def print_summary(result, dataset_lines: list[str] | None = None) -> None:
     channel_max = result.detail.channel_max
     coeffs, coeff_errors, _ = reported_calib(result.calib_params,
                                              result.calib_cov, channel_max)
-    print("[calib] calibration parameters c0..c3\n"
-          "[calib] E(ch) = c0 + c1*ch + c2*ch^2 + c3*ch^3 :")
+    print("[calib] calibration coefficients c0..c3:")
+    print(f"[calib]   {CALIB_FORMULA}")
     for name, v, e in zip(PARAM_NAMES_C, coeffs, coeff_errors):
-        print(f"[calib]   {name:<3s} = {v: .6g} +/- {e:.3g}")
-    print("[calib] calibration slope parameters\n"
-          "[calib] k1 = E'(0), k2 = E'(ch_max/2), k3 = E'(ch_max) :")
+        print(f"[calib]     {name:<3s} = {v: .6g} +/- {e:.3g}")
+    print("[calib] calibration slope parameters:")
+    print("[calib]   k1 = E'(0), k2 = E'(ch_max/2), k3 = E'(ch_max)")
     for name, v, e in zip(PARAM_NAMES_K, result.calib_params[CALIB_K],
                           result.calib_errors[CALIB_K]):
-        print(f"[calib]   {name:<3s} = {v: .6g} +/- {e:.3g}")
-    print("[calib] resolution parameters b0..b2\n"
-          f"[calib] sigma^2(E) = Bernstein_2(E/({RESOL_E_REF} keV); "
-          "b0^2, b1^2, b2^2) :")
+        print(f"[calib]     {name:<3s} = {v: .6g} +/- {e:.3g}")
+    print("[calib] resolution parameters b0..b2:")
+    print(f"[calib]   {RESOL_FORMULA}")
     for name, v, e in zip(PARAM_NAMES_B, result.resol_params,
                           result.resol_errors):
-        print(f"[calib]   {name:<3s} = {v: .6g} +/- {e:.3g}")
+        print(f"[calib]     {name:<3s} = {v: .6g} +/- {e:.3g}")
