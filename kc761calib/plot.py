@@ -108,8 +108,11 @@ def _parameter_text(result) -> str:
     resol = result.resol_params
     resol_err = result.resol_errors
     return ("\n".join([
+        "=== Calibration coefficients  ===",
         rows(PARAM_NAMES_C, coeffs, coeff_errors),
+        "=== Calibration slope params. ===",
         rows(PARAM_NAMES_K, calib[CALIB_K], calib_err[CALIB_K]),
+        "=== Resolution Berns. params. ===",
         rows(PARAM_NAMES_B, resol, resol_err),
     ]))
 
@@ -292,7 +295,7 @@ def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
         y_ref = coeff * 100.0 * resol_sigma_model(resol_params, e_ref) / e_ref
         _mark_energy_line(ax, e_ref, y_ref, hline=True)
     ax.set_xlabel("Energy (keV)")
-    ax.set_ylabel("Energy resolution (%)")
+    ax.set_ylabel(f"Energy resolution ({"FWHM" if _RESOL_AS_FWHM else r"$\sigma$"}, %)")
     ax.set_title(title, fontsize=10)
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8, loc="upper right")
