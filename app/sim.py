@@ -7,12 +7,22 @@ import argparse
 import os
 import sys
 
+# Make the repository root (which holds the kc761* packages) importable when
+# this script is run directly, e.g. `python app/sim.py`; default outputs are
+# collected in the out/ directory next to it.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _REPO_ROOT)
+
+_OUT_DIR = os.path.join(_REPO_ROOT, "out")
+
 from geant4_pybind import G4UIExecutive, G4UImanager, G4VisExecutive
 from kc761sim import config, runner
 from kc761sim.paths import final_output_path, output_stem
 
+# The Geant4 UI macros live inside the kc761sim package, not next to this
+# script, so resolve them from the package location.
 _SCRIPT_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "kc761sim", "script"
+    os.path.dirname(os.path.abspath(config.__file__)), "script"
 )
 
 
@@ -35,9 +45,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--output",
         default=None,
         metavar="FILE",
-        help="output ROOT file name (default: sim_output.root in batch mode, "
-        "sim_vis_output.root in interactive mode; a missing .root suffix is "
-        "appended)",
+        help="output ROOT file name (default: out/sim_output.root in batch "
+        "mode, out/sim_vis_output.root in interactive mode; a missing .root "
+        "suffix is appended)",
     )
     parser.add_argument(
         "-n",
@@ -115,7 +125,8 @@ def main(argv: list[str] | None = None) -> None:
     source_key = _selected_source(args)
     if args.events is None:
         if args.output is None:
-            args.output = "sim_vis_output.root"
+            os.makedirs(_OUT_DIR, exist_ok=True)
+            args.output = os.path.join(_OUT_DIR, "sim_vis_output.root")
         verbose = args.verbose if args.verbose is not None else 1
         interactive_mode(source_key, args.seed, verbose,
                          output_stem(args.output))
@@ -123,7 +134,8 @@ def main(argv: list[str] | None = None) -> None:
         if args.events <= 0:
             raise SystemExit("error: --events must be a positive integer")
         if args.output is None:
-            args.output = "sim_output.root"
+            os.makedirs(_OUT_DIR, exist_ok=True)
+            args.output = os.path.join(_OUT_DIR, "sim_output.root")
         verbose = args.verbose if args.verbose is not None else 0
         batch_mode(args, source_key, verbose)
 

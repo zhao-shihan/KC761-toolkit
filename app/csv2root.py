@@ -7,6 +7,11 @@ import argparse
 import sys
 from pathlib import Path
 
+# Make the repository root (which holds the kc761* packages) importable when
+# this script is run directly, e.g. `python app/csv2root.py`.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
+
 from kc761util.rootcxxfrontend import add_root_option, run_macro  # noqa: E402
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run KC761 simulations into data/sim/."""
+"""Run KC761 simulations into out/sim/."""
 
 from __future__ import annotations
 
@@ -10,11 +10,14 @@ import subprocess
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# Paths relative to this script (app/) and to the repository root.
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(_APP_DIR))
 from kc761sim.paths import NTUPLE_NAME, output_stem, temp_work_dir  # noqa: E402
 
-SIM = os.path.join(ROOT, "sim.py")
-OUT_DIR = os.path.join(ROOT, "data", "sim")
+REPO_ROOT = os.path.dirname(_APP_DIR)
+SIM = os.path.join(_APP_DIR, "sim.py")
+OUT_DIR = os.path.join(REPO_ROOT, "out", "sim")
 
 RUNS: dict[str, int] = {
     "am241": 3_000_000,
@@ -46,7 +49,7 @@ def valid_output(path: str) -> bool:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="runsim.py",
-        description="Run KC761 simulations into data/sim/.",
+        description="Run KC761 simulations into out/sim/.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -107,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         t0 = time.time()
-        ret = subprocess.run(cmd, cwd=ROOT).returncode
+        ret = subprocess.run(cmd, cwd=REPO_ROOT).returncode
         dt_min = (time.time() - t0) / 60.0
         if ret == 0 and os.path.exists(out) and valid_output(out):
             size_mb = os.path.getsize(out) / 2**20

@@ -52,7 +52,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "the file extension (any matplotlib-supported "
                              "format, PDF by default if unrecognized; "
                              "default name: <label1>-<label2>-calib.pdf in "
-                             "the current directory)")
+                             "the out/ directory)")
     parser.add_argument("--root-output", type=Path, default=None,
                         help="output ROOT file with the fitted response "
                              "(default: the plot output name with the .root "

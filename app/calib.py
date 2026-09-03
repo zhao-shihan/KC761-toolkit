@@ -7,6 +7,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+# Make the repository root (which holds the kc761* packages) importable when
+# this script is run directly, e.g. `python app/calib.py`; default outputs
+# are collected in the out/ directory next to it.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
+
+_OUT_DIR = _REPO_ROOT / "out"
+
 from kc761calib.cli import parse_args
 from kc761calib.export import build_full_response, write_export_file
 from kc761calib.fitter import run_fit
@@ -116,7 +124,7 @@ def _run_calib(args) -> int:
     if args.plot_output is not None:
         out_plot = args.plot_output.expanduser().resolve()
     else:
-        out_plot = Path.cwd() / ("-".join(labels) + "-calib.pdf")
+        out_plot = _OUT_DIR / ("-".join(labels) + "-calib.pdf")
     out_plot = plot_fit(result, str(out_plot))
     print(f"[calib] wrote {out_plot}")
 
