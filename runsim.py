@@ -45,7 +45,7 @@ def valid_output(path: str) -> bool:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="run-sim.py",
+        prog="runsim.py",
         description="Run KC761 simulations into data/sim/.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
