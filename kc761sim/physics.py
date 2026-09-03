@@ -6,8 +6,7 @@ from geant4_pybind import (
     G4ChargeExchangePhysics,
     G4DecayPhysics,
     G4EmExtraPhysics,
-    G4EmLivermorePhysics,
-    # G4EmPenelopePhysics,
+    G4EmPenelopePhysics,
     G4HadronElasticPhysicsXS,
     G4HadronInelasticQBBC,
     G4IonElasticPhysics,
@@ -26,8 +25,7 @@ class PhysicsList(G4VModularPhysicsList):
     def __init__(self):
         super().__init__()
         self.SetDefaultCutValue(0.1 * mm)
-        self.RegisterPhysics(G4EmLivermorePhysics())
-        # self.RegisterPhysics(G4EmPenelopePhysics())
+        self.RegisterPhysics(G4EmPenelopePhysics())
         self.RegisterPhysics(G4EmExtraPhysics())
         self.RegisterPhysics(G4DecayPhysics())
         self.RegisterPhysics(G4RadioactiveDecayPhysics())
