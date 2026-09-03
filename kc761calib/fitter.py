@@ -187,7 +187,7 @@ def _finalize(model, q, success: bool = True, message: str = "",
     )
 
 
-def run_fit(model, x0=None, stage1_maxiter: int = 300,
+def run_fit(model, x0=None, stage1_maxiter: int = 1000,
             stage2_maxiter: int = 100000, verbose: bool = True) -> FitResult:
     if x0 is None:
         x0 = model.x0

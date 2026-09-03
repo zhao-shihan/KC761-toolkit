@@ -45,8 +45,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("-o", "--output", type=Path, default=None,
                         help="output PDF (default: <label1>-<label2>-calib.pdf "
                              "in the current directory)")
-    parser.add_argument("--stage1-maxiter", type=int, default=300,
-                        help="stage-1 optimizer iterations (default 300)")
+    parser.add_argument("--stage1-maxiter", type=int, default=1000,
+                        help="stage-1 optimizer iterations (default 1000)")
     parser.add_argument("--stage2-maxiter", type=int, default=100000,
                         help="stage-2 optimizer iterations (default 100000)")
     return parser.parse_args(argv)
