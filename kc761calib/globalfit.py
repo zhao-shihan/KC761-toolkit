@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .folding import Response
-from .fitmodel import DEFAULT_SYS_FRAC, FitModel
+from .fitmodel import DEFAULT_SYST_FRAC, FitModel
 from .fitparamspace import CALIB, RESOL, FitParamSpace
 from .response import INIT_CALIB, INIT_RESOL
 from .types import DatasetArrays, FitDetail
@@ -28,7 +28,7 @@ class DatasetSpec:
 
 class GlobalFitModel:
     def __init__(self, specs: list[DatasetSpec],
-                 sys_frac: float | list[float] = DEFAULT_SYS_FRAC,
+                 syst_frac: float | list[float] = DEFAULT_SYST_FRAC,
                  labels: list[str] | None = None, *,
                  init_calib_params=None):
         self.specs = list(specs)
@@ -36,8 +36,8 @@ class GlobalFitModel:
         if self.n_datasets == 0:
             raise ValueError("GlobalFitModel requires at least one dataset")
 
-        self.sys_fracs = [float(v) for v in
-                          broadcast(sys_frac, self.n_datasets, "sys_frac")]
+        self.syst_fracs = [float(v) for v in
+                          broadcast(syst_frac, self.n_datasets, "syst_frac")]
         if labels is None:
             labels = [f"dataset{i + 1}" for i in range(self.n_datasets)]
         self.labels = [str(l) for l in
@@ -65,7 +65,7 @@ class GlobalFitModel:
 
         self.models = [
             FitModel(s.data, s.sim, s.channel_low, s.channel_high,
-                     sys_frac=self.sys_fracs[i],
+                     syst_frac=self.syst_fracs[i],
                      init_response=self.init_response)
             for i, s in enumerate(self.specs)
         ]

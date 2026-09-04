@@ -23,7 +23,7 @@ class DatasetArrays:
     """
 
     data_counts: np.ndarray  # background-subtracted counts on the used bins
-    data_errors: np.ndarray  # data 1-sigma unc (stat + sys)
+    data_errors: np.ndarray  # data 1-sigma unc (stat + syst)
     mc_errors: np.ndarray  # MC unc of the unscaled smeared sim (used bins)
     model_counts: np.ndarray  # smeared sim bin, unscaled (used bins)
     bin_centers: np.ndarray  # energy positions of the used channel bins (keV)
@@ -45,10 +45,10 @@ class DatasetDetail:
     channel_high: int  # last selected channel (0-based, inclusive)
     bin_centers: np.ndarray  # energy positions of the used channel bins (keV)
     data_counts: np.ndarray  # background-subtracted counts per used bin
-    data_errors: np.ndarray  # data-side per-bin uncertainty (stat + sys)
+    data_errors: np.ndarray  # data-side per-bin uncertainty (stat + syst)
     mc_errors: np.ndarray  # MC unc of the unscaled model (used bins)
     model_errors: np.ndarray  # MC unc of the scaled model (used bins)
-    combined_errors: np.ndarray  # stat + sys + model MC unc
+    combined_errors: np.ndarray  # stat + syst + model MC unc
     model_prediction: np.ndarray  # best-fit, scaled smeared sim per channel bin
     unsmeared_sim: np.ndarray  # sim on the true-energy bins, unscaled (full)
     unsmeared_sim_errors: np.ndarray  # rebinned sim unc, unscaled (full)

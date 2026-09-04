@@ -12,7 +12,7 @@ import numpy as np
 from _bootstrap import REPO_ROOT
 from kc761calib.cli import parse_args
 from kc761calib.export import build_full_response, write_export_file
-from kc761calib.fitmodel import DEFAULT_SYS_FRAC
+from kc761calib.fitmodel import DEFAULT_SYST_FRAC
 from kc761calib.fitter import run_fit
 from kc761calib.globalfit import DatasetSpec, GlobalFitModel
 from kc761util.spectrum import load_spectrum
@@ -46,7 +46,7 @@ def _run_calib(args) -> int:
             return 1
     labels = args.label
 
-    syss = _broadcast(args.sys, DEFAULT_SYS_FRAC, n, "--sys")
+    syst_fracs = _broadcast(args.syst, DEFAULT_SYST_FRAC, n, "--syst")
 
     # Fail fast when the ROOT export is enabled but ROOT is unavailable,
     # instead of running the whole fit and only then failing.
@@ -92,9 +92,9 @@ def _run_calib(args) -> int:
                                  channel_low=channel_low,
                                  channel_high=channel_high))
         print(f"[calib]   [{labels[i]}] channels {channel_low}-{channel_high}, "
-              f"sys {syss[i]:g}, data={data_file}, sim={sim_file}")
+              f"syst {syst_fracs[i]:g}, data={data_file}, sim={sim_file}")
 
-    gmodel = GlobalFitModel(specs, sys_frac=syss, labels=labels)
+    gmodel = GlobalFitModel(specs, syst_frac=syst_fracs, labels=labels)
 
     x0 = gmodel.x0
     print(f"[calib] x0={x0}")

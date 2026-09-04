@@ -24,16 +24,16 @@ from .folding import Response, SimProjection
 from .scaling import scale_model
 from .types import DatasetArrays, DatasetDetail
 
-DEFAULT_SYS_FRAC = 0.10
+DEFAULT_SYST_FRAC = 0.10
 
 
 @numba.njit(inline="always", cache=True)
-def error_model(data_counts, stat_errors, sys_frac):
+def error_model(data_counts, stat_errors, syst_frac):
     """Data-side per-bin sigma: statistical + fractional systematic.
 
-    ``var = stat_errors^2 + (sys_frac * data_counts)^2``, bounded below at 1.
+    ``var = stat_errors^2 + (syst_frac * data_counts)^2``, bounded below at 1.
     """
-    var = stat_errors**2 + (sys_frac * data_counts)**2
+    var = stat_errors**2 + (syst_frac * data_counts)**2
     return np.sqrt(np.maximum(var, 1.0))
 
 
@@ -62,7 +62,7 @@ class FitModel:
     """
 
     def __init__(self, data, sim, channel_low: int, channel_high: int,
-                 sys_frac: float = DEFAULT_SYS_FRAC, *,
+                 syst_frac: float = DEFAULT_SYST_FRAC, *,
                  init_response=None):
         self.data = data
         self.sim = sim
@@ -77,7 +77,7 @@ class FitModel:
         if init_response is None:
             raise ValueError("FitModel requires the shared init_response "
                              "(built by GlobalFitModel)")
-        self.sys_frac = float(sys_frac)
+        self.syst_frac = float(syst_frac)
 
         channel_slice = slice(self.channel_low, self.channel_high + 1)
         self.data_counts = data.counts[channel_slice]
@@ -103,7 +103,7 @@ class FitModel:
         ``projection`` optionally supplies the precomputed smeared sim counts
         and their MC variances (from ``Response.project``/``project_many``);
         when ``None`` it is computed here.  The returned ``data_errors`` are
-        the data-side sigma (stat + sys) only; the scale-dependent MC term is
+        the data-side sigma (stat + syst) only; the scale-dependent MC term is
         combined in by the callers once the scale curve is known.
         """
         if mask is None:
@@ -118,7 +118,7 @@ class FitModel:
         return DatasetArrays(
             data_counts=data_counts,
             data_errors=error_model(data_counts, self.data_errors[mask],
-                                    self.sys_frac),
+                                    self.syst_frac),
             mc_errors=mc_errors[mask],
             model_counts=model_counts[mask],
             bin_centers=resp.binning.energy_centers[bin_slice][mask],

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from kc761util.rootcxxfrontend import add_root_option
 
-from .fitmodel import DEFAULT_SYS_FRAC
+from .fitmodel import DEFAULT_SYST_FRAC
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -41,13 +41,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         metavar="NAME",
                         help="dataset label (plot titles, scale parameter "
                              "names); required, repeat once per dataset")
-    parser.add_argument("--sys", action="append", type=float, default=None,
+    parser.add_argument("--syst", action="append", type=float, default=None,
                         metavar="FRAC",
                         help="per-bin fractional systematic error, as a "
                              "fraction (e.g. 0.05 = 5%%), added in quadrature "
                              "to the statistical errors proportional to the "
                              "bin counts; single value or one per dataset "
-                             f"(default {DEFAULT_SYS_FRAC:g})")
+                             f"(default {DEFAULT_SYST_FRAC:g})")
 
     parser.add_argument("--plot-output", type=Path, default=None,
                         help="output plot file; the format is inferred from "
