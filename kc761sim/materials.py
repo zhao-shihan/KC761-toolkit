@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from geant4_pybind import G4Material, G4NistManager, cm3, g
+from geant4_pybind import G4Element, G4Material, G4NistManager, cm3, g
 
 from .config import Sandwich, SourceSpec
 
@@ -13,7 +11,7 @@ ABS_DENSITY_G_CM3 = 1.05
 CSI_TL_DENSITY_G_CM3 = 4.51
 
 
-def _element(nist: G4NistManager, name: str) -> Any:
+def _element(nist: G4NistManager, name: str) -> G4Element:
     el = nist.FindOrBuildElement(name)
     if el is None:
         raise RuntimeError(f"failed to build NIST element {name!r}")

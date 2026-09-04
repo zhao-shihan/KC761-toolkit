@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -58,10 +57,10 @@ class Sandwich:
     """Stack of cylindrical layers in mm along z (e.g. foil sources)."""
 
     radius: float
-    layers: Tuple[Layer, ...]
+    layers: tuple[Layer, ...]
 
     @property
-    def active_layers(self) -> Tuple[Layer, ...]:
+    def active_layers(self) -> tuple[Layer, ...]:
         return tuple(layer for layer in self.layers if layer.active)
 
     @property
@@ -125,15 +124,15 @@ class SourceSpec:
 
     key: str
     name: str
-    nuclide: Tuple[int, int]
+    nuclide: tuple[int, int]
     geometry: Box | Cylinder | Disk | Sandwich | Sphere
     material: str
-    density: Optional[float] = None
-    mass_g: Optional[float] = None
-    container: Optional[Tube] = None
-    container_material: Optional[str] = None
-    container_offset: Optional[Tuple[float, float, float]] = None
-    nucleus_limits: Optional[Tuple[int, int, int, int]] = None
+    density: float | None = None
+    mass_g: float | None = None
+    container: Tube | None = None
+    container_material: str | None = None
+    container_offset: tuple[float, float, float] | None = None
+    nucleus_limits: tuple[int, int, int, int] | None = None
     threshold_years: float = 1.0e60
 
     def __post_init__(self) -> None:
@@ -154,7 +153,7 @@ class SourceSpec:
             )
 
     @property
-    def effective_density(self) -> Optional[float]:
+    def effective_density(self) -> float | None:
         if self.density is not None:
             return self.density
         if self.mass_g is not None:

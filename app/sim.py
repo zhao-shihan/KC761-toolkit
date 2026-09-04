@@ -2,23 +2,20 @@
 """Geant4 gamma-spectrometry Monte Carlo of a CsI(Tl) probe with fixed sources."""
 
 from __future__ import annotations
-from geant4_pybind import G4UIExecutive, G4UImanager, G4VisExecutive
 
 import argparse
 import os
 import sys
 
-# Make the repository root (which holds the kc761* packages) importable when
-# this script is run directly, e.g. `python app/sim.py`; default outputs are
-# collected in the out/ directory next to it.
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _REPO_ROOT)
-from kc761util.hadd import add_hadd_option  # noqa: E402
-from kc761sim.paths import final_output_path, output_stem  # noqa: E402
-from kc761sim import config, runner  # noqa: E402
+from geant4_pybind import G4UIExecutive, G4UImanager, G4VisExecutive
+
+from _bootstrap import REPO_ROOT
+from kc761sim import config, runner
+from kc761sim.paths import final_output_path, output_stem
+from kc761util.hadd import add_hadd_option
 
 
-_OUT_DIR = os.path.join(_REPO_ROOT, "out")
+_OUT_DIR = os.path.join(REPO_ROOT, "out")
 
 
 # The Geant4 UI macros live inside the kc761sim package, not next to this

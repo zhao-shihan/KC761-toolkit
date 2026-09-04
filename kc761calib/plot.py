@@ -6,19 +6,22 @@ unrecognized, the figure is written as PDF.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
+
+import matplotlib
+import numpy as np
+from matplotlib import pyplot as plt
+from matplotlib.backend_bases import FigureCanvasBase
+from matplotlib.gridspec import GridSpecFromSubplotSpec
+from scipy import optimize
+
+from .fitparamspace import CALIB_K
 from .response import (PARAM_NAMES_B, PARAM_NAMES_C, PARAM_NAMES_K,
                        RESOL_E_REF, calib_model, poly_basis, reported_calib,
                        resol_sigma_model)
 from .scaling import scale_model
-from .fitparamspace import CALIB_K
 from .util import bernstein_basis
-from pathlib import Path
-from scipy import optimize
-import numpy as np
-import matplotlib
-from matplotlib import pyplot as plt
-from matplotlib.backend_bases import FigureCanvasBase
-from matplotlib.gridspec import GridSpecFromSubplotSpec
 
 matplotlib.use("Agg")
 

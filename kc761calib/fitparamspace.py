@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .response import (BOUNDS_RESOL, BOUNDS_CALIB, INIT_CALIB, INIT_RESOL,
+from .response import (BOUNDS_CALIB, BOUNDS_RESOL, INIT_CALIB, INIT_RESOL,
                        N_CALIB, N_RESOL, PARAM_NAMES_CORE)
 from .scaling import N_SCALE, scale_bounds, scale_names
 

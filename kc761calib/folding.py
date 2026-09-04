@@ -81,7 +81,7 @@ import numba
 import numpy as np
 from scipy import sparse
 
-from .response import (gaussian_pdf, calib_model, resol_sigma_model)
+from .response import (calib_model, gaussian_pdf, resol_sigma_model)
 
 N_SIGMA = 5.0
 

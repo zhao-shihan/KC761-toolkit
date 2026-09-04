@@ -9,13 +9,10 @@ import subprocess
 import sys
 import time
 
-# Paths relative to this script (app/) and to the repository root.
-_APP_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(_APP_DIR))
-from kc761sim.paths import NTUPLE_NAME, output_stem, temp_work_dir  # noqa: E402
+from _bootstrap import APP_DIR, REPO_ROOT
+from kc761sim.paths import NTUPLE_NAME, output_stem, temp_work_dir
 
-REPO_ROOT = os.path.dirname(_APP_DIR)
-SIM = os.path.join(_APP_DIR, "sim.py")
+SIM = os.path.join(APP_DIR, "sim.py")
 OUT_DIR = os.path.join(REPO_ROOT, "out", "sim")
 
 RUNS: dict[str, int] = {
