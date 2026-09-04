@@ -16,7 +16,7 @@ from .types import FitDetail
 from .util import broadcast
 
 if TYPE_CHECKING:
-    from .io import Spectrum
+    from .loadspectrum import Spectrum
 
 
 @dataclass

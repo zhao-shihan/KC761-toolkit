@@ -19,7 +19,7 @@ from kc761calib.cli import parse_args
 from kc761calib.export import build_full_response, write_export_file
 from kc761calib.fitter import run_fit
 from kc761calib.globalfit import DatasetSpec, GlobalFitModel
-from kc761calib.io import load_data_spectrum, load_sim_spectrum
+from kc761calib.loadspectrum import load_data_spectrum, load_sim_spectrum
 from kc761calib.fitmodel import DEFAULT_SYS_FRAC
 from kc761calib.scaling import N_SCALE, PARAM_NAMES_SCALE
 from kc761calib.util import broadcast
