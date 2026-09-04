@@ -140,7 +140,8 @@ class GlobalFitModel:
         arrays_list = []
         for i, m in enumerate(self.models):
             mask = None if mask_list is None else mask_list[i]
-            arrays = m.dataset_arrays(resp, mask=mask, projection=projections[i])
+            arrays = m.dataset_arrays(
+                resp, mask=mask, projection=projections[i])
             if len(arrays.data_counts) < m.min_usable_bins:
                 return None
             arrays_list.append(arrays)

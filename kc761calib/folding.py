@@ -100,12 +100,12 @@ class ExtendedBinning:
     columns.
     """
 
-    channel_lo: int            # first extended channel (inclusive)
-    channel_hi: int            # last extended channel (inclusive)
-    fit_channel_lo: int        # union lower fit channel
-    fit_channel_hi: int        # union upper fit channel
+    channel_lo: int  # first extended channel (inclusive)
+    channel_hi: int  # last extended channel (inclusive)
+    fit_channel_lo: int  # union lower fit channel
+    fit_channel_hi: int  # union upper fit channel
     channel_edges: np.ndarray  # n_ext + 1, uniform width 1 (detected axis)
-    energy_edges: np.ndarray   # n_ext + 1, E(channel_edges); true-energy binning (input axis)
+    energy_edges: np.ndarray  # n_ext + 1, true-energy binning (input axis)
     energy_centers: np.ndarray  # n_ext, true-energy bin centers
     energy_widths: np.ndarray  # n_ext, energy width dE_i of each channel bin
 

@@ -11,6 +11,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .fitparamspace import CORE
+
 
 @dataclass
 class DatasetArrays:
@@ -21,9 +23,9 @@ class DatasetArrays:
     """
 
     data_counts: np.ndarray  # background-subtracted counts on the used bins
-    data_errors: np.ndarray  # data-side per-bin 1-sigma uncertainty (stat + sys)
-    mc_errors: np.ndarray  # MC statistical 1-sigma of the unscaled smeared sim (used bins)
-    model_counts: np.ndarray  # resolution-smeared sim per channel bin, unscaled (used bins)
+    data_errors: np.ndarray  # data 1-sigma unc (stat + sys)
+    mc_errors: np.ndarray  # MC unc of the unscaled smeared sim (used bins)
+    model_counts: np.ndarray  # smeared sim bin, unscaled (used bins)
     bin_centers: np.ndarray  # energy positions of the used channel bins (keV)
     channel_centers: np.ndarray  # channel numbers of the used bins
 
@@ -44,12 +46,12 @@ class DatasetDetail:
     bin_centers: np.ndarray  # energy positions of the used channel bins (keV)
     data_counts: np.ndarray  # background-subtracted counts per used bin
     data_errors: np.ndarray  # data-side per-bin uncertainty (stat + sys)
-    mc_errors: np.ndarray  # MC statistical sigma of the unscaled smeared model (used bins)
-    model_errors: np.ndarray  # MC statistical sigma of the scaled model prediction (used bins)
-    combined_errors: np.ndarray  # per-bin sigma used in the chi2 pulls (stat + sys + model MC)
+    mc_errors: np.ndarray  # MC unc of the unscaled model (used bins)
+    model_errors: np.ndarray  # MC unc of the scaled model (used bins)
+    combined_errors: np.ndarray  # stat + sys + model MC unc
     model_prediction: np.ndarray  # best-fit, scaled smeared sim per channel bin
-    unsmeared_sim: np.ndarray  # rebinned sim on the true-energy bins, unscaled (full range)
-    unsmeared_sim_errors: np.ndarray  # MC statistical sigma of the rebinned sim, unscaled (full range)
+    unsmeared_sim: np.ndarray  # sim on the true-energy bins, unscaled (full)
+    unsmeared_sim_errors: np.ndarray  # rebinned sim unc, unscaled (full)
     scale_params: np.ndarray  # (s0, s1, s2, s3) quadratic-Bezier scale
     chi2: float
     n_bins: int
@@ -93,6 +95,12 @@ class FitResult:
     @property
     def scales(self) -> np.ndarray:
         return self.detail.scale_params
+
+    @property
+    def core_cov(self) -> np.ndarray:
+        """7x7 covariance of the shared core parameters ``(c0, k1, k2, k3, b0,
+        b1, b2)``, including the calib-resol cross block."""
+        return np.asarray(self.cov[CORE, CORE], dtype=float)
 
     @property
     def scale_errors(self) -> np.ndarray:

@@ -314,7 +314,8 @@ def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
     coeff = 2*np.sqrt(2*np.log(2)) if _RESOL_AS_FWHM else 1.0
     sigma = resol_sigma_model(resol_params, energy)
     rel = 100.0 * sigma / energy
-    line_handle, = ax.plot(energy, coeff * rel, "-", color=_COLOR_RESOL, lw=1.5)
+    line_handle, = ax.plot(
+        energy, coeff * rel, "-", color=_COLOR_RESOL, lw=1.5)
     band_handle = None
     if resol_cov is not None:
         finite = _cov_finite_mask(resol_cov)

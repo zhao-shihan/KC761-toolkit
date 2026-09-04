@@ -11,6 +11,7 @@ from .response import (BOUNDS_RESOL, BOUNDS_CALIB, INIT_CALIB, INIT_RESOL,
 from .scaling import N_SCALE, scale_bounds, scale_names
 
 N_CORE = N_CALIB + N_RESOL
+CORE = slice(0, N_CORE)  # (c0, k1, k2, k3, b0, b1, b2), the shared core block
 CALIB = slice(0, N_CALIB)
 CALIB_K = slice(1, N_CALIB)  # k1, k2, k3 (the slope parameters, excluding c0)
 RESOL = slice(N_CALIB, N_CORE)
@@ -57,7 +58,8 @@ class FitParamSpace:
         bounds = [*BOUNDS_CALIB, *BOUNDS_RESOL]
         for i in range(self.n_datasets):
             ch_lo, ch_hi = self.channel_windows[i]
-            bounds.extend(scale_bounds(float(self.init_scales[i]), ch_lo, ch_hi))
+            bounds.extend(scale_bounds(
+                float(self.init_scales[i]), ch_lo, ch_hi))
         return bounds
 
     def x0(self) -> np.ndarray:

@@ -7,26 +7,27 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
+
 # Make the repository root (which holds the kc761* packages) importable when
 # this script is run directly, e.g. `python app/calib.py`; default outputs
 # are collected in the out/ directory next to it.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
+from kc761util.rootcxxfrontend import (find_root, format_macro_cmd, run_macro)  # noqa: E402
+from kc761calib.report import print_summary  # noqa: E402
+from kc761calib.plot import plot_fit  # noqa: E402
+from kc761calib.util import broadcast  # noqa: E402
+from kc761calib.scaling import N_SCALE, PARAM_NAMES_SCALE  # noqa: E402
+from kc761calib.fitmodel import DEFAULT_SYS_FRAC  # noqa: E402
+from kc761calib.loadspectrum import load_spectrum  # noqa: E402
+from kc761calib.globalfit import DatasetSpec, GlobalFitModel  # noqa: E402
+from kc761calib.fitter import run_fit  # noqa: E402
+from kc761calib.export import build_full_response, write_export_file  # noqa: E402
+from kc761calib.cli import parse_args  # noqa: E402
+
 
 _OUT_DIR = _REPO_ROOT / "out"
-
-from kc761calib.cli import parse_args
-from kc761calib.export import build_full_response, write_export_file
-from kc761calib.fitter import run_fit
-from kc761calib.globalfit import DatasetSpec, GlobalFitModel
-from kc761calib.loadspectrum import load_spectrum
-from kc761calib.fitmodel import DEFAULT_SYS_FRAC
-from kc761calib.scaling import N_SCALE, PARAM_NAMES_SCALE
-from kc761calib.util import broadcast
-from kc761calib.plot import plot_fit
-from kc761calib.report import print_summary
-from kc761util.rootcxxfrontend import (find_root, format_macro_cmd,
-                                       run_macro)
 
 
 def _broadcast(values, default, n: int, name: str):
@@ -132,16 +133,17 @@ def _run_calib(args) -> int:
         return 0
 
     # Export the fitted detector response to ROOT: build the complete
-    # energy-to-channel response matrix on the full channel range, serialize
-    # it with the model formulas and parameters into a temporary file, and
-    # convert it with the ROOT macro (which deletes the temporary file).
+    # energy-to-channel response matrix on the full channel range with its
+    # per-element errors and the fitted parameter covariance, serialize
+    # them with the model formulas and parameters into a temporary file,
+    # and convert it with the ROOT macro (which deletes the temporary
+    # file).
     if args.root_output is not None:
         root_out = args.root_output.expanduser().resolve()
     else:
         root_out = out_plot.with_suffix(".root")
     try:
-        response = build_full_response(result.calib_params, result.resol_params,
-                                       result.detail.channel_max,
+        response = build_full_response(result, result.detail.channel_max,
                                        gmodel.last_channel)
     except ValueError as exc:
         print(f"[calib] error: cannot build the full response matrix: {exc}",
@@ -156,6 +158,20 @@ def _run_calib(args) -> int:
     print(f"[calib] response column sums: min = {col_sums.min():.6g}, "
           f"max = {col_sums.max():.6g} "
           f"({n_trunc} columns truncated at the detector range edges)")
+    # Relative errors are only meaningful on elements that carry
+    # non-negligible probability; far off-diagonal elements are ~0 with
+    # correspondingly huge (and irrelevant) relative errors.  The largest
+    # absolute errors sit on the peaks, so restricting the maximum to the
+    # same subset is equally informative.
+    pos = response.matrix > 1e-3
+    n_pos = int(pos.sum())
+    if n_pos > 0:
+        err_pos = response.matrix_errors[pos]
+        rel_err = err_pos / response.matrix[pos]
+        print(f"[calib] response-matrix 1-sigma errors: "
+              f"max = {np.nanmax(err_pos):.3g}, "
+              f"median relative = {np.nanmedian(rel_err):.3g} "
+              f"(over {n_pos} elements with probability > 1e-3)")
 
     rc = run_macro("kc761calib/calib2root.cxx", [export_file, str(root_out)],
                    root_exe=args.root, echo_prefix="calib2root")

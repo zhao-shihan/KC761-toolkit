@@ -17,9 +17,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     "calibration + resolution by chi^2 minimization.  Repeat "
                     "the --data/--sim/--chlo/--chhi/--label groups once per "
                     "dataset (all required).  Besides the plot report, the "
-                    "fitted calibration/resolution formulas, parameters and "
-                    "the complete energy-to-channel response matrix are "
-                    "written to a ROOT file via kc761calib/calib2root.cxx."
+                    "fitted calibration/resolution formulas, parameters with "
+                    "their 1-sigma errors and 7x7 covariance, and the "
+                    "complete energy-to-channel response matrix with its "
+                    "per-element errors are written to a ROOT file via "
+                    "kc761calib/calib2root.cxx."
     )
     parser.add_argument("--data", dest="data_multi", action="append",
                         type=Path, required=True, metavar="FILE",
