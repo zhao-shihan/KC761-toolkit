@@ -1,6 +1,6 @@
 // csv2root.cxx
 // Convert a KC761 multichannel-analyzer CSV export into a ROOT file with
-// TH1D "kc761_spectrum" (one bin per channel) and the acquisition time
+// TH1D SPECTRUM_HIST_NAME (one bin per channel) and the acquisition time
 // TParameter<double> "daq_time" (hours).
 // Usage:  root -l -b -q 'csv2root.cxx("data.csv","out.root")'
 
@@ -16,6 +16,10 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+// Toolkit-wide histogram-name convention; keep in sync with
+// kc761util/spectrum.py (SPECTRUM_HIST_NAME).
+#define SPECTRUM_HIST_NAME "kc761_spectrum"
 
 namespace {
 
@@ -109,7 +113,7 @@ void csv2root(const std::string& input, const std::string& output = "") {
     for (int ch : channels)
         if (ch + 1 > nCh) nCh = ch + 1;
 
-    TH1D* h = new TH1D("kc761_spectrum", "KC761 spectrum;Channel;Counts",
+    TH1D* h = new TH1D(SPECTRUM_HIST_NAME, "KC761 spectrum;Channel;Counts",
                        nCh, -0.5, nCh - 0.5);
     for (size_t i = 0; i < counts.size(); ++i) {
         int bin = channels[i] + 1;

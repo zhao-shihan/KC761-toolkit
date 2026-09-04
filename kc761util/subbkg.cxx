@@ -11,6 +11,10 @@
 #include <iostream>
 #include <string>
 
+// Toolkit-wide histogram-name convention; keep in sync with
+// kc761util/spectrum.py (SPECTRUM_HIST_NAME).
+#define SPECTRUM_HIST_NAME "kc761_spectrum"
+
 void subbkg(const std::string& sigFile, const std::string& bkgFile,
             const std::string& outFile = "") {
     std::string outName = outFile;
@@ -34,13 +38,14 @@ void subbkg(const std::string& sigFile, const std::string& bkgFile,
         return;
     }
 
-    TH1D* hSig = dynamic_cast<TH1D*>(fSig->Get("kc761_spectrum"));
-    TH1D* hBkg = dynamic_cast<TH1D*>(fBkg->Get("kc761_spectrum"));
+    TH1D* hSig = dynamic_cast<TH1D*>(fSig->Get(SPECTRUM_HIST_NAME));
+    TH1D* hBkg = dynamic_cast<TH1D*>(fBkg->Get(SPECTRUM_HIST_NAME));
     TParameter<double>* tSig = dynamic_cast<TParameter<double>*>(fSig->Get("daq_time"));
     TParameter<double>* tBkg = dynamic_cast<TParameter<double>*>(fBkg->Get("daq_time"));
 
     if (!hSig || !hBkg || !tSig || !tBkg) {
-        std::cerr << "[subbkg] error: files must contain TH1D \"kc761_spectrum\" and "
+        std::cerr << "[subbkg] error: files must contain TH1D \""
+                  << SPECTRUM_HIST_NAME << "\" and "
                   << "TParameter<double> \"daq_time\"\n";
         gSystem->Exit(1);
         return;
@@ -72,7 +77,7 @@ void subbkg(const std::string& sigFile, const std::string& bkgFile,
     fOut.cd();
 
     TH1D* hNet = new TH1D(*hSig);
-    hNet->SetNameTitle("kc761_spectrum",
+    hNet->SetNameTitle(SPECTRUM_HIST_NAME,
                        "KC761 spectrum (background subtracted);Channel;Counts");
     hNet->Add(hSig, hBkg, 1.0, -r);
 

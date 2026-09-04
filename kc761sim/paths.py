@@ -6,8 +6,9 @@ import os
 
 import numpy as np
 
+from kc761util.spectrum import SPECTRUM_HIST_NAME  # noqa: F401 (re-export)
+
 NTUPLE_NAME = "kc761_data"
-SPECTRUM_HIST_NAME = "kc761_spectrum"
 
 #: Ntuple column order and dtypes; written by actions.RunAction and
 #: re-created by runner.merge_root_files when combining worker files.

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import _bootstrap  # noqa: F401
 from kc761util.rootcxxfrontend import add_root_option, run_macro
+from kc761util.spectrum import SPECTRUM_HIST_NAME
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -18,8 +19,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "signal", type=Path,
-        help="signal (data) ROOT file containing TH1D 'kc761_spectrum' and "
-             "TParameter<double> 'daq_time'",
+        help=f"signal (data) ROOT file containing TH1D '{SPECTRUM_HIST_NAME}' "
+             "and TParameter<double> 'daq_time'",
     )
     parser.add_argument(
         "background", type=Path,

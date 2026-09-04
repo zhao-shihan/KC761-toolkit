@@ -15,7 +15,7 @@ from .types import DatasetArrays, FitDetail
 from .util import broadcast
 
 if TYPE_CHECKING:
-    from .loadspectrum import Spectrum
+    from kc761util.spectrum import Spectrum
 
 
 @dataclass

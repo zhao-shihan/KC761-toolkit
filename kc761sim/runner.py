@@ -158,6 +158,7 @@ def merge_worker_outputs(output_path: str, input_paths: list[str], *,
     import uproot
 
     from kc761util.hadd import merge_root_files
+    from kc761util.spectrum import load_spectrum
 
     if not input_paths:
         raise ValueError("merge_worker_outputs: no worker files to merge")
@@ -169,12 +170,14 @@ def merge_worker_outputs(output_path: str, input_paths: list[str], *,
             if NTUPLE_NAME not in src:
                 raise RuntimeError(
                     f"ntuple {NTUPLE_NAME!r} missing in worker file {path!r}")
-            if SPECTRUM_HIST_NAME not in src:
+            expected_entries += int(src[NTUPLE_NAME].num_entries)
+            try:
+                spectrum = load_spectrum(src)
+            except KeyError as exc:
                 raise RuntimeError(
                     f"spectrum histogram {SPECTRUM_HIST_NAME!r} missing in "
-                    f"worker file {path!r}")
-            _, edges = src[SPECTRUM_HIST_NAME].to_numpy()
-            expected_entries += int(src[NTUPLE_NAME].num_entries)
+                    f"worker file {path!r}") from exc
+        edges = spectrum.edges
         if ref_edges is None:
             ref_edges = edges
         elif not np.array_equal(edges, ref_edges):
