@@ -1,4 +1,14 @@
-"""Read experimental and simulated spectra from ROOT files (uproot)."""
+"""Read spectra with their per-bin errors from ROOT files (uproot).
+
+:func:`load_spectrum` serves both experimental and simulated spectra: the
+data spectrum's errors enter the fit's data-side uncertainty (statistical,
+plus whatever the analysis that produced the file stored), and the simulated
+spectrum's errors are the Monte Carlo statistical errors -- the histogram's
+``sumw2`` buffer (the sum of squared fill weights) when the file stores one,
+and the Poisson ``sqrt(counts)`` estimate -- which equals ``sumw2`` for
+unit-weight fills -- when it does not.  These feed the MC finite-statistics
+term of the fit's per-bin uncertainties (:mod:`kc761calib.folding`).
+"""
 
 from __future__ import annotations
 
@@ -49,8 +59,32 @@ class Spectrum:
     def n_bins(self) -> int:
         return len(self.counts)
 
+    @property
+    def variances(self) -> np.ndarray | None:
+        """Per-bin variance (``sumw2``): ``errors**2`` when errors are stored.
 
-def _load_spectrum(path: str, hist_name: str, with_errors: bool) -> Spectrum:
+        ``None`` means the spectrum carries no variance information; for a
+        Monte Carlo histogram the caller then falls back to the Poisson
+        estimate ``max(counts, 0)``.
+        """
+        if self.errors is None:
+            return None
+        return self.errors ** 2
+
+
+def load_spectrum(path: str, hist_name: str = "kc761_spectrum") -> Spectrum:
+    """Read a spectrum with its per-bin errors from a ROOT file.
+
+    The errors are the histogram's stored ``sumw2`` buffer.  When the file
+    does not store one, uproot falls back to the Poisson ``sqrt(counts)``
+    estimate: for a simulated histogram filled with unit weights that equals
+    ``sumw2``, so it is exactly the Monte Carlo statistical error, while for
+    background-subtracted data it is NaN where the counts are negative and
+    :class:`Spectrum` rejects the file with an explanation.  The same
+    function serves both roles: the data spectrum's errors enter the fit's
+    data-side uncertainty and the simulated spectrum's errors feed the Monte
+    Carlo finite-statistics term (:mod:`kc761calib.folding`).
+    """
     try:
         with uproot.open(path) as f:
             h = f[hist_name]
@@ -59,14 +93,6 @@ def _load_spectrum(path: str, hist_name: str, with_errors: bool) -> Spectrum:
     except KeyError as exc:
         raise KeyError(f"histogram '{hist_name}' not found in {path}") from exc
     counts = np.asarray(h.values(), dtype=float)
-    errors = np.asarray(h.errors(), dtype=float) if with_errors else None
+    errors = np.asarray(h.errors(), dtype=float)
     edges = np.asarray(h.axis().edges(), dtype=float)
     return Spectrum(counts, errors, edges)
-
-
-def load_data_spectrum(path: str, hist_name: str = "kc761_spectrum") -> Spectrum:
-    return _load_spectrum(path, hist_name, with_errors=True)
-
-
-def load_sim_spectrum(path: str, hist_name: str = "kc761_spectrum") -> Spectrum:
-    return _load_spectrum(path, hist_name, with_errors=False)

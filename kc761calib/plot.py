@@ -124,7 +124,7 @@ def _parameter_text(result) -> str:
     return ("\n".join([
         "=== Calibration coefficients ===",
         rows(PARAM_NAMES_C, coeffs, coeff_errors),
-        "=== Calibration slope parameters ===",
+        "=== Calibration slopes ===",
         rows(PARAM_NAMES_K, calib[CALIB_K], calib_err[CALIB_K]),
         "=== Resolution parameters ===",
         rows(PARAM_NAMES_B, resol, resol_err),
@@ -144,7 +144,7 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
     # Draw the scale curve behind the spectrum artists (and the legend): the
     # twin axis sits below the primary axis, whose background is transparent so
     # the curve stays visible.  Layer order (bottom->top): Scale, Raw sim,
-    # Data, Best-fit, Legend.
+    # Raw sim. error, Data, Best-fit band, Best-fit, Legend.
     ax2.set_zorder(ax.get_zorder() - 1)
     ax.patch.set_visible(False)
     # The scale is a function of channel: evaluate it over the channel window
@@ -163,22 +163,41 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
     sb_full = scale_model(ds.scale_params, ch_full,
                           ds.channel_low, ds.channel_high)
     stairs_handle = ax.stairs(sb_full * ds.unsmeared_sim, ds.bin_edges,
-                              lw=0.8, color=_COLOR_SIM_RAW, zorder=2,
-                              label="Raw sim. (scaled)")
-    data_handle = ax.errorbar(ds.bin_centers, ds.data_counts, yerr=ds.total_errors,
+                              lw=0.8, color=_COLOR_SIM_RAW, zorder=2)
+    # Monte Carlo statistical error bars of the raw (pre-folding) rebinned
+    # simulation, scaled by the same scale curve as the stairs.  The bin
+    # centers are the midpoints of the true-energy bin edges, matching the
+    # stairs binning exactly.  No own legend entry: the legend reuses the
+    # "Raw sim." handle, overlaid with the error-bar artist.
+    sim_centers = 0.5 * (ds.bin_edges[:-1] + ds.bin_edges[1:])
+    sim_err_handle = ax.errorbar(
+        sim_centers, sb_full * ds.unsmeared_sim,
+        yerr=sb_full * ds.unsmeared_sim_errors,
+        fmt="none", ecolor=_COLOR_SIM_RAW, elinewidth=0.8, capsize=0,
+        zorder=2.5)
+    data_handle = ax.errorbar(ds.bin_centers, ds.data_counts, yerr=ds.data_errors,
                               fmt="o", ms=1.5, lw=0.8, color=_COLOR_DATA,
-                              alpha=0.6, zorder=3,
-                              label="Data (bkg-subtracted)")
+                              zorder=3, label="Data (bkg-subtracted)")
+    # Error band around the best-fit curve: the Monte Carlo statistical
+    # error of the scaled smeared-sim prediction, +/- model_errors.  No own
+    # legend entry: the legend reuses the "Best fit" handle, overlaid with
+    # the band patch.
+    band_handle = ax.fill_between(ds.bin_centers,
+                                  ds.model_prediction - ds.model_errors,
+                                  ds.model_prediction + ds.model_errors,
+                                  color=_COLOR_FIT, alpha=0.18, linewidth=0,
+                                  zorder=3.5)
     line_fit, = ax.plot(ds.bin_centers, ds.model_prediction, "-",
-                        lw=1.5, color=_COLOR_FIT, alpha=0.8, zorder=4,
-                        label="Best fit (smeared sim.)")
+                        lw=1.5, color=_COLOR_FIT, alpha=0.8, zorder=4)
     ax.set_yscale("log")
     ax.set_xlim(ds.bin_edges[0], ds.bin_edges[-1])
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Counts")
 
-    # Legend order (top->bottom): Data, Best-fit, Raw sim., Scale.
-    ax.legend([data_handle, line_fit, stairs_handle, line_scale],
+    # Legend order (top->bottom): Data, Best-fit (line + MC stat. band),
+    # Raw sim. (line + MC stat. error bars), Scale.
+    ax.legend([data_handle, (line_fit, band_handle),
+               (stairs_handle, sim_err_handle), line_scale],
               ["Data (bkg-subtracted)",
                "Best fit (smeared sim.)",
                "Raw sim. (scaled)",
@@ -188,11 +207,17 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
         ax.set_title(title, fontsize=9)
 
 
-def _residual_panel(ax, bin_centers, data_counts, total_errors, model_prediction,
+def _residual_panel(ax, bin_centers, data_counts, combined_errors, model_prediction,
                     energy_low, energy_high, title: str) -> None:
     ok = model_prediction > 0
     rel = (data_counts[ok] - model_prediction[ok]) / model_prediction[ok]
-    ax.errorbar(bin_centers[ok], rel, yerr=total_errors[ok] / model_prediction[ok],
+    # The error bars on the ratio carry the full per-bin sigma of the
+    # numerator (data - model): the data's statistical + systematic error
+    # plus the Monte Carlo statistical error of the scaled smeared-sim
+    # prediction, divided by the model prediction -- i.e. combined_errors
+    # includes the simulated spectrum's finite-statistics error.
+    ax.errorbar(bin_centers[ok], rel,
+                yerr=combined_errors[ok] / model_prediction[ok],
                 fmt="o", ms=1.5, lw=0.8, color=_COLOR_RESIDUAL_POINTS, alpha=0.8)
     ax.axhline(0, color=_COLOR_RESIDUAL_ZERO, lw=0.8)
     for level in (-0.3, 0.3):
@@ -237,9 +262,9 @@ def _calibration_panel(ax, calib, channel_max: float = 2048.0,
                        calib_cov=None, title: str = "Energy calibration") -> None:
     channel = np.linspace(0.0, channel_max, 400)
     energy = calib_model(calib, channel, channel_max)
-    ax.plot(channel, energy, "-", color=_COLOR_CALIB, lw=1.5,
-            label="$E(ch) = c_0 + c_1 ch + c_2 ch^2 + c_3 ch^3$")
+    line_handle, = ax.plot(channel, energy, "-", color=_COLOR_CALIB, lw=1.5)
     err = None
+    band_handle = None
     if calib_cov is not None:
         finite = _cov_finite_mask(calib_cov)
         if finite.any():
@@ -247,10 +272,8 @@ def _calibration_panel(ax, calib, channel_max: float = 2048.0,
             cov_f = np.asarray(calib_cov, dtype=float)[np.ix_(finite, finite)]
             err = _CALIB_BAND_SCALE * np.sqrt(np.maximum(
                 np.sum((v @ cov_f) * v, axis=1), 0.0))
-            ax.fill_between(channel, energy - err, energy + err,
-                            color=_COLOR_CALIB, alpha=0.3, lw=0,
-                            label=f"1$\\sigma$ band ($\\mathbf{{\\times "
-                            f"{_CALIB_BAND_SCALE:g}}}$)")
+            band_handle = ax.fill_between(channel, energy - err, energy + err,
+                                          color=_COLOR_CALIB, alpha=0.3, lw=0)
     # Reference lines: E(ch) is strictly increasing, so each energy inverts to
     # a unique channel; the guides stop on the curve and run to the axis
     # edges (padded limits, so nothing is cut short at 0).
@@ -271,7 +294,15 @@ def _calibration_panel(ax, calib, channel_max: float = 2048.0,
     ax.set_ylabel("Energy (keV)")
     ax.set_title(title, fontsize=10)
     ax.grid(alpha=0.3)
-    ax.legend(fontsize=8, loc="upper left")
+    # One legend entry combining the fitted curve and its band; the band is
+    # the 1-sigma covariance band scaled up for visibility.
+    calib_label = "$E(ch) = c_0 + c_1 ch + c_2 ch^2 + c_3 ch^3$"
+    if band_handle is not None:
+        calib_label += (f" (1$\\sigma$ band "
+                        f"$\\mathbf{{\\times {_CALIB_BAND_SCALE:g}}}$)")
+    calib_handles = ((line_handle, band_handle) if band_handle is not None
+                     else line_handle)
+    ax.legend([calib_handles], [calib_label], fontsize=8, loc="upper left")
 
 
 def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
@@ -283,8 +314,8 @@ def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
     coeff = 2*np.sqrt(2*np.log(2)) if _RESOL_AS_FWHM else 1.0
     sigma = resol_sigma_model(resol_params, energy)
     rel = 100.0 * sigma / energy
-    ax.plot(energy, coeff * rel, "-", color=_COLOR_RESOL, lw=1.5,
-            label=r"$\text{FWHM}(E)\,/\,E$" if _RESOL_AS_FWHM else r"$\sigma(E)\,/\,E$")
+    line_handle, = ax.plot(energy, coeff * rel, "-", color=_COLOR_RESOL, lw=1.5)
+    band_handle = None
     if resol_cov is not None:
         finite = _cov_finite_mask(resol_cov)
         if finite.any():
@@ -293,10 +324,9 @@ def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
             cov_f = np.asarray(resol_cov, dtype=float)[np.ix_(finite, finite)]
             var = np.maximum(np.sum((grad_f @ cov_f) * grad_f, axis=1), 0.0)
             err = _RESOL_BAND_SCALE * 100.0 * np.sqrt(var) / energy
-            ax.fill_between(energy, coeff * (rel - err), coeff * (rel + err),
-                            color=_COLOR_RESOL, alpha=0.3, lw=0,
-                            label=f"1$\\sigma$ band ($\\mathbf{{\\times "
-                            f"{_RESOL_BAND_SCALE:g}}}$)")
+            band_handle = ax.fill_between(energy, coeff * (rel - err),
+                                          coeff * (rel + err),
+                                          color=_COLOR_RESOL, alpha=0.3, lw=0)
     # Reference lines: guides at the reference energies to the curve points,
     # running to the axis edges (the y axis for the horizontal segments).
     x_pad = 0.05 * (energy_max - energy[0])
@@ -309,10 +339,20 @@ def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
         y_ref = coeff * 100.0 * resol_sigma_model(resol_params, e_ref) / e_ref
         _mark_energy_line(ax, e_ref, y_ref, hline=True)
     ax.set_xlabel("Energy (keV)")
-    ax.set_ylabel(f"Energy resolution ({"FWHM" if _RESOL_AS_FWHM else r"$\sigma$"}, %)")
+    ax.set_ylabel(
+        f"Energy resolution ({"FWHM" if _RESOL_AS_FWHM else r"$\sigma$"}, %)")
     ax.set_title(title, fontsize=10)
     ax.grid(alpha=0.3)
-    ax.legend(fontsize=8, loc="upper right")
+    # One legend entry combining the fitted curve and its band; the band is
+    # the 1-sigma covariance band scaled up for visibility.
+    resol_label = (r"$\text{FWHM}(E)\,/\,E$" if _RESOL_AS_FWHM
+                   else r"$\sigma(E)\,/\,E$")
+    if band_handle is not None:
+        resol_label += (f" (1$\\sigma$ band "
+                        f"$\\mathbf{{\\times {_RESOL_BAND_SCALE:g}}}$)")
+    resol_handles = ((line_handle, band_handle) if band_handle is not None
+                     else line_handle)
+    ax.legend([resol_handles], [resol_label], fontsize=8, loc="upper right")
 
 
 def plot_fit(result, out_plot: str) -> Path:
@@ -343,9 +383,9 @@ def plot_fit(result, out_plot: str) -> Path:
                       f"$\\chi^2 = {ds.chi2:.1f}$, {ds.n_bins} bins")
         res_title = f"{label} residual"
         _spectrum_panel(ax_spec, ds, calib, det.channel_max, spec_title)
-        _residual_panel(ax_pull, ds.bin_centers, ds.data_counts, ds.total_errors,
-                        ds.model_prediction, ds.bin_edges[0], ds.bin_edges[-1],
-                        res_title)
+        _residual_panel(ax_pull, ds.bin_centers, ds.data_counts,
+                        ds.combined_errors, ds.model_prediction,
+                        ds.bin_edges[0], ds.bin_edges[-1], res_title)
 
     cal_title = "Energy calibration" + (" (global)" if n > 1 else "")
     res_title = "Energy resolution" + (" (global)" if n > 1 else "")

@@ -1,8 +1,11 @@
 """Parameter covariance from numerically differentiated residuals.
 
 The fitted parameters ``q`` are the least-squares minimizer of the weighted
-residuals ``r(q)``; near the minimum the parameter covariance is estimated by
-the Gauss-Newton formula
+residuals ``r(q)`` of :class:`kc761calib.globalfit.GlobalFitModel`, whose
+per-bin denominators combine the data's statistical and systematic errors
+with the Monte Carlo statistical error of the scaled model prediction.
+Near the minimum the parameter covariance is estimated by the Gauss-Newton
+formula
 
     cov = s^2 (J^T J)^-1,
 

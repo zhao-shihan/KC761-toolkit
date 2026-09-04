@@ -14,10 +14,15 @@ import numpy as np
 
 @dataclass
 class DatasetArrays:
-    """Per-dataset arrays shared by the residual/chi2/detail evaluation paths."""
+    """Per-dataset arrays shared by the residual/chi2/detail evaluation paths.
+
+    ``data_*``/``mc_errors``/``model_counts`` cover the usable bins (the
+    frozen ``usable_mask`` or an explicit mask).
+    """
 
     data_counts: np.ndarray  # background-subtracted counts on the used bins
-    total_errors: np.ndarray  # total per-bin 1-sigma uncertainty (stat + sys)
+    data_errors: np.ndarray  # data-side per-bin 1-sigma uncertainty (stat + sys)
+    mc_errors: np.ndarray  # MC statistical 1-sigma of the unscaled smeared sim (used bins)
     model_counts: np.ndarray  # resolution-smeared sim per channel bin, unscaled (used bins)
     bin_centers: np.ndarray  # energy positions of the used channel bins (keV)
     channel_centers: np.ndarray  # channel numbers of the used bins
@@ -25,16 +30,26 @@ class DatasetArrays:
 
 @dataclass
 class DatasetDetail:
-    """Diagnostics for one dataset on its channel-range fit binning."""
+    """Diagnostics for one dataset on its channel-range fit binning.
+
+    ``data_*``/``mc_errors``/``model_errors``/``combined_errors`` and
+    ``model_prediction`` cover the usable bins; ``unsmeared_sim`` and
+    ``unsmeared_sim_errors`` cover the full selected channel range
+    (``bin_edges`` binning).
+    """
 
     label: str
     channel_low: int  # first selected channel (0-based, inclusive)
     channel_high: int  # last selected channel (0-based, inclusive)
     bin_centers: np.ndarray  # energy positions of the used channel bins (keV)
     data_counts: np.ndarray  # background-subtracted counts per used bin
-    total_errors: np.ndarray  # total per-bin uncertainty (stat + sys)
+    data_errors: np.ndarray  # data-side per-bin uncertainty (stat + sys)
+    mc_errors: np.ndarray  # MC statistical sigma of the unscaled smeared model (used bins)
+    model_errors: np.ndarray  # MC statistical sigma of the scaled model prediction (used bins)
+    combined_errors: np.ndarray  # per-bin sigma used in the chi2 pulls (stat + sys + model MC)
     model_prediction: np.ndarray  # best-fit, scaled smeared sim per channel bin
-    unsmeared_sim: np.ndarray  # rebinned sim on the true-energy bins, unscaled
+    unsmeared_sim: np.ndarray  # rebinned sim on the true-energy bins, unscaled (full range)
+    unsmeared_sim_errors: np.ndarray  # MC statistical sigma of the rebinned sim, unscaled (full range)
     scale_params: np.ndarray  # (s0, s1, s2, s3) quadratic-Bezier scale
     chi2: float
     n_bins: int

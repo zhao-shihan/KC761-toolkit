@@ -19,7 +19,7 @@ from kc761calib.cli import parse_args
 from kc761calib.export import build_full_response, write_export_file
 from kc761calib.fitter import run_fit
 from kc761calib.globalfit import DatasetSpec, GlobalFitModel
-from kc761calib.loadspectrum import load_data_spectrum, load_sim_spectrum
+from kc761calib.loadspectrum import load_spectrum
 from kc761calib.fitmodel import DEFAULT_SYS_FRAC
 from kc761calib.scaling import N_SCALE, PARAM_NAMES_SCALE
 from kc761calib.util import broadcast
@@ -84,8 +84,8 @@ def _run_calib(args) -> int:
                   f"{channel_high}] must satisfy 0 <= chlo <= chhi for "
                   f"dataset {labels[i]}", file=sys.stderr)
             return 1
-        data = load_data_spectrum(str(data_file))
-        sim = load_sim_spectrum(str(sim_file))
+        data = load_spectrum(str(data_file))
+        sim = load_spectrum(str(sim_file))
         if channel_high >= data.n_bins:
             print(f"[calib] error: chhi ({channel_high}) must be < the channel "
                   f"count ({data.n_bins}) for dataset {labels[i]}",

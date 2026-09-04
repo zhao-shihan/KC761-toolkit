@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -122,9 +121,13 @@ def main(argv: list[str] | None = None) -> int:
             failures.append(key)
             if os.path.exists(out):
                 os.remove(out)
+            # Keep the worker files (run_batch retains them on failure) for
+            # inspection and re-merge; a rerun of the same output stem
+            # removes any stale work dir at startup.
             wip = temp_work_dir(output_stem(out))
             if os.path.isdir(wip):
-                shutil.rmtree(wip, ignore_errors=True)
+                print(f"[warn] worker files kept in {wip} for inspection "
+                      f"and re-merge", flush=True)
 
     if args.dry_run:
         print("--dry-run: nothing executed")

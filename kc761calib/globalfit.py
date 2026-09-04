@@ -11,8 +11,7 @@ from .folding import Response
 from .fitmodel import DEFAULT_SYS_FRAC, FitModel
 from .fitparamspace import CALIB, RESOL, FitParamSpace
 from .response import INIT_CALIB, INIT_RESOL
-from .scaling import scale_model
-from .types import FitDetail
+from .types import DatasetArrays, FitDetail
 from .util import broadcast
 
 if TYPE_CHECKING:
@@ -77,6 +76,11 @@ class GlobalFitModel:
         self.x0 = self.param_space.x0()
         self.bounds = self.param_space.bounds
 
+        # Memoization state for the per-evaluation response/projection
+        # (see _cached_projection).
+        self._proj_cache_key = None
+        self._proj_cache = None
+
     # ----- feasibility gate -------------------------------------------------
 
     def _gate(self, q) -> tuple[np.ndarray, np.ndarray] | None:
@@ -109,19 +113,50 @@ class GlobalFitModel:
             calib_params, resol_params, self.channel_max, self.fit_channel_lo,
             self.fit_channel_hi, self.last_channel)
 
-    def _per_dataset_predictions(self, calib_params: np.ndarray,
-                                 resol_params: np.ndarray,
-                                 mask_list: list[np.ndarray] | None = None):
-        resp = self._build_response(calib_params, resol_params)
-        smeared_all = resp.smeared_many([m.sim for m in self.models])
-        predictions = []
+    def _cached_projection(self, calib_params: np.ndarray,
+                           resol_params: np.ndarray,
+                           ) -> tuple[Response, list]:
+        """Response and per-dataset projections, memoized on calib/resol.
+
+        The derivative-free optimizers differentiate by probing one
+        parameter at a time, so consecutive evaluations share
+        ``(calib_params, resol_params)`` whenever only scale parameters
+        move; the response matrix build and the projection (the dominant
+        per-evaluation cost) are then reused instead of rebuilt per probe.
+        """
+        key = (calib_params.tobytes(), resol_params.tobytes())
+        if key != self._proj_cache_key:
+            resp = self._build_response(calib_params, resol_params)
+            self._proj_cache = (resp, resp.project_many(
+                [m.sim for m in self.models]))
+            self._proj_cache_key = key
+        return self._proj_cache
+
+    def _per_dataset_arrays(self, calib_params: np.ndarray,
+                            resol_params: np.ndarray,
+                            mask_list: list[np.ndarray] | None = None,
+                            ) -> list[DatasetArrays] | None:
+        resp, projections = self._cached_projection(calib_params, resol_params)
+        arrays_list = []
         for i, m in enumerate(self.models):
             mask = None if mask_list is None else mask_list[i]
-            arrays = m.dataset_arrays(resp, mask=mask, smeared=smeared_all[i])
+            arrays = m.dataset_arrays(resp, mask=mask, projection=projections[i])
             if len(arrays.data_counts) < m.min_usable_bins:
                 return None
-            predictions.append(arrays)
-        return predictions
+            arrays_list.append(arrays)
+        return arrays_list
+
+    def _per_dataset_pulls(self, q, arrays_list) -> list[np.ndarray]:
+        """Per-dataset chi-square pull vectors at ``q`` for the given arrays.
+
+        The single per-dataset loop shared by :meth:`residuals` and
+        :meth:`evaluate`, so the minimized objective and the residual
+        vector cannot drift apart.
+        """
+        return [
+            self.models[i].dataset_fit(arrays, q[self.param_space.scale(i)])[3]
+            for i, arrays in enumerate(arrays_list)
+        ]
 
     def residuals(self, q, mask_list=None) -> np.ndarray:
         q = np.asarray(q, dtype=float)
@@ -133,19 +168,11 @@ class GlobalFitModel:
         if gate is None:
             return np.full(int(sum(sizes)), np.nan)
         calib_params, resol_params = gate
-        predictions = self._per_dataset_predictions(
-            calib_params, resol_params, mask_list)
-        if predictions is None:
+        arrays_list = self._per_dataset_arrays(calib_params, resol_params,
+                                               mask_list)
+        if arrays_list is None:
             return np.full(int(sum(sizes)), np.nan)
-        out = []
-        for i, arrays in enumerate(predictions):
-            m = self.models[i]
-            scale_curve = scale_model(
-                q[self.param_space.scale(i)], arrays.channel_centers,
-                m.channel_low, m.channel_high)
-            out.append((arrays.data_counts - scale_curve * arrays.model_counts)
-                       / arrays.total_errors)
-        return np.concatenate(out)
+        return np.concatenate(self._per_dataset_pulls(q, arrays_list))
 
     def evaluate(self, q) -> float:
         """Chi-square only; infeasible or under-covered states are inf."""
@@ -154,18 +181,12 @@ class GlobalFitModel:
             return np.inf
         calib_params, resol_params = gate
         q = np.asarray(q, dtype=float)
-        predictions = self._per_dataset_predictions(calib_params, resol_params)
-        if predictions is None:
+        arrays_list = self._per_dataset_arrays(calib_params, resol_params)
+        if arrays_list is None:
             return np.inf
         total = 0.0
-        for i, arrays in enumerate(predictions):
-            m = self.models[i]
-            scale_curve = scale_model(
-                q[self.param_space.scale(i)], arrays.channel_centers,
-                m.channel_low, m.channel_high)
-            residuals = (arrays.data_counts
-                         - scale_curve * arrays.model_counts) / arrays.total_errors
-            total += float(residuals @ residuals)
+        for pulls in self._per_dataset_pulls(q, arrays_list):
+            total += float(pulls @ pulls)
         return total if np.isfinite(total) else np.inf
 
     def detail(self, q) -> FitDetail:

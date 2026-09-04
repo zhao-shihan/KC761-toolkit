@@ -25,11 +25,9 @@ from . import (
 )
 from .config import SourceSpec
 from .paths import (
-    NTUPLE_COLUMNS,
     NTUPLE_NAME,
     SPECTRUM_HIST_NAME,
     final_output_path,
-    ntuple_title,
     output_stem,
     temp_work_dir,
 )
@@ -105,51 +103,91 @@ def _split_events(n_events: int, n_parts: int) -> list[int]:
     return [base + (1 if i < remainder else 0) for i in range(n_parts)]
 
 
-def merge_root_files(output_path: str, input_paths: list[str]) -> None:
-    """Merge worker ROOT files into one ntuple plus summed histogram."""
+def _remove_file(path: str) -> None:
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+def _validate_merged_output(output_path: str, expected_entries: int) -> None:
+    """Check the hadd output and remove it when it is incomplete.
+
+    A failed or aborted merge can leave a truncated-but-readable file at
+    the production path; later runs would skip it as an existing output.
+    Require the ntuple and spectrum histogram to be present and the ntuple
+    entry count to match the sum of the worker entries.
+    """
+    import uproot
+
+    reason = None
+    try:
+        with uproot.open(output_path) as f:
+            if NTUPLE_NAME not in f:
+                reason = "missing ntuple"
+            elif SPECTRUM_HIST_NAME not in f:
+                reason = "missing spectrum histogram"
+            else:
+                n_entries = int(f[NTUPLE_NAME].num_entries)
+                if n_entries != expected_entries:
+                    reason = (f"{n_entries} ntuple entries, expected "
+                              f"{expected_entries}")
+    except Exception as exc:
+        reason = f"unreadable output: {exc}"
+    if reason is not None:
+        _remove_file(output_path)
+        raise RuntimeError(
+            f"hadd output {output_path!r} failed validation ({reason})")
+
+
+def merge_worker_outputs(output_path: str, input_paths: list[str], *,
+                         hadd_exe: str | None = None) -> int:
+    """Merge worker ROOT files into the final simulation output via hadd.
+
+    Delegates to :func:`kc761util.hadd.merge_root_files`, which merges the
+    worker ntuples entry-by-entry and sums the spectrum histograms together
+    with their ``sumw2`` buffers, so the merged file carries the Monte Carlo
+    statistical errors used by the calibration fit.  Before merging, the
+    worker spectrum histogram binnings are validated: hadd silently adds
+    differently binned histograms bin-by-bin, which would corrupt the merged
+    spectrum, so a mismatch is a hard error here.  After merging, the output
+    is validated (ntuple and histogram present, entry count matches the
+    workers) and any partial output from a failed merge is removed.
+    """
     import numpy as np
     import uproot
 
-    tree_name = NTUPLE_NAME
-    hist_name = SPECTRUM_HIST_NAME
+    from kc761util.hadd import merge_root_files
 
     if not input_paths:
-        raise ValueError("merge_root_files: no worker files to merge")
+        raise ValueError("merge_worker_outputs: no worker files to merge")
 
-    columns = list(NTUPLE_COLUMNS)
-    hist_values = None
-    hist_edges = None
-
-    with uproot.recreate(output_path) as f:
-        tree = f.mktree(
-            tree_name, dict(NTUPLE_COLUMNS), title=ntuple_title()
-        )
-        for path in input_paths:
-            with uproot.open(path) as src:
-                src_tree = src[tree_name]
-                for batch in src_tree.iterate(
-                    columns,
-                    library="np",
-                    step_size="10 MB",
-                ):
-                    tree.extend(batch)
-                if hist_name not in src:
-                    raise RuntimeError(
-                        f"spectrum histogram {hist_name!r} missing in worker "
-                        f"file {path!r}"
-                    )
-                values, edges = src[hist_name].to_numpy()
-            if hist_values is None:
-                hist_values, hist_edges = values, edges
-            elif not np.array_equal(edges, hist_edges):
+    ref_edges = None
+    expected_entries = 0
+    for path in input_paths:
+        with uproot.open(path) as src:
+            if NTUPLE_NAME not in src:
                 raise RuntimeError(
-                    f"spectrum histogram bin edges differ between worker "
-                    f"files ({path!r} disagrees with earlier workers)"
-                )
-            else:
-                hist_values = hist_values + values
-        if hist_values is not None:
-            f[hist_name] = (hist_values, hist_edges)
+                    f"ntuple {NTUPLE_NAME!r} missing in worker file {path!r}")
+            if SPECTRUM_HIST_NAME not in src:
+                raise RuntimeError(
+                    f"spectrum histogram {SPECTRUM_HIST_NAME!r} missing in "
+                    f"worker file {path!r}")
+            _, edges = src[SPECTRUM_HIST_NAME].to_numpy()
+            expected_entries += int(src[NTUPLE_NAME].num_entries)
+        if ref_edges is None:
+            ref_edges = edges
+        elif not np.array_equal(edges, ref_edges):
+            raise RuntimeError(
+                f"spectrum histogram bin edges differ between worker "
+                f"files ({path!r} disagrees with earlier workers)")
+
+    rc = merge_root_files(output_path, input_paths, hadd_exe=hadd_exe)
+    if rc != 0:
+        _remove_file(output_path)
+        return rc
+    _validate_merged_output(output_path, expected_entries)
+    return 0
 
 
 def run_batch(
@@ -159,6 +197,7 @@ def run_batch(
     threads: int,
     seed: int = DEFAULT_SEED,
     verbose: int = 0,
+    hadd_exe: str | None = None,
 ) -> None:
     """Run a simulation on ``threads`` workers and merge their outputs."""
     stem = output_stem(output_path)
@@ -207,8 +246,17 @@ def run_batch(
             pool.join()
             for task in tasks:
                 task.get()
-            merge_root_files(final_path, [s + ".root" for s in worker_stems])
+            rc = merge_worker_outputs(
+                final_path, [s + ".root" for s in worker_stems],
+                hadd_exe=hadd_exe)
+            if rc != 0:
+                raise RuntimeError(
+                    f"hadd merge failed (exit code {rc}); worker files kept "
+                    f"in {work_dir} for inspection")
         finally:
             pool.terminate()
-    finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
+    except BaseException:
+        # Keep the worker files on any failure (including the hadd merge and
+        # the binning check) so the run can be inspected and re-merged.
+        raise
+    shutil.rmtree(work_dir, ignore_errors=True)

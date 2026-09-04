@@ -18,6 +18,7 @@ _OUT_DIR = os.path.join(_REPO_ROOT, "out")
 from geant4_pybind import G4UIExecutive, G4UImanager, G4VisExecutive
 from kc761sim import config, runner
 from kc761sim.paths import final_output_path, output_stem
+from kc761util.hadd import add_hadd_option
 
 # The Geant4 UI macros live inside the kc761sim package, not next to this
 # script, so resolve them from the package location.
@@ -81,6 +82,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Geant4 verbosity level (default: 0 in batch mode, 1 in "
         "interactive mode)",
     )
+    add_hadd_option(parser)
     return parser.parse_args(argv)
 
 
@@ -116,7 +118,7 @@ def batch_mode(args: argparse.Namespace, source_key: str, verbose: int) -> None:
     threads = args.threads if args.threads and args.threads > 0 else max(
         1, os.cpu_count() or 1)
     runner.run_batch(source_key, args.output, args.events,
-                     threads, args.seed, verbose)
+                     threads, args.seed, verbose, hadd_exe=args.hadd)
     print(f"Simulation finished: {final_output_path(args.output)}")
 
 

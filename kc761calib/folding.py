@@ -50,6 +50,27 @@ data)`` triple is assembled by a single fused, parallel numba kernel
 (column-major, i.e. CSC layout), which avoids the numpy fancy-indexing and
 COO->CSR conversion overheads of a vectorized build; the matrix build is the
 dominant cost of an evaluation.
+
+Besides the smeared per-channel counts, each projection carries their Monte
+Carlo statistical variance.  The simulation histogram has per-source-bin
+variance ``v`` (its ``sumw2`` buffer, or the Poisson estimate when the file
+stores none); the exact rebin onto the true-energy bins is the linear map
+``W`` (each source bin is redistributed over the target bins it overlaps
+with weights equal to the overlap fractions), and the smeared model is
+``m = R W n``.  With independent source bins,
+``Var(m) = diag(R W diag(v) W^T R^T) = (R W)^2 v``, i.e. the exact diagonal
+of the propagated covariance -- including the small correlation that a
+source bin straddling a true-energy bin boundary induces between adjacent
+true-energy bins, since ``(R W)^2`` mixes them through the full matrix
+square.  The rebinned counts and the banded rebinned covariance ``B = W
+diag(v) W^T`` (banded because each source bin overlaps at most a few
+consecutive target bins) are accumulated by a fused numba kernel over the
+source-major rebin triples, and the smeared variances ``diag(R B R^T)`` are
+evaluated by a row-parallel numba kernel over the response matrix's CSR
+triples -- the sparse matrices ``W`` and ``R W`` are never materialized.
+The per-bin Monte Carlo error enters the chi-square denominator in
+quadrature with the data's statistical and systematic errors
+(:mod:`kc761calib.fitmodel`).
 """
 
 from __future__ import annotations
@@ -264,21 +285,162 @@ def build_response_matrix(binning: ExtendedBinning,
 
 
 @numba.njit(cache=True)
-def rebin_exact(counts, edges, target_edges):
-    """Exact rebin of a piecewise-constant histogram onto ``target_edges``.
+def _assemble_rebin_weights(src_edges, tgt_edges):
+    """Assemble the exact-rebin weight triple of the linear map ``W``.
 
-    Each target bin receives the sum of ``overlap_fraction * counts`` over all
-    source bins, computed by interpolating the cumulative counts at the target
-    edges.  Outside ``[edges[0], edges[-1]]`` the density is zero, so target
-    bins beyond the source histogram get zero counts.  All inputs are float64
-    1-D arrays.
+    ``W[j, s]`` is the overlap fraction of source bin ``s`` with target bin
+    ``j`` (both axis conventions: ``edges`` is one longer than the bin
+    count).  Source bins fully outside the target range contribute nothing;
+    density is zero beyond the source histogram, matching the exact
+    cumulative-interpolation rebin.  Returns ``(rows, weights, offsets,
+    max_band)``: ``rows`` the target index of each entry and ``weights`` its
+    overlap fraction, laid out source-major (all entries of one source bin
+    are consecutive, so the source index is ``offsets[s] .. offsets[s+1]``),
+    ``offsets`` (length ``n_src + 1``) giving each source bin's entry range,
+    and ``max_band`` the largest number of target bins a single source bin
+    overlaps minus one (the bandwidth of the rebinned counts' covariance).
+    All inputs are float64 1-D arrays.
     """
-    cumulative = np.empty(counts.size + 1, dtype=np.float64)
-    cumulative[0] = 0.0
-    cumulative[1:] = np.cumsum(counts)
-    lows = np.interp(target_edges[:-1], edges, cumulative)
-    highs = np.interp(target_edges[1:], edges, cumulative)
-    return highs - lows
+    n_src = src_edges.shape[0] - 1
+    n_tgt = tgt_edges.shape[0] - 1
+
+    # Pass 1: count the overlaps to size the triples exactly.
+    nnz = 0
+    max_band = 0
+    for s in range(n_src):
+        e_lo = src_edges[s]
+        e_hi = src_edges[s + 1]
+        if e_hi <= tgt_edges[0] or e_lo >= tgt_edges[n_tgt] or e_hi <= e_lo:
+            continue
+        j = np.searchsorted(tgt_edges, e_lo, side="right") - 1
+        if j < 0:
+            j = 0
+        n_entries = 0
+        while j < n_tgt and tgt_edges[j] < e_hi:
+            n_entries += 1
+            j += 1
+        nnz += n_entries
+        if n_entries - 1 > max_band:
+            max_band = n_entries - 1
+
+    rows = np.empty(nnz, dtype=np.int64)
+    weights = np.empty(nnz, dtype=np.float64)
+    offsets = np.empty(n_src + 1, dtype=np.int64)
+
+    # Pass 2: fill the triples.
+    k = 0
+    for s in range(n_src):
+        offsets[s] = k
+        e_lo = src_edges[s]
+        e_hi = src_edges[s + 1]
+        if e_hi <= tgt_edges[0] or e_lo >= tgt_edges[n_tgt] or e_hi <= e_lo:
+            continue
+        width = e_hi - e_lo
+        j = np.searchsorted(tgt_edges, e_lo, side="right") - 1
+        if j < 0:
+            j = 0
+        while j < n_tgt and tgt_edges[j] < e_hi:
+            ov_lo = e_lo if e_lo > tgt_edges[j] else tgt_edges[j]
+            ov_hi = e_hi if e_hi < tgt_edges[j + 1] else tgt_edges[j + 1]
+            if ov_hi > ov_lo:
+                rows[k] = j
+                weights[k] = (ov_hi - ov_lo) / width
+                k += 1
+            j += 1
+    offsets[n_src] = k
+    return rows, weights, offsets, max_band
+
+
+@numba.njit(cache=True)
+def _rebin_accumulate(rows, weights, offsets, counts, variances, n_target,
+                      max_band):
+    """Rebinned counts and the rebinned covariance's bands: ``W n`` and ``B``.
+
+    ``B = W diag(v) W^T`` is the exact covariance of the rebinned counts
+    over independent source bins; it is banded (a source bin overlaps at
+    most ``max_band + 1`` consecutive target bins, and the triples of one
+    source are laid out consecutively), so it is stored as
+    ``bands[d, j] = B[j, j + d]`` for ``d = 0 .. max_band``.  ``bands[0]``
+    is the per-bin variance ``W^2 v``.  Serial: the triples carry only a few
+    entries per source, and the parallel per-thread-buffer form costs more
+    in buffer zeroing than it saves.
+    """
+    n_src = counts.shape[0]
+    rebinned = np.zeros(n_target)
+    bands = np.zeros((max_band + 1, n_target))
+    for s in range(n_src):
+        k0 = offsets[s]
+        n_entries = offsets[s + 1] - k0
+        ns = counts[s]
+        vs = variances[s]
+        for a in range(n_entries):
+            j = rows[k0 + a]
+            w = weights[k0 + a]
+            rebinned[j] += w * ns
+            bands[0, j] += w * w * vs
+            for b in range(a + 1, n_entries):
+                bands[rows[k0 + b] - j, j] += w * weights[k0 + b] * vs
+    return rebinned, bands
+
+
+@numba.njit(parallel=True, cache=True)
+def _smeared_variances_csr(indptr, indices, data, bands_all, band_dims):
+    """Exact ``Var(R W n)`` for several sims from the response's CSR triples.
+
+    ``Var = diag(R B R^T)`` with ``B`` the banded rebinned covariance of
+    :func:`_rebin_accumulate`, i.e. row ``i`` is
+    ``sum_{a,b} R[i,j_a] R[i,j_b] B[j_a, j_b]`` over the row's nonzeros.
+    The nonzeros of a CSR row are sorted by column index, so each pair
+    within ``max_band`` columns of each other contributes via the
+    corresponding band.  ``bands_all[s]`` is sim ``s``'s band array
+    (``(max_band_s + 1, n_rows)``, zero-padded to a common ``max_band``
+    across sims) and ``band_dims[s]`` its ``max_band_s``; each sim
+    contributes one contiguous block of ``n_rows`` output entries.  All
+    sims share one response matrix, so a single parallel region serves
+    them all: parallel over the output rows, every row writes only its own
+    entry (no accumulation buffers or reduction).
+    """
+    n_rows = indptr.shape[0] - 1
+    n_sims = bands_all.shape[0]
+    out = np.empty(n_sims * n_rows)
+    for g in numba.prange(n_sims * n_rows):
+        s = g // n_rows
+        i = g - s * n_rows
+        max_band = band_dims[s]
+        acc = 0.0
+        start = indptr[i]
+        end = indptr[i + 1]
+        for a in range(start, end):
+            ja = indices[a]
+            va = data[a]
+            acc += va * va * bands_all[s, 0, ja]
+            b = a + 1
+            while b < end and indices[b] - ja <= max_band:
+                acc += 2.0 * va * data[b] * bands_all[s, indices[b] - ja, ja]
+                b += 1
+        out[g] = acc
+    return out
+
+
+@dataclass
+class SimProjection:
+    """One simulation projected through the response onto channel bins.
+
+    ``counts`` are the rebinned, resolution-smeared sim counts per channel
+    bin of the extended binning (``m = R W n``); ``variances`` are their
+    exact Monte Carlo statistical variances per channel bin
+    (``Var(m) = diag(R B R^T)`` with ``B = W diag(v) W^T`` the rebinned
+    counts' covariance and ``v`` the source-bin variances), assuming
+    independent source bins.  ``rebinned`` and ``rebinned_variances`` carry
+    the pre-folding rebinned counts and their variances on the true-energy
+    bins (``W n`` and ``W^2 v``), so consumers needing the raw-sim spectrum
+    do not recompute the rebin.
+    """
+
+    counts: np.ndarray
+    variances: np.ndarray
+    rebinned: np.ndarray
+    rebinned_variances: np.ndarray
 
 
 class Response:
@@ -287,12 +449,19 @@ class Response:
     Built once per chi-square evaluation from the shared calibration and
     resolution parameters; each dataset rebins its simulation onto the
     true-energy binning, folds it through the response matrix into channel
-    space, and slices its own channel range.
+    space, and slices its own channel range.  The matrix is stored in CSR
+    layout (the row-major form of the column-major assembly): rows drive
+    both the sparse @ dense folding and the row-parallel Monte Carlo
+    variance kernel.  Projections carry both the smeared counts and their
+    Monte Carlo statistical variances (:class:`SimProjection`).
     """
 
-    def __init__(self, binning: ExtendedBinning, matrix: sparse.csc_matrix):
+    def __init__(self, binning: ExtendedBinning, matrix: sparse.spmatrix):
         self.binning = binning
-        self.matrix = matrix
+        # Normalize to CSR (the row-major form of the column-major
+        # assembly): rows drive both the sparse @ dense folding and the
+        # row-parallel Monte Carlo variance kernel.
+        self.matrix = matrix.tocsr()
 
     @classmethod
     def build(cls, calib_params: np.ndarray,
@@ -306,36 +475,74 @@ class Response:
         matrix = build_response_matrix(binning, resol_params, n_sigma)
         return cls(binning, matrix)
 
-    def rebinned(self, sim) -> np.ndarray:
-        """Exact rebin of the sim histogram onto the true-energy binning.
+    def _rebin_structure(self, sim):
+        """Source-major rebin triples and bandwidth ``(rows, weights, offsets,
+        max_band)`` for ``sim``."""
+        return _assemble_rebin_weights(sim.edges, self.binning.energy_edges)
 
-        The result lives on the matrix input axis (true-energy bins of the
-        extended binning, indexed by channel).
-        """
-        return rebin_exact(sim.counts, sim.edges, self.binning.energy_edges)
+    @staticmethod
+    def _source_variances(sim) -> np.ndarray:
+        """Per-source-bin variances: stored ``sumw2`` or the Poisson estimate."""
+        variances = sim.variances
+        if variances is None:
+            return np.maximum(sim.counts, 0.0)
+        return variances
 
-    def fold(self, rebinned_counts: np.ndarray) -> np.ndarray:
-        """Fold true-energy counts through the response matrix.
+    @staticmethod
+    def _variance_stack(bands_list: list[np.ndarray]):
+        """Pad per-sim band arrays to a common ``max_band`` and stack them."""
+        max_band = max(b.shape[0] - 1 for b in bands_list)
+        n_rows = bands_list[0].shape[1]
+        stacked = np.zeros((len(bands_list), max_band + 1, n_rows))
+        for s, bands in enumerate(bands_list):
+            stacked[s, :bands.shape[0], :] = bands
+        return stacked, np.array([b.shape[0] - 1 for b in bands_list],
+                                 dtype=np.int64)
 
-        Applies the energy-to-channel response to counts already on the
-        true-energy binning; returns detected-channel counts on the extended
-        binning, directly comparable to the per-channel data.
-        """
-        return self.matrix @ rebinned_counts
+    def project(self, sim) -> SimProjection:
+        """Rebinned, smeared sim counts per channel bin with their MC variance."""
+        return self.project_many([sim])[0]
 
-    def smeared(self, sim) -> np.ndarray:
-        """Rebinned, resolution-smeared sim counts per channel bin."""
-        return self.fold(self.rebinned(sim))
-
-    def smeared_many(self, sims) -> list[np.ndarray]:
-        """Rebinned, resolution-smeared per-channel sim counts for several sims.
+    def project_many(self, sims) -> list[SimProjection]:
+        """Project several sims; single-sim ``project`` delegates here.
 
         Rebins each simulation onto the true-energy binning, stacks the
         vectors, and folds them through the shared response matrix in one
         sparse @ dense multiply (better reuse of the matrix structure than N
-        separate matvecs).  Returns one per-channel vector per input sim;
-        each is bit-identical to ``smeared``.
+        separate matvecs).  The per-sim Monte Carlo variances are propagated
+        exactly as ``diag(R B R^T)`` with ``B`` the banded rebinned
+        covariance, by one row-parallel numba kernel over the response
+        matrix's CSR triples shared by all sims.  Sims sharing a binning
+        (equal edge arrays) reuse one rebin structure, since it depends only
+        on the edges.
         """
-        stacked = np.column_stack([self.rebinned(sim) for sim in sims])
-        result = self.matrix @ stacked
-        return [result[:, j] for j in range(result.shape[1])]
+        if not sims:
+            return []
+        n_target = self.binning.energy_centers.size
+        structure = None
+        prev_edges = None
+        rebinned_list = []
+        bands_list = []
+        for sim in sims:
+            if structure is None or not np.array_equal(sim.edges, prev_edges):
+                structure = self._rebin_structure(sim)
+                prev_edges = sim.edges
+            rows, weights, offsets, max_band = structure
+            rebinned, bands = _rebin_accumulate(
+                rows, weights, offsets, sim.counts,
+                self._source_variances(sim), n_target, max_band)
+            rebinned_list.append(rebinned)
+            bands_list.append(bands)
+        smeared = self.matrix @ np.column_stack(rebinned_list)
+        bands_all, band_dims = self._variance_stack(bands_list)
+        variances_all = _smeared_variances_csr(
+            self.matrix.indptr, self.matrix.indices, self.matrix.data,
+            bands_all, band_dims)
+        return [
+            SimProjection(
+                counts=smeared[:, j],
+                variances=variances_all[j * n_target:(j + 1) * n_target],
+                rebinned=rebinned_list[j],
+                rebinned_variances=bands_list[j][0])
+            for j in range(len(sims))
+        ]
