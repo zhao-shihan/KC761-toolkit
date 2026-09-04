@@ -124,9 +124,9 @@ def _parameter_text(result) -> str:
     return ("\n".join([
         "=== Calibration coefficients ===",
         rows(PARAM_NAMES_C, coeffs, coeff_errors),
-        "=== Calibration slopes ===",
+        "====== Calibration slopes ======",
         rows(PARAM_NAMES_K, calib[CALIB_K], calib_err[CALIB_K]),
-        "=== Resolution parameters ===",
+        "==== Resolution parameters ====",
         rows(PARAM_NAMES_B, resol, resol_err),
     ]))
 
