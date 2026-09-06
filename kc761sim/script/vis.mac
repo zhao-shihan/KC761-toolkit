@@ -44,6 +44,11 @@
 /vis/geometry/set/colour SourceCladFront 0 1 0.84 0 0.5
 /vis/geometry/set/colour SourceCladBack 0 1 0.84 0 0.5
 /vis/geometry/set/colour SourceTube 0 0 1 1 0.5
+/vis/geometry/set/colour SourceCupWall 0 0 1 1 0.5
+/vis/geometry/set/colour SourceCupBottom 0 0 1 1 0.5
+/vis/geometry/set/colour BetaShieldPlate 0 0.5 0.5 1 0.5
+/vis/geometry/set/colour BetaShieldBumpA 0 0.5 0.5 1 0.5
+/vis/geometry/set/colour BetaShieldBumpB 0 0.5 0.5 1 0.5
 #
 # Re-establish auto refreshing and verbosity
 /vis/viewer/set/autoRefresh true

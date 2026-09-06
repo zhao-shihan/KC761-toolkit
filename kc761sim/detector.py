@@ -6,6 +6,7 @@ import math
 
 from geant4_pybind import (
     G4Box,
+    G4Ellipsoid,
     G4LogicalVolume,
     G4Material,
     G4PVPlacement,
@@ -21,9 +22,12 @@ from geant4_pybind import (
     twopi,
 )
 from .config import (
+    BetaShield,
     Box,
+    Cup,
     Cylinder,
     Disk,
+    Ellipsoid,
     Sandwich,
     SourceSpec,
     Sphere,
@@ -54,38 +58,86 @@ def _rotate_to_y() -> G4RotationMatrix:
     return rot
 
 
-def _tube_center_z(tube: Tube, near_z: float) -> float:
-    """Center z of a source tube so its nearest face sits at ``near_z``."""
-    if tube.axis == "y":
-        return near_z + tube.outer_radius
-    if tube.axis == "z":
-        return near_z + tube.half_length
-    raise ValueError(f"unsupported tube axis: {tube.axis!r}")
-
-
-def _bare_source_center_z(
-    geometry: Box | Cylinder | Disk | Sandwich | Sphere, near_z: float
-) -> float:
-    """Center z of a bare (container-less) source given its near face."""
+def _geometry_half_z(geometry) -> float:
+    """Half extent of the source geometry along the world z axis, in mm."""
     match geometry:
         case Box():
-            return near_z + geometry.size_z / 2.0
+            return 0.5 * geometry.size_z
         case Disk():
-            return near_z + geometry.thickness / 2.0
+            return 0.5 * geometry.thickness
         case Sandwich():
-            return near_z + geometry.total_thickness / 2.0
+            return 0.5 * geometry.total_thickness
         case Sphere():
-            return near_z + geometry.radius
+            return geometry.radius
+        case Ellipsoid():
+            return geometry.semi_z
         case Cylinder():
             if geometry.axis != "z":
                 raise ValueError(
-                    f"a {geometry.axis}-axis source cylinder outside a "
-                    f"container is not supported (axis must be 'z' to face "
-                    f"the detector)"
+                    f"a {geometry.axis}-axis source cylinder is only "
+                    f"supported inside a tube container (axis must be 'z' "
+                    f"to face the detector)"
                 )
-            return near_z + geometry.half_length
+            return geometry.half_length
         case _:
             raise ValueError(f"unknown geometry {geometry!r}")
+
+
+def _bare_source_center_z(geometry, near_z: float) -> float:
+    """Center z of a bare (container-less) source given its near face."""
+    return near_z + _geometry_half_z(geometry)
+
+
+def _container_position(
+    container: Tube | Cup, anchor_z: float
+) -> G4ThreeVector:
+    """Container volume center for the assembly anchor plane at ``anchor_z``.
+
+    The assembly is centered on the detector axis (x = y = 0). A Cup sits
+    with its bottom face on the shield top plane (``anchor_z``); a tube
+    faces the detector with its near face at ``anchor_z``. SourceSpec
+    validation guarantees each container only appears with its matching
+    mount.
+    """
+    if isinstance(container, Cup):
+        return G4ThreeVector(
+            0.0, 0.0, (anchor_z + 0.5 * container.height) * mm
+        )
+    if container.axis == "z":
+        return G4ThreeVector(
+            0.0, 0.0, (anchor_z + container.half_length) * mm
+        )
+    if container.axis == "y":
+        return G4ThreeVector(
+            0.0, 0.0, (anchor_z + container.outer_radius) * mm
+        )
+    raise ValueError(f"unsupported tube axis: {container.axis!r}")
+
+
+def _source_position(
+    spec: SourceSpec, container_position: G4ThreeVector
+) -> G4ThreeVector:
+    """Source center given its container's center, in world mm."""
+    container = spec.container
+    if isinstance(container, Cup):
+        # The source rests on the cup's inner bottom surface.
+        source_z = (
+            container_position.z
+            - 0.5 * container.height * mm
+            + (container.bottom_thickness + _geometry_half_z(spec.geometry))
+            * mm
+        )
+        return G4ThreeVector(
+            container_position.x, container_position.y, source_z
+        )
+    offset = spec.container_offset
+    if offset is None:
+        return container_position
+    return G4ThreeVector(
+        container_position.x + offset[0] * mm,
+        container_position.y + offset[1] * mm,
+        container_position.z + offset[2] * mm,
+    )
 
 
 class DetectorConstruction(G4VUserDetectorConstruction):
@@ -189,28 +241,29 @@ class DetectorConstruction(G4VUserDetectorConstruction):
             )
 
     def _construct_source(self, world_lv: G4LogicalVolume) -> None:
-        """Place the container (if any) and the source material volume."""
+        """Place the shield (if any), the container and the source volume."""
         spec = self.source
-        near_z = DETECTOR_FRONT_Z + DETECTOR_GAP_MM
+        shield = spec.shield
+
+        if shield is not None:
+            self._construct_shield(shield, world_lv)
+            anchor_z = shield.top_z
+        else:
+            anchor_z = DETECTOR_FRONT_Z + DETECTOR_GAP_MM
 
         if spec.container is not None:
-            container_position = G4ThreeVector(
-                0.0, 0.0, _tube_center_z(spec.container, near_z) * mm
+            container_position = _container_position(
+                spec.container, anchor_z
             )
-            offset = spec.container_offset
-            if offset is None:
-                offset = (0.0, 0.0, 0.0)
-            position = G4ThreeVector(
-                container_position.x + offset[0] * mm,
-                container_position.y + offset[1] * mm,
-                container_position.z + offset[2] * mm,
-            )
+            position = _source_position(spec, container_position)
             self._construct_container(
                 spec.container, container_position, world_lv
             )
         else:
             position = G4ThreeVector(
-                0.0, 0.0, _bare_source_center_z(spec.geometry, near_z) * mm
+                0.0,
+                0.0,
+                _bare_source_center_z(spec.geometry, anchor_z) * mm,
             )
         self.source_center = position
 
@@ -259,6 +312,13 @@ class DetectorConstruction(G4VUserDetectorConstruction):
                     twopi,
                     0.0,
                     math.pi,
+                )
+            case Ellipsoid():
+                return G4Ellipsoid(
+                    "SourceEllipsoid",
+                    geometry.semi_x * mm,
+                    geometry.semi_y * mm,
+                    geometry.semi_z * mm,
                 )
             case Cylinder():
                 return G4Tubs(
@@ -310,33 +370,138 @@ class DetectorConstruction(G4VUserDetectorConstruction):
             )
             z += layer.thickness * mm
 
+    def _construct_shield(
+        self, shield: BetaShield, world_lv: G4LogicalVolume
+    ) -> None:
+        """Place the box parts of a composite shield (e.g. beta shield).
+
+        The shield's lowest face must rest on the detector front surface:
+        this pins the shield (and the source assembly mounted on its top
+        plane) to the detector geometry, so the two sets of constants
+        cannot drift apart.
+        """
+        lowest_face = min(
+            part.center[2] - part.half_size[2] for part in shield.parts
+        )
+        if abs(lowest_face - DETECTOR_FRONT_Z / mm) > 1e-9:
+            raise RuntimeError(
+                f"shield {shield.material!r} lowest face at "
+                f"z = {lowest_face:.6g} mm does not rest on the detector "
+                f"front surface (z = {DETECTOR_FRONT_Z / mm} mm)"
+            )
+        material = self.materials[shield.material]
+        for part in shield.parts:
+            solid = G4Box(
+                part.name,
+                part.half_size[0] * mm,
+                part.half_size[1] * mm,
+                part.half_size[2] * mm,
+            )
+            part_lv = G4LogicalVolume(solid, material, part.name)
+            G4PVPlacement(
+                None,
+                G4ThreeVector(
+                    part.center[0] * mm,
+                    part.center[1] * mm,
+                    part.center[2] * mm,
+                ),
+                part_lv,
+                part.name,
+                world_lv,
+                False,
+                0,
+                self.check_overlaps,
+            )
+
     def _construct_container(
         self,
-        tube: Tube,
+        container: Tube | Cup,
         position: G4ThreeVector,
         world_lv: G4LogicalVolume,
-    ) -> G4LogicalVolume:
-        material_name = self.source.container_material
-        if material_name is None:  # guarded by SourceSpec.__post_init__
-            raise ValueError(
-                f"no container material defined for {self.source.key!r}"
-            )
-        material = self.materials[material_name]
+    ) -> None:
+        """Place the source container (tube or cup) at its center."""
+        if isinstance(container, Cup):
+            self._construct_cup(container, position, world_lv)
+            return
 
         tube_solid = G4Tubs(
             "SourceTube",
-            tube.inner_radius * mm,
-            tube.outer_radius * mm,
-            tube.half_length * mm,
+            container.inner_radius * mm,
+            container.outer_radius * mm,
+            container.half_length * mm,
             0.0,
             twopi,
         )
-        tube_lv = G4LogicalVolume(tube_solid, material, "SourceTube")
+        tube_lv = G4LogicalVolume(
+            tube_solid, self.materials[container.material], "SourceTube"
+        )
         self._place_volume(
             tube_lv,
             "SourceTube",
             position,
             world_lv,
-            rotate_to_y=tube.axis == "y",
+            rotate_to_y=container.axis == "y",
         )
-        return tube_lv
+
+    def _construct_cup(
+        self,
+        cup: Cup,
+        position: G4ThreeVector,
+        world_lv: G4LogicalVolume,
+    ) -> None:
+        """Build a bottomed vertical cylinder: wall tube plus bottom disk.
+
+        The wall spans from the top of the bottom plate to the cup rim;
+        both parts share the cup material and meet at the inner bottom
+        plane without overlapping.
+        """
+        material = self.materials[cup.material]
+        wall_half_length = 0.5 * (cup.height - cup.bottom_thickness) * mm
+        wall_solid = G4Tubs(
+            "SourceCupWall",
+            cup.inner_radius * mm,
+            cup.outer_radius * mm,
+            wall_half_length,
+            0.0,
+            twopi,
+        )
+        wall_lv = G4LogicalVolume(wall_solid, material, "SourceCupWall")
+        G4PVPlacement(
+            None,
+            G4ThreeVector(
+                position.x,
+                position.y,
+                position.z + 0.5 * cup.bottom_thickness * mm,
+            ),
+            wall_lv,
+            "SourceCupWall",
+            world_lv,
+            False,
+            0,
+            self.check_overlaps,
+        )
+
+        bottom_solid = G4Tubs(
+            "SourceCupBottom",
+            0.0,
+            cup.outer_radius * mm,
+            0.5 * cup.bottom_thickness * mm,
+            0.0,
+            twopi,
+        )
+        bottom_lv = G4LogicalVolume(
+            bottom_solid, material, "SourceCupBottom")
+        G4PVPlacement(
+            None,
+            G4ThreeVector(
+                position.x,
+                position.y,
+                position.z - 0.5 * (cup.height - cup.bottom_thickness) * mm,
+            ),
+            bottom_lv,
+            "SourceCupBottom",
+            world_lv,
+            False,
+            0,
+            self.check_overlaps,
+        )

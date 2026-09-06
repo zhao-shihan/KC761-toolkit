@@ -8,6 +8,8 @@ from .config import Sandwich, SourceSpec
 
 ABS_DENSITY_G_CM3 = 1.05
 
+R4600_DENSITY_G_CM3 = 1.1
+
 CSI_TL_DENSITY_G_CM3 = 4.51
 
 
@@ -39,6 +41,15 @@ def build_csi_tl(nist: G4NistManager) -> G4Material:
 def build_abs(nist: G4NistManager) -> G4Material:
     """ABS plastic used for the detector housing."""
     mat = G4Material("ABS", ABS_DENSITY_G_CM3 * g / cm3, 3)
+    mat.AddElementByMassFraction(_element(nist, "C"), 0.865)
+    mat.AddElementByMassFraction(_element(nist, "H"), 0.082)
+    mat.AddElementByMassFraction(_element(nist, "N"), 0.053)
+    return mat
+
+
+def build_r4600(nist: G4NistManager) -> G4Material:
+    """R4600 polymer used for the beta shield (ABS-like C/H/N mix)."""
+    mat = G4Material("R4600", R4600_DENSITY_G_CM3 * g / cm3, 3)
     mat.AddElementByMassFraction(_element(nist, "C"), 0.865)
     mat.AddElementByMassFraction(_element(nist, "H"), 0.082)
     mat.AddElementByMassFraction(_element(nist, "N"), 0.053)
@@ -125,6 +136,7 @@ def build_all_materials(*specs: SourceSpec) -> dict[str, G4Material]:
     mats: dict[str, G4Material] = {
         "CsI_Tl": build_csi_tl(nist),
         "ABS": build_abs(nist),
+        "R4600": build_r4600(nist),
     }
     densities: dict[str, float] = {}
 
@@ -138,8 +150,8 @@ def build_all_materials(*specs: SourceSpec) -> dict[str, G4Material]:
         if isinstance(geometry, Sandwich):
             for layer in geometry.layers:
                 _require_material(mats, nist, densities, layer.material, None)
-        if spec.container_material is not None:
-            _require_material(mats, nist, densities, spec.container_material,
+        if spec.container is not None:
+            _require_material(mats, nist, densities, spec.container.material,
                               None)
 
     return mats

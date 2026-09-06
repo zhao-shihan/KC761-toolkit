@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -103,13 +103,85 @@ class Sphere:
 
 
 @dataclass(frozen=True)
+class Ellipsoid:
+    """Triaxial ellipsoid with semi-axis lengths in mm."""
+
+    semi_x: float
+    semi_y: float
+    semi_z: float
+
+    def volume_cm3(self) -> float:
+        return (
+            4.0
+            / 3.0
+            * math.pi
+            * (self.semi_x / 10.0)
+            * (self.semi_y / 10.0)
+            * (self.semi_z / 10.0)
+        )
+
+
+@dataclass(frozen=True)
 class Tube:
     """Hollow cylinder (shell) surrounding a source, dimensions in mm."""
 
+    material: str
     inner_radius: float
     outer_radius: float
     half_length: float
     axis: str = "z"
+
+
+@dataclass(frozen=True)
+class Cup:
+    """Vertical bottomed cylinder holding a source, axis along z.
+
+    Dimensions in mm; walls and bottom share ``wall_thickness``. The
+    interior spans ``inner_radius`` in radius and ``height -
+    bottom_thickness`` above the bottom plate.
+    """
+
+    material: str
+    inner_radius: float
+    wall_thickness: float
+    height: float
+    bottom_thickness: float
+
+    def __post_init__(self) -> None:
+        if self.height <= self.bottom_thickness:
+            raise ValueError(
+                f"Cup height ({self.height} mm) must exceed the bottom "
+                f"thickness ({self.bottom_thickness} mm)"
+            )
+
+    @property
+    def outer_radius(self) -> float:
+        return self.inner_radius + self.wall_thickness
+
+
+@dataclass(frozen=True)
+class ShieldPart:
+    """One axis-aligned box piece of a composite shield, in mm."""
+
+    name: str
+    center: tuple[float, float, float]
+    half_size: tuple[float, float, float]
+
+
+@dataclass(frozen=True)
+class BetaShield:
+    """Composite beta shield the source assembly sits on.
+
+    The assembly (container plus source) rests on the shield's top plane,
+    ``top_z`` (derived as the highest part face).
+    """
+
+    material: str
+    parts: tuple[ShieldPart, ...]
+
+    @property
+    def top_z(self) -> float:
+        return max(part.center[2] + part.half_size[2] for part in self.parts)
 
 
 @dataclass(frozen=True)
@@ -125,22 +197,17 @@ class SourceSpec:
     key: str
     name: str
     nuclide: tuple[int, int]
-    geometry: Box | Cylinder | Disk | Sandwich | Sphere
+    geometry: Box | Cylinder | Disk | Sandwich | Sphere | Ellipsoid
     material: str
     density: float | None = None
     mass_g: float | None = None
-    container: Tube | None = None
-    container_material: str | None = None
+    container: Tube | Cup | None = None
     container_offset: tuple[float, float, float] | None = None
+    shield: BetaShield | None = None
     nucleus_limits: tuple[int, int, int, int] | None = None
     threshold_years: float = 1.0e60
 
     def __post_init__(self) -> None:
-        if (self.container is None) != (self.container_material is None):
-            raise ValueError(
-                f"source {self.key!r}: 'container' and 'container_material' "
-                f"must be given together"
-            )
         if self.container is None and self.container_offset is not None:
             raise ValueError(
                 f"source {self.key!r}: 'container_offset' requires a "
@@ -151,6 +218,32 @@ class SourceSpec:
                 f"source {self.key!r}: 'density' and 'mass_g' are mutually "
                 f"exclusive"
             )
+        if isinstance(self.container, Cup):
+            if self.shield is None:
+                raise ValueError(
+                    f"source {self.key!r}: a Cup container must sit on a "
+                    f"beta shield"
+                )
+            if self.container_offset is not None:
+                raise ValueError(
+                    f"source {self.key!r}: 'container_offset' is not "
+                    f"supported for a Cup container (the source position "
+                    f"follows the cup interior)"
+                )
+        if (
+            isinstance(self.container, Tube)
+            and self.container.axis != "z"
+            and self.shield is not None
+        ):
+            raise ValueError(
+                f"source {self.key!r}: a {self.container.axis}-axis tube "
+                f"cannot sit on a beta shield"
+            )
+        if self.shield is not None and self.container is None:
+            raise ValueError(
+                f"source {self.key!r}: a shielded source requires a "
+                f"container"
+            )
 
     @property
     def effective_density(self) -> float | None:
@@ -160,6 +253,42 @@ class SourceSpec:
             return self.mass_g / self.geometry.volume_cm3()
         return None
 
+
+#: Beta shield shared by the shielded source modes: a wide plate carries
+#: the source assembly on its far-side top face, and two bumps rise from
+#: its detector-side face to rest on the detector front surface.
+BETA_SHIELD = BetaShield(
+    material="R4600",
+    parts=(
+        ShieldPart(
+            name="BetaShieldPlate",
+            center=(13.75, -3.0, 20.2),
+            half_size=(40.25, 27.0, 5.0),
+        ),
+        ShieldPart(
+            name="BetaShieldBumpA",
+            center=(0.0, 0.0, 14.45),
+            half_size=(11.5, 7.0, 0.75),
+        ),
+        ShieldPart(
+            name="BetaShieldBumpB",
+            center=(27.5, 0.0, 14.45),
+            half_size=(11.5, 7.0, 0.75),
+        ),
+    ),
+)
+
+#: Unshielded base Ra-226 source; the shielded mode reuses its geometry and
+#: container verbatim (via :func:`replace`), so the two can never drift apart.
+_RA226_UNSHIELDED = SourceSpec(
+    key="ra226-unshielded",
+    name="Ra-226 in glass ball (diameter 5 mm) in stainless-steel tube",
+    nuclide=(88, 226),
+    geometry=Sphere(radius=2.5),
+    material="G4_GLASS_PLATE",
+    container=Tube(material="G4_STAINLESS-STEEL", inner_radius=2.5,
+                   outer_radius=3.0, half_length=2.5, axis="z"),
+)
 
 SOURCES: dict[str, SourceSpec] = {
     "k40": SourceSpec(
@@ -196,25 +325,35 @@ SOURCES: dict[str, SourceSpec] = {
     ),
     "th232": SourceSpec(
         key="th232",
+        name="Th-232 in thorium nitrate pentahydrate ellipsoid "
+             "(r 1x1x0.85 cm, 10 g) in a bottomed Pyrex container "
+             "on the beta shield",
+        nuclide=(90, 232),
+        geometry=Ellipsoid(semi_x=10.0, semi_y=10.0, semi_z=8.5),
+        material="Th(NO3)4-5H2O",
+        mass_g=10.0,
+        container=Cup(material="G4_Pyrex_Glass", inner_radius=10.0,
+                      wall_thickness=1.0, height=50.0, bottom_thickness=1.0),
+        shield=BETA_SHIELD,
+    ),
+    "th232-unshielded": SourceSpec(
+        key="th232-unshielded",
         name="Th-232 in thorium nitrate pentahydrate cylinder "
              "(r 0.87 cm x 1.5 cm, 10 g) in glass tube",
         nuclide=(90, 232),
         geometry=Cylinder(radius=8.7, half_length=7.5, axis="y"),
         material="Th(NO3)4-5H2O",
         mass_g=10.0,
-        container=Tube(inner_radius=10.0, outer_radius=11.0,
-                       half_length=25.0, axis="y"),
-        container_material="G4_Pyrex_Glass",
+        container=Tube(material="G4_Pyrex_Glass", inner_radius=10.0,
+                       outer_radius=11.0, half_length=25.0, axis="y"),
         container_offset=(0.0, 0.0, -1.3),
     ),
-    "ra226": SourceSpec(
+    "ra226": replace(
+        _RA226_UNSHIELDED,
         key="ra226",
-        name="Ra-226 in glass ball (diameter 5 mm) in stainless-steel tube",
-        nuclide=(88, 226),
-        geometry=Sphere(radius=2.5),
-        material="G4_GLASS_PLATE",
-        container=Tube(inner_radius=2.5, outer_radius=3.0,
-                       half_length=2.5, axis="z"),
-        container_material="G4_STAINLESS-STEEL",
+        name="Ra-226 in glass ball (diameter 5 mm) in stainless-steel "
+             "tube on the beta shield",
+        shield=BETA_SHIELD,
     ),
+    "ra226-unshielded": _RA226_UNSHIELDED,
 }

@@ -56,7 +56,10 @@ def merge_root_files(output_path: str, input_paths: list[str], *,
 
     TTrees are merged entry-by-entry and TH* histograms are summed together
     with their ``sumw2`` buffers.  ``force`` overwrites an existing output
-    file (``-f``).  The command is printed before it runs, like
+    file (``-ff``, which also adopts the first source file's compression
+    settings, so the target is written with the same compression as the
+    sources instead of falling back to a slower recompression).  The
+    command is printed before it runs, like
     :func:`kc761util.rootcxxfrontend.run_macro`; callers may rename the
     echo prefix to match their tool.
     """
@@ -68,7 +71,7 @@ def merge_root_files(output_path: str, input_paths: list[str], *,
     if not input_paths:
         raise ValueError("merge_root_files: no input files to merge")
 
-    cmd = [hadd] + (["-f"] if force else []) + [str(output_path)]
+    cmd = [hadd] + (["-ff"] if force else []) + [str(output_path)]
     cmd += [str(path) for path in input_paths]
     print(f"[{echo_prefix}] running:", " ".join(cmd), flush=True)
     try:

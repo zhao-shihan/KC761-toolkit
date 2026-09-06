@@ -18,7 +18,15 @@ from geant4_pybind import (
     G4VModularPhysicsList,
     mm,
 )
-from .config import Box, Cylinder, Disk, Sandwich, SourceSpec, Sphere
+from .config import (
+    Box,
+    Cylinder,
+    Disk,
+    Ellipsoid,
+    Sandwich,
+    SourceSpec,
+    Sphere,
+)
 
 
 class PhysicsList(G4VModularPhysicsList):
@@ -93,6 +101,13 @@ def _gps_volume_commands(geometry) -> list[str]:
             return [
                 "/gps/pos/shape Sphere",
                 f"/gps/pos/radius {geometry.radius} mm",
+            ]
+        case Ellipsoid():
+            return [
+                "/gps/pos/shape Ellipsoid",
+                f"/gps/pos/halfx {geometry.semi_x} mm",
+                f"/gps/pos/halfy {geometry.semi_y} mm",
+                f"/gps/pos/halfz {geometry.semi_z} mm",
             ]
         case _:
             raise ValueError(f"unsupported source geometry: {geometry!r}")

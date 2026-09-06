@@ -37,7 +37,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     sources = parser.add_mutually_exclusive_group(required=True)
     for key, spec in config.SOURCES.items():
-        sources.add_argument(f"--{key}", action="store_true", help=spec.name)
+        sources.add_argument(
+            f"--{key}", dest=key, action="store_true", help=spec.name
+        )
 
     parser.add_argument(
         "-o",
