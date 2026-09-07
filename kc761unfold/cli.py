@@ -8,8 +8,7 @@ from pathlib import Path
 from kc761util.rootcxxfrontend import add_root_option
 
 from .types import (DEFAULT_ALPHA, DEFAULT_K, DEFAULT_MASK_FLOOR,
-                    DEFAULT_MASK_P0, DEFAULT_RESOL_FRAC, DEFAULT_SNIP_ITER,
-                    DEFAULT_SYST_FRAC)
+                    DEFAULT_MASK_Z0, DEFAULT_SNIP_ITER, DEFAULT_SYST_FRAC)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -41,33 +40,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--ehi", type=float, default=None, metavar="ENERGY",
                         help="upper energy bound of the working range in "
                              "keV (default: the last bin)")
-    parser.add_argument("--syst", type=float, default=DEFAULT_SYST_FRAC,
-                        metavar="FRAC",
-                        help="per-bin fractional systematic error as a "
-                             "fraction (e.g. 0.05 = 5%%), added in "
-                             f"quadrature proportional to the bin counts "
-                             f"(default {DEFAULT_SYST_FRAC:g})")
     parser.add_argument("--alpha", type=float, default=DEFAULT_ALPHA,
                         metavar="ALPHA",
                         help="regularization strength (dimensionless, "
                              f"default {DEFAULT_ALPHA:g})")
-    parser.add_argument("--resol-frac", type=float, default=DEFAULT_RESOL_FRAC,
-                        metavar="FRAC",
-                        help="resolution-floor fraction of the analytic "
-                             "resolution model: the unfolded spectrum is "
-                             "presented as mu = S nu with a Gaussian "
-                             "smoother of width FRAC x sigma, so features "
-                             f"are at least FRAC x sigma wide (default "
-                             f"{DEFAULT_RESOL_FRAC:g}; 0 disables the "
-                             "floor)")
-    parser.add_argument("--mask-p0", type=float, default=DEFAULT_MASK_P0,
-                        metavar="P0",
-                        help="SNIP peak-significance threshold of the peak "
-                             f"mask (default {DEFAULT_MASK_P0:g})")
-    parser.add_argument("--mask-floor", type=float,
-                        default=DEFAULT_MASK_FLOOR, metavar="FLOOR",
-                        help="peak-mask floor, the minimum regularization "
-                             f"kept on peaks (default {DEFAULT_MASK_FLOOR:g})")
     parser.add_argument("--k", type=int, default=DEFAULT_K, choices=(1, 2),
                         metavar="K",
                         help="difference order of the density penalty "
@@ -76,6 +52,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         metavar="N",
                         help="SNIP baseline clipping iterations "
                              f"(default {DEFAULT_SNIP_ITER})")
+    parser.add_argument("--mask-z0", type=float, default=DEFAULT_MASK_Z0,
+                        metavar="Z0",
+                        help="SNIP peak-significance scale of the peak "
+                             f"mask, the z-score at which it reaches 1/2 "
+                             f"(default {DEFAULT_MASK_Z0:g})")
+    parser.add_argument("--mask-floor", type=float,
+                        default=DEFAULT_MASK_FLOOR, metavar="FLOOR",
+                        help="peak-mask floor, the minimum regularization "
+                             f"kept on peaks (default {DEFAULT_MASK_FLOOR:g})")
+    parser.add_argument("--syst", type=float, default=DEFAULT_SYST_FRAC,
+                        metavar="FRAC",
+                        help="per-bin fractional systematic error as a "
+                             "fraction (e.g. 0.05 = 5%%), added in "
+                             f"quadrature proportional to the bin counts "
+                             f"(default {DEFAULT_SYST_FRAC:g})")
     parser.add_argument("--plot-output", type=Path, default=None,
                         help="output plot file; the format is inferred from "
                              "the file extension (default: <data>-unfold.pdf "

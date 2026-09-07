@@ -15,13 +15,12 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import sparse
 
-DEFAULT_SYST_FRAC = 0.10
-DEFAULT_ALPHA = 0.1
-DEFAULT_RESOL_FRAC = 0.5
-DEFAULT_MASK_P0 = 5.0
-DEFAULT_MASK_FLOOR = 0.05
-DEFAULT_K = 1
+DEFAULT_ALPHA = 0.01
+DEFAULT_K = 2
 DEFAULT_SNIP_ITER = 24
+DEFAULT_MASK_Z0 = 3.0
+DEFAULT_MASK_FLOOR = 0.05
+DEFAULT_SYST_FRAC = 0.10
 
 
 @dataclass
@@ -67,23 +66,25 @@ class UnfoldSettings:
 
     The working range is the energy window ``energy_low`` .. ``energy_high``
     (keV); ``channel_low``/``channel_high`` are the derived channel bins
-    (their centers fall inside the window).  ``alpha`` is the
-    dimensionless regularization strength; ``resol_frac`` the
-    resolution-floor fraction of :mod:`kc761unfold.smoothing` (0 disables
-    the floor).
+    (their centers fall inside the window).  Fields are grouped by role:
+    the penalty (``alpha``, ``k``), the SNIP peak mask (``snip_iter``,
+    ``mask_z0``, ``mask_floor``) and the error model (``syst_frac``).
     """
 
-    alpha: float = DEFAULT_ALPHA  # fixed regularization strength
-    resol_frac: float = DEFAULT_RESOL_FRAC  # 0 = no resolution floor
-    mask_p0: float = DEFAULT_MASK_P0  # SNIP peak-significance threshold
-    mask_floor: float = DEFAULT_MASK_FLOOR  # minimum regularization on peaks
-    k: int = DEFAULT_K  # difference order of the density penalty
-    snip_iter: int = DEFAULT_SNIP_ITER  # SNIP clipping iterations
-    syst_frac: float = DEFAULT_SYST_FRAC  # fractional data-side systematic
+    # working range
     energy_low: float = 0.0  # requested lower energy bound (keV)
     energy_high: float = 0.0  # requested upper energy bound (keV)
     channel_low: int = 0  # derived lower channel bin
     channel_high: int = 0  # derived upper channel bin
+    # penalty
+    alpha: float = DEFAULT_ALPHA  # regularization strength
+    k: int = DEFAULT_K  # difference order of the density penalty
+    # SNIP peak mask
+    snip_iter: int = DEFAULT_SNIP_ITER  # SNIP clipping iterations
+    mask_z0: float = DEFAULT_MASK_Z0  # peak-significance scale (z-score)
+    mask_floor: float = DEFAULT_MASK_FLOOR  # minimum regularization on peaks
+    # error model
+    syst_frac: float = DEFAULT_SYST_FRAC  # fractional data-side systematic
 
 
 @dataclass

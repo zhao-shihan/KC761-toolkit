@@ -27,7 +27,6 @@ from kc761calib.response import resol_sigma_model
 
 from .penalty import penalty_operator
 from .response import energy_geometry, rebuild_response
-from .smoothing import build_resolution_smoother
 from .solver import (UnfoldProblem, embed_and_factor, objective_gradient,
                      solve_embedded)
 from .types import CalibrationFile
@@ -57,8 +56,7 @@ def _transport_eta(calib: CalibrationFile) -> np.ndarray:
 
 def _response_gradient_fd(prob: UnfoldProblem, mu: np.ndarray,
                           calib: CalibrationFile, sigma: np.ndarray,
-                          mask: np.ndarray, k: int,
-                          resol_frac: float) -> np.ndarray:
+                          mask: np.ndarray, k: int) -> np.ndarray:
     """FD cross gradients G_q[:, p] = d2L/d mu d q_p at the fixed optimum."""
     q0 = np.concatenate([calib.calib_coeffs, calib.resol_params])
     eta = _transport_eta(calib) if calib.transport is not None else None
@@ -74,14 +72,8 @@ def _response_gradient_fd(prob: UnfoldProblem, mu: np.ndarray,
             if calib.transport is not None:
                 # composite response: R(q) = C(q) p_tilde diag(eta)
                 rp = (rp @ calib.transport) @ sparse.diags(eta)
-            e_edges_p, centers_p, widths_p = energy_geometry(
+            _, centers_p, widths_p = energy_geometry(
                 qp[:4], calib.channel_low, calib.channel_high)
-            if resol_frac > 0.0:
-                # the smoother is rebuilt at the perturbed parameters so
-                # its q-dependence enters the systematic covariance
-                smoother_p = build_resolution_smoother(
-                    e_edges_p, qp[4:], resol_frac)
-                rp = (rp @ smoother_p).tocsr()
             d_p = penalty_operator(widths_p, centers_p, sigma, mask, k)
             # the full objective gradient at the fixed optimum, evaluated
             # on the perturbed operators.
@@ -93,8 +85,7 @@ def _response_gradient_fd(prob: UnfoldProblem, mu: np.ndarray,
 
 def compute_covariances(prob: UnfoldProblem, mu: np.ndarray, free: np.ndarray,
                         sigma2: np.ndarray, calib: CalibrationFile,
-                        sigma: np.ndarray, mask: np.ndarray, k: int,
-                        resol_frac: float = 0.0
+                        sigma: np.ndarray, mask: np.ndarray, k: int
                         ) -> tuple[np.ndarray, np.ndarray,
                                    np.ndarray, np.ndarray]:
     """Statistical and systematic covariance matrices at the optimum.
@@ -113,19 +104,13 @@ def compute_covariances(prob: UnfoldProblem, mu: np.ndarray, free: np.ndarray,
     c_stat = m_scaled @ m_scaled.T
 
     # systematic: J = -Ht^-1 G_q, C_sys = J Sigma_q J^T
-    g_q = _response_gradient_fd(prob, mu, calib, sigma, mask, k, resol_frac)
+    g_q = _response_gradient_fd(prob, mu, calib, sigma, mask, k)
     # solve_embedded returns zero rows for non-free bins (masked right
     # sides against the identity embedding), so J is zero there already.
     j = -solve_embedded(ab, u, free, g_q, factor=factor)
     # the direct quadratic form: numerically stable against the
     # ill-conditioned parameter covariance (no Cholesky whitening).
     c_sys = j @ calib.param_cov @ j.T
-
-    if resol_frac > 0.0:
-        smoother = build_resolution_smoother(
-            calib.energy_edges, calib.resol_params, resol_frac)
-        c_stat = smoother @ c_stat @ smoother.T
-        c_sys = smoother @ c_sys @ smoother.T
 
     diag_stat = np.maximum(np.diag(c_stat), 0.0)
     diag_syst = np.maximum(np.diag(c_sys), 0.0)

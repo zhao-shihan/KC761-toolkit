@@ -66,13 +66,12 @@ def _run(args) -> int:
         return 1
     calib = slice_calibration(calib_full, ch_lo, ch_hi)
 
-    settings = UnfoldSettings(alpha=args.alpha, mask_p0=args.mask_p0,
-                           mask_floor=args.mask_floor, k=args.k,
-                           snip_iter=args.snip_iter,
-                           resol_frac=args.resol_frac,
-                           syst_frac=args.syst,
-                           energy_low=elo, energy_high=ehi,
-                           channel_low=ch_lo, channel_high=ch_hi)
+    settings = UnfoldSettings(alpha=args.alpha, mask_z0=args.mask_z0,
+                              mask_floor=args.mask_floor, k=args.k,
+                              snip_iter=args.snip_iter,
+                              syst_frac=args.syst,
+                              energy_low=elo, energy_high=ehi,
+                              channel_low=ch_lo, channel_high=ch_hi)
     if args.calib_only:
         result = unfold_mod.run_calib_only(calib, data.counts, data.errors,
                                            settings)

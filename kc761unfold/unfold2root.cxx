@@ -13,7 +13,7 @@
 //   6. settings:
 //      syst_frac / elo / ehi  TParameter<double>
 //      chlo / chhi / calib_only / k / snip_iter  TParameter<int>
-//      alpha / mask_p0 / mask_floor / resol_frac  TParameter<double>
+//      alpha / mask_z0 / mask_floor / syst_frac  TParameter<double>
 //      (unfold mode only)
 // Usage:  root -l -b -q 'unfold2root.cxx("export.kc761unfold","out.root")'
 
@@ -142,8 +142,8 @@ void unfold2root(const std::string& exportFile, const std::string& output) {
             bail("malformed syst_covariance block");
     }
 
-    double scalars[7] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    // syst_frac, alpha, mask_p0, mask_floor, resol_frac, elo, ehi
+    double scalars[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    // alpha, mask_z0, mask_floor, syst_frac, elo, ehi
     if (!ReadRaw(f, scalars, sizeof(scalars))) bail("malformed settings block");
     const int64_t k = readI64("malformed k block");
     const int64_t snipIter = readI64("malformed snip_iter block");
@@ -204,17 +204,16 @@ void unfold2root(const std::string& exportFile, const std::string& output) {
         hSyst->Write();
     }
 
-    TParameter<double>("syst_frac", scalars[0]).Write();
-    TParameter<double>("elo", scalars[5]).Write();
-    TParameter<double>("ehi", scalars[6]).Write();
+    TParameter<double>("alpha", scalars[0]).Write();
+    TParameter<double>("elo", scalars[4]).Write();
+    TParameter<double>("ehi", scalars[5]).Write();
     TParameter<int>("chlo", static_cast<int>(chlo)).Write();
     TParameter<int>("chhi", static_cast<int>(chhi)).Write();
     TParameter<int>("calib_only", static_cast<int>(mode)).Write();
     if (mode == 0) {
-        TParameter<double>("alpha", scalars[1]).Write();
-        TParameter<double>("mask_p0", scalars[2]).Write();
-        TParameter<double>("mask_floor", scalars[3]).Write();
-        TParameter<double>("resol_frac", scalars[4]).Write();
+        TParameter<double>("mask_z0", scalars[1]).Write();
+        TParameter<double>("mask_floor", scalars[2]).Write();
+        TParameter<double>("syst_frac", scalars[3]).Write();
         TParameter<int>("k", static_cast<int>(k)).Write();
         TParameter<int>("snip_iter", static_cast<int>(snipIter)).Write();
         TParameter<double>("chi2", stats[0]).Write();

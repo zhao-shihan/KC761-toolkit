@@ -70,17 +70,18 @@ def snip_baseline(counts: np.ndarray, n_iter: int) -> np.ndarray:
 
 
 def peak_mask(counts: np.ndarray, sigma: np.ndarray, baseline: np.ndarray,
-              mask_p0: float, mask_floor: float) -> np.ndarray:
+              mask_z0: float, mask_floor: float) -> np.ndarray:
     """Regularization mask from the local peak significance.
 
-    ``m = 1 / (1 + max(0, p)^2 / mask_p0^2)`` with ``p = (y - baseline) /
-    sigma``, floored at ``mask_floor`` so high-significance peaks keep a
-    minimum of regularization (prevents sharpening below the detector
-    resolution).
+    ``m = 1 / (1 + max(0, p)^2 / mask_z0^2)`` with the significance
+    ``p = (y - baseline) / sigma`` (a z-score; the mask reaches 1/2 at
+    ``p = mask_z0``), floored at ``mask_floor`` so high-significance
+    peaks keep a minimum of regularization (prevents sharpening below
+    the detector resolution).
     """
     p = (np.asarray(counts, dtype=float) - np.asarray(baseline, dtype=float)
          ) / np.asarray(sigma, dtype=float)
-    m = 1.0 / (1.0 + np.maximum(p, 0.0) ** 2 / mask_p0 ** 2)
+    m = 1.0 / (1.0 + np.maximum(p, 0.0) ** 2 / mask_z0 ** 2)
     return np.maximum(m, mask_floor)
 
 

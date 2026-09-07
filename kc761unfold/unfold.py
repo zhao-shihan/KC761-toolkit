@@ -9,14 +9,12 @@ spectrum ``mu`` minimizes
 
 under ``mu >= 0`` with the quadratic penalty ``alpha ||D mu||^2``
 (``D`` the significance-normalized, SNIP-masked difference operator of
-:mod:`kc761unfold.penalty`), and is presented as ``mu = S nu`` with
-``S`` the resolution floor of :mod:`kc761unfold.smoothing`
-(``resol_frac`` times the analytic resolution model; 0 disables it).
+:mod:`kc761unfold.penalty`).
 
 Errors are analytic (:mod:`kc761unfold.errors`): statistical and
-systematic (calibration-parameter) covariances on the solved variable,
-conjugated to ``mu`` through ``S``.  The calibration-only mode relabels
-the channel axis to energy without unfolding.  Both modes produce a
+systematic (calibration-parameter) covariances of the estimator.  The
+calibration-only mode relabels the channel axis to energy without
+unfolding.  Both modes produce a
 :class:`kc761unfold.types.UnfoldResult` consumed by the ROOT export and
 the plot paths.
 """
@@ -28,7 +26,6 @@ import numpy as np
 from .errors import (calibration_vertical_term, compute_covariances,
                      energy_center_errors)
 from .penalty import peak_mask, snip_baseline, penalty_operator
-from .smoothing import build_resolution_smoother
 from .solver import UnfoldProblem
 from .types import CalibrationFile, UnfoldSettings, UnfoldResult
 
@@ -90,13 +87,7 @@ def _result(calib_only: bool, calib: CalibrationFile, settings: UnfoldSettings,
 def run_unfold(calib: CalibrationFile, data_counts: np.ndarray,
                data_errors: np.ndarray, settings: UnfoldSettings
                ) -> UnfoldResult:
-    """Unfold one spectrum with the hybrid regularization.
-
-    The solver works on the effective response ``R S`` with the penalty
-    acting on ``nu`` (the smoother provides the presentation smoothness,
-    the penalty damps nu's sub-resolution oscillations); the reported
-    covariances are conjugated to ``mu`` via ``S``.
-    """
+    """Unfold one spectrum with the hybrid regularization."""
     ch_lo = settings.channel_low
     ch_hi = settings.channel_high
     y = np.asarray(data_counts[ch_lo:ch_hi + 1], dtype=float)
@@ -107,30 +98,17 @@ def run_unfold(calib: CalibrationFile, data_counts: np.ndarray,
     w = 1.0 / sigma2
 
     baseline = snip_baseline(y, settings.snip_iter)
-    mask = peak_mask(y, sigma, baseline, settings.mask_p0,
+    mask = peak_mask(y, sigma, baseline, settings.mask_z0,
                      settings.mask_floor)
     d_op = penalty_operator(calib.widths, calib.centers,
                             sigma, mask, settings.k)
 
-    # Resolution floor: mu = S nu; the solver sees the effective
-    # response R S, while the penalty acts on the solved variable nu
-    # with its original noise normalization.
-    if settings.resol_frac > 0.0:
-        smoother = build_resolution_smoother(
-            calib.energy_edges, calib.resol_params, settings.resol_frac)
-        r_eff = (calib.matrix @ smoother).tocsr()
-    else:
-        smoother = None
-        r_eff = calib.matrix
-
-    prob = UnfoldProblem(r_eff, y, w, d_op, settings.alpha)
-    nu = prob.solve()
-    mu = smoother @ nu if smoother is not None else nu
-    refolded = prob.r @ nu
+    prob = UnfoldProblem(calib.matrix, y, w, d_op, settings.alpha)
+    mu = prob.solve()
+    refolded = prob.r @ mu
 
     c_stat, c_sys, sig_stat, sig_syst = compute_covariances(
-        prob, nu, prob.free, sigma2, calib, sigma, mask, settings.k,
-        settings.resol_frac)
+        prob, mu, prob.free, sigma2, calib, sigma, mask, settings.k)
 
     data_total, data_syst, _, sigma_calib = _calibrated_layer(
         y, err, calib, settings)
