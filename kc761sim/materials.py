@@ -8,7 +8,7 @@ from .config import Sandwich, SourceSpec
 
 ABS_DENSITY_G_CM3 = 1.05
 
-R4600_DENSITY_G_CM3 = 1.1
+R4600_DENSITY_G_CM3 = 1.166
 
 CSI_TL_DENSITY_G_CM3 = 4.51
 
@@ -48,11 +48,15 @@ def build_abs(nist: G4NistManager) -> G4Material:
 
 
 def build_r4600(nist: G4NistManager) -> G4Material:
-    """R4600 polymer used for the beta shield (ABS-like C/H/N mix)."""
+    """White opaque UV-curable photopolymer resin for the beta shield.
+
+    The exact formulation is unpublished, so a representative elemental mix
+    is used.
+    """
     mat = G4Material("R4600", R4600_DENSITY_G_CM3 * g / cm3, 3)
-    mat.AddElementByMassFraction(_element(nist, "C"), 0.865)
-    mat.AddElementByMassFraction(_element(nist, "H"), 0.082)
-    mat.AddElementByMassFraction(_element(nist, "N"), 0.053)
+    mat.AddElementByMassFraction(_element(nist, "C"), 0.70166)
+    mat.AddElementByMassFraction(_element(nist, "H"), 0.07038)
+    mat.AddElementByMassFraction(_element(nist, "O"), 0.22796)
     return mat
 
 
