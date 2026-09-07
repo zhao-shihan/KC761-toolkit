@@ -1,10 +1,10 @@
 """Parameter fit with bounded derivative-free optimizers.
 
-The fit runs on a normalized ``[0,1]^d`` parameter space (each coordinate scaled
-by its own bounds), so its step sizes and convergence tolerances are uniform
-across parameters with very different physical ranges.  A single fit runs a
-stage-1 optimizer to locate the basin, then a stage-2 optimizer from its result
-to convergence.
+The fit runs on a normalized ``[0,1]^d`` parameter space (each coordinate
+scaled by its own bounds), so step sizes and convergence tolerances are
+uniform across parameters with very different physical ranges.  A single
+fit runs a stage-1 optimizer to locate the basin, then a stage-2 optimizer
+from its result to convergence.
 """
 
 from __future__ import annotations
@@ -23,9 +23,7 @@ from .types import FitResult
 _STAGE1_PROGRESS_LOG_MODULO = 5
 _STAGE2_PROGRESS_LOG_MODULO = 100
 
-# The two fit stages, both on the unit cube: the stage-1 optimizer locates the
-# basin, then the stage-2 optimizer polishes from its result to convergence.
-# Each stage's iteration budget is supplied per call in `_fit_once`.
+# Stage definitions (iteration budgets come per call in _fit_once).
 _STAGE1_OPTIMIZER = dict(
     method="L-BFGS-B",
     options=dict(maxls=300),
@@ -89,11 +87,10 @@ def _fit_once(model, x0, bounds, stage1_maxiter, stage2_maxiter,
               tag: str = "fit", fit_progress_modulo: int = 0):
     """Two optimizer stages on the unit-cube space, returning physical params.
 
-    ``x0`` and ``bounds`` are in physical units; the minimizer only ever sees the
-    affine-normalized ``[0,1]^d`` parameters.  The stage-1 optimizer locates the
-    basin, then the stage-2 optimizer polishes from its result to convergence.
-    The returned ``OptimizeResult`` carries ``x`` mapped back to physical space
-    and ``nfev`` summed over both stages.
+    ``x0`` and ``bounds`` are in physical units; the minimizer only ever
+    sees the affine-normalized ``[0,1]^d`` parameters.  The returned
+    ``OptimizeResult`` carries ``x`` mapped back to physical space and
+    ``nfev`` summed over both stages.
     """
     x0 = np.asarray(x0, dtype=float)
     lo, hi = _bounds_arrays(bounds)
@@ -113,7 +110,7 @@ def _fit_once(model, x0, bounds, stage1_maxiter, stage2_maxiter,
         return (_progress_callback(model, stage_tag, modulo, to_physical)
                 if modulo > 0 else None)
 
-    # Stage 1: the stage-1 optimizer locates the basin.
+    # Stage 1: locate the basin.
     res = optimize.minimize(
         objective, u0, method=_STAGE1_OPTIMIZER["method"],
         bounds=unit_bounds,
@@ -121,8 +118,7 @@ def _fit_once(model, x0, bounds, stage1_maxiter, stage2_maxiter,
         callback=make_callback(f"{tag} stage 1", fit_progress_modulo))
     nfev = int(res.nfev)
 
-    # Stage 2: the stage-2 optimizer polishes from the stage-1 result, minimized
-    # to convergence (reuses the same progress callback with a coarser modulo).
+    # Stage 2: polish from the stage-1 result (coarser progress modulo).
     stage2_modulo = (_STAGE2_PROGRESS_LOG_MODULO
                      if fit_progress_modulo > 0 else 0)
     res = optimize.minimize(

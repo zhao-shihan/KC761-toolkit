@@ -1,9 +1,8 @@
 """Top-level mode orchestration: Hybrid regularized unfold and calibration-only.
 
-Hybrid regularized unfolding removes the detector's resolution
-smearing from background-subtracted KC761 channel spectra using the
-response matrix of a kc761calib export or a kc761sim composite-response
-file.  The unfolded spectrum ``mu`` minimizes
+Hybrid regularized unfolding deconvolves background-subtracted KC761
+channel spectra according to the given response matrix. The unfolded
+spectrum ``mu`` minimizes
 
     chi2 = sum_j (y_j - (R mu)_j)^2 / sigma_j^2,
     sigma_j^2 = max(stat_j^2, 1) + (syst_frac y_j)^2
@@ -93,14 +92,10 @@ def run_unfold(calib: CalibrationFile, data_counts: np.ndarray,
                ) -> UnfoldResult:
     """Unfold one spectrum with the hybrid regularization.
 
-    The unfolded spectrum is ``mu = S nu`` with ``S`` the resolution
-    floor smoother (``settings.resol_frac`` times the analytic
-    resolution model; ``0`` disables the floor and unfolds ``mu``
-    directly).  The solver works on the effective response ``R S``; the
-    penalty acts on the solved variable ``nu`` (the smoother provides
-    the presentation smoothness, the penalty damps nu's sub-resolution
-    oscillations).  The reported covariances are conjugated to ``mu``
-    via ``S``.
+    The solver works on the effective response ``R S`` with the penalty
+    acting on ``nu`` (the smoother provides the presentation smoothness,
+    the penalty damps nu's sub-resolution oscillations); the reported
+    covariances are conjugated to ``mu`` via ``S``.
     """
     ch_lo = settings.channel_low
     ch_hi = settings.channel_high

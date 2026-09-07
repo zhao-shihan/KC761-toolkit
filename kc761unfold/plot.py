@@ -22,7 +22,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 
-# Palette (kc761calib conventions).
+# Palette (kc761calib conventions): colors of the plotted artists.
 _COLOR_DATA = "blue"  # calibrated spectrum (histogram + error bars)
 _COLOR_FIT = "red"  # unfolded spectrum (histogram + error bars)
 _COLOR_REFOLD = "dimgray"  # refolded prediction (stairs)
@@ -51,12 +51,7 @@ def _save_fig(fig, out_plot: str) -> Path:
 def _draw_layer(ax, result: UnfoldResult, counts: np.ndarray,
                 sigma_total: np.ndarray, sigma_syst: np.ndarray,
                 color: str, label: str, ls: str = "-") -> tuple:
-    """One spectrum layer: histogram plus two nested error bands.
-
-    The errors are shown as bands with different transparency: the
-    outer (lighter) band carries the total error, the inner (stronger)
-    one the systematic part.
-    """
+    """One spectrum layer: histogram plus the two nested error bands."""
     total_band = ax.fill_between(result.centers,
                                  np.maximum(counts - sigma_total, 0.0),
                                  counts + sigma_total, step="mid",

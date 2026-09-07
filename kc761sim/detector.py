@@ -48,7 +48,7 @@ HOUSING_HALF_Z = CRYSTAL_HALF_Z + HOUSING_WALL_THICKNESS
 
 DETECTOR_FRONT_Z = HOUSING_HALF_Z
 
-#: Air gap between the housing front face and the nearest source plane.
+# Air gap between the housing front face and the nearest source plane.
 DETECTOR_GAP_MM = 1.0
 
 

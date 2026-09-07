@@ -254,9 +254,9 @@ class SourceSpec:
         return None
 
 
-#: Beta shield shared by the shielded source modes: a wide plate carries
-#: the source assembly on its far-side top face, and two bumps rise from
-#: its detector-side face to rest on the detector front surface.
+# Beta shield shared by the shielded source modes: a wide plate carries
+# the source assembly on its far-side top face, and two bumps rise from
+# its detector-side face to rest on the detector front surface.
 BETA_SHIELD = BetaShield(
     material="R4600",
     parts=(
@@ -278,8 +278,9 @@ BETA_SHIELD = BetaShield(
     ),
 )
 
-#: Unshielded base Ra-226 source; the shielded mode reuses its geometry and
-#: container verbatim (via :func:`replace`), so the two can never drift apart.
+# Unshielded base Ra-226 source; the shielded mode reuses its geometry and
+# container verbatim (via dataclasses.replace), so the two can never drift
+# apart.
 _RA226_UNSHIELDED = SourceSpec(
     key="ra226-unshielded",
     name="Ra-226 in glass ball (diameter 5 mm) in stainless-steel tube",

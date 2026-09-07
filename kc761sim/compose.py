@@ -1,25 +1,19 @@
 """Composite-response composition: R = C @ G with full error propagation.
 
 Pipeline glue for the kc761sim matrix modes: reads the merged G ROOT file
-(the hadd output of the worker histograms), composes the true response
-R = C @ G from the input calibration file's deposition response C --
-via :func:`kc761util.respcomp.compose_response` with the analytic
-Jacobian of :mod:`kc761calib.matrixjac` -- and writes the final ROOT file
-(three matrices + inherited parameters + new mode parameters) through
-:file:`kc761sim/matrix2root.cxx`, reusing the temporary-binary export
-convention of kc761calib/kc761unfold.
-
-Composition chain (see :mod:`kc761util.respcomp` for the math):
+(the hadd output of the worker histograms) and composes the true response
+R = C @ G from the input calibration file's deposition response C -- via
+:func:`kc761util.respcomp.compose_response` with the analytic Jacobian of
+:mod:`kc761calib.matrixjac` -- writing the final ROOT file through
+:file:`kc761sim/matrix2root.cxx` (the temporary-binary export convention
+of kc761calib/kc761unfold):
 
     gamma(E_gamma) -> crystal deposition (physics, G) -> channel
     (calibration + resolution smearing, C);  R = C @ G.
 
 G is normalized per column with the totals including the zero-deposition
 events, so the R column sum equals the detection efficiency of that
-primary energy.  The exported R carries the propagated per-element
-1-sigma variances in fSumw2; C is inherited bitwise (content and its own
-stored errors) under its new name, and G is kept as counts with its
-statistical errors.
+primary energy (see :mod:`kc761util.respcomp` for the error propagation).
 """
 
 from __future__ import annotations
@@ -42,9 +36,9 @@ from .sources import MatrixSource, mode_metadata
 
 _MAGIC = b"kc761sim-matrix-export-v1\n"
 
-#: Column-sum tolerance of the composed matrix (absolute efficiency is
-#: always <= 1; C columns may exceed 1 by ~1e-8 rounding, as the
-#: calibration export does).
+# Column-sum tolerance of the composed matrix (absolute efficiency is
+# always <= 1; C columns may exceed 1 by ~1e-8 rounding, as the
+# calibration export does).
 _COL_SUM_TOL = 1e-6
 
 
@@ -76,14 +70,11 @@ def _load_g_histograms(path: str) -> tuple[np.ndarray, np.ndarray,
                                            np.ndarray]:
     """Read the merged G counts, zero counts and the shared edge arrays.
 
-    The worker histogram stores the transport matrix with x = energy
-    deposition, y = primary energy (its title is the convention; the x
-    axis is the matrix output side and the y axis the input side, as for
-    the response matrices themselves); uproot returns
-    ``values()[deposition_bin, primary_bin]``, exactly the layout the
-    composition works on.  Returns ``(g_counts, zero_counts, edges,
-    edges)`` where the last two are the G x-axis and y-axis edge arrays
-    (identical by construction).
+    uproot returns ``values()[deposition_bin, primary_bin]`` -- exactly the
+    layout the composition works on (the G x axis is the matrix output
+    side, the y axis the input side).  Returns ``(g_counts, zero_counts,
+    edges, edges)`` where the last two are the G x-axis and y-axis edge
+    arrays (identical by construction).
     """
     with uproot.open(path) as f:
         try:

@@ -1,30 +1,23 @@
 """Shared reader/validator for kc761calib exports and kc761sim composite files.
 
 Both file kinds carry one response-matrix TH2D plus the calibration
-metadata; they differ only in what the matrix's energy (y) axis means:
+metadata; they differ only in what the matrix's energy (y) axis means
+(channel <- energy deposition for kc761calib exports, channel <- true
+primary gamma energy for kc761sim composites; ``response_matrix`` is also
+the legacy kc761calib name).  The reader therefore accepts either name and
+treats the y axis as "the energy axis the matrix maps from" without
+further interpretation.
 
-* kc761calib exports: ``deposition_response_matrix``, channel <-
-  energy deposition (the calibration image of the channel bins);
-* kc761sim matrix-mode composite files: ``response_matrix``, channel <-
-  true primary gamma energy (``deposition_response_matrix`` and
-  ``primary_deposition_matrix`` are also present as the intermediate
-  factors);
-
-``response_matrix`` is also the name legacy kc761calib exports wrote, so
-the reader accepts either name and treats the y axis as "the energy axis
-the matrix maps from" without further interpretation.
-
-The snapshot returned is dense and keeps the stored NaN semantics:
+The returned snapshot is dense and keeps the stored NaN semantics:
 ``param_cov`` rows/columns may be NaN (undetermined parameters, as
 kc761calib writes them) and ``matrix_errors`` may contain NaN; callers
-apply their own NaN policy (:mod:`kc761unfold.reader` treats undetermined
-parameters as fixed, the kc761sim composition does the same).
+apply their own NaN policy (see :mod:`kc761unfold.reader` and
+:mod:`kc761util.respcomp`).
 
 Validation covers the geometry assumptions the whole toolkit relies on:
 square matrix, uniform channel bins of width 1, a strictly increasing
 energy binning, finite parameters, and the toolkit-wide 2^14 bin-count
-cap (enforced by the calib2root/unfold2root writers, and previously by
-:mod:`kc761unfold.reader` itself).
+cap.
 """
 
 from __future__ import annotations
@@ -35,21 +28,21 @@ from dataclasses import dataclass
 import numpy as np
 import uproot
 
-#: Response-matrix object name of kc761sim matrix-mode composite files
-#: (channel <- true primary gamma energy) and of legacy kc761calib
-#: exports written before the deposition naming.
+# Response-matrix object name of kc761sim matrix-mode composite files
+# (channel <- true primary gamma energy) and of legacy kc761calib
+# exports written before the deposition naming.
 RESPONSE_HIST_NAME = "response_matrix"
-#: Response-matrix object name of kc761calib exports (channel <-
-#: energy deposition).
+# Response-matrix object name of kc761calib exports (channel <-
+# energy deposition).
 DEPOSITION_RESPONSE_HIST_NAME = "deposition_response_matrix"
-#: Transport-matrix object name of kc761sim composite files (x =
-#: energy deposition, y = primary energy, Monte Carlo counts).
+# Transport-matrix object name of kc761sim composite files (x = energy
+# deposition, y = primary energy, Monte Carlo counts).
 TRANSPORT_HIST_NAME = "primary_deposition_matrix"
 
-#: Reported-basis parameter order of ``param_cov``.
+# Reported-basis parameter order of ``param_cov``.
 PARAM_NAMES = ("c0", "c1", "c2", "c3", "b0", "b1", "b2")
 
-#: Sanity cap for the channel count (8 * 2^28 values = 2 GiB per block).
+# Sanity cap for the channel count (8 * 2^28 values = 2 GiB per block).
 MAX_CHANNELS = 1 << 14
 
 
@@ -73,12 +66,12 @@ class CalibFile:
     energy_edges: np.ndarray  # n + 1, strictly increasing
     matrix: np.ndarray  # (n, n) dense, [channel, energy]
     matrix_errors: np.ndarray | None  # (n, n) stored per-element 1-sigma
-    #: Composite files only: the conditional transport matrix
-    #: ``p_tilde[deposition, primary] = G / column_sum(G)`` (columns
-    #: normalized over the deposited events, the zero-deposition category
-    #: excluded).  Combined with the stored response's column sums it
-    #: rebuilds the full transport model (efficiency included) for the
-    #: systematic-error propagation; None for calibration files.
+    # Composite files only: the conditional transport matrix
+    # ``p_tilde[deposition, primary] = G / column_sum(G)`` (columns
+    # normalized over the deposited events, zero-deposition excluded);
+    # combined with the stored response's column sums it rebuilds the full
+    # transport model for the systematic-error propagation.  None for
+    # calibration files.
     transport: np.ndarray | None
     calib_coeffs: np.ndarray  # (c0, c1, c2, c3)
     calib_errors: np.ndarray  # stored 1-sigma of c0..c3

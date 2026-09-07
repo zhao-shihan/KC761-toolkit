@@ -50,16 +50,11 @@ def combined_variance(data_errors, mc_errors, scale):
 
 
 class FitModel:
-    """One dataset binned as channels; the smeared model lives in channel space.
-
-    The fit window is a fixed channel range ``[channel_low, channel_high]``
+    """One dataset on a fixed channel range ``[channel_low, channel_high]``
     (0-based, inclusive).  The data counts/errors are the raw channel values
-    and never change with the calibration.  Each evaluation, the simulation
-    is rebinned onto the energy-deposition bins (the calibration image of
-    the channels) and folded through the shared deposition-to-channel
-    response, so the smeared model is predicted per channel bin and compares
-    directly to the data; the bin energy positions (calibration image of the
-    channel centers) are recomputed for display only.
+    and never change with the calibration; the sim is rebinned onto the
+    energy-deposition bins and folded through the shared response, so the
+    smeared model compares directly to the data.
     """
 
     def __init__(self, data, sim, channel_low: int, channel_high: int,
@@ -92,7 +87,7 @@ class FitModel:
         self.init_response = init_response
         self.initial_scale = self._initial_scale()
 
-    # ----- data / model assembly -----------------------------------------
+    # --- data / model assembly ---
 
     def dataset_arrays(self, resp: Response,
                        mask: np.ndarray | None = None,
@@ -205,7 +200,7 @@ class FitModel:
             bin_edges=resp.binning.energy_edges[edge_slice],
         )
 
-    # ----- validity --------------------------------------------------------
+    # --- validity ---
 
     @property
     def usable_bins(self) -> int:
@@ -219,7 +214,7 @@ class FitModel:
         """
         return self.usable_bins >= self.min_usable_bins
 
-    # ----- initialization helpers ------------------------------------------
+    # --- initialization helpers ---
 
     def _initial_scale(self) -> float:
         """Overall normalization estimate with the full per-bin variance.

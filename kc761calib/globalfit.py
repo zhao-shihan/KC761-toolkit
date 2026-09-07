@@ -49,9 +49,7 @@ class GlobalFitModel:
                 "all datasets must have the same channel count (a "
                 f"global calibration is shared): got {sorted(n_bins)}")
 
-        # Shared channel geometry: the fit range is the union of the datasets'
-        # fit ranges; the extended binning and response matrix are built
-        # around it once per evaluation.
+        # Shared channel geometry for the response built once per evaluation.
         self.channel_max = float(max(s.data.edges[-1] for s in self.specs))
         self.last_channel = int(min(n_bins)) - 1
         self.fit_channel_lo = min(s.channel_low for s in self.specs)
@@ -81,7 +79,7 @@ class GlobalFitModel:
         self._proj_cache_key = None
         self._proj_cache = None
 
-    # ----- feasibility gate -------------------------------------------------
+    # --- feasibility gate ---
 
     def _gate(self, q) -> tuple[np.ndarray, np.ndarray] | None:
         """Shared calibration/resolution cores for q, or None if non-finite."""

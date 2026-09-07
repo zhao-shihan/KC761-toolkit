@@ -22,12 +22,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: Mode identifiers stored in the composite output files.
+# Mode identifiers stored in the composite output files.
 MODE_PLANE = 1
 MODE_SPHERE = 2
 
-#: Per-mode metadata written to the composite output files:
-#: ``(mode, mode_name, geometry parameter name)``.
+# Per-mode metadata written to the composite output files:
+# ``(mode, mode_name, geometry parameter name)``.
 _MODE_METADATA = {
     MODE_PLANE: ("plane_front_gamma", "plane_z_mm"),
     MODE_SPHERE: ("sphere_circumscribed_gamma", "sphere_radius_mm"),
@@ -55,8 +55,8 @@ class PrimaryAxis:
 
         ``column`` indexes the primary axis and must be active (its upper
         edge > 0); ``u`` is a uniform draw in [0, 1).  The straddling zero
-        column samples the clamped range ``[max(lo, 0), hi]``; all other
-        columns sample ``[lo, hi]``.
+        column samples the clamped range ``[max(lo, 0), hi]``; other
+        columns ``[lo, hi]``.
         """
         lo = max(self.edges[column], 0.0)
         hi = self.edges[column + 1]

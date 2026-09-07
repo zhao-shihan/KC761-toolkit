@@ -13,7 +13,7 @@ from .scaling import N_SCALE, scale_bounds, scale_names
 N_CORE = N_CALIB + N_RESOL
 CORE = slice(0, N_CORE)  # (c0, k1, k2, k3, b0, b1, b2), the shared core block
 CALIB = slice(0, N_CALIB)
-CALIB_K = slice(1, N_CALIB)  # k1, k2, k3 (the slope parameters, excluding c0)
+CALIB_K = slice(1, N_CALIB)  # slope parameters k1..k3 (excluding c0)
 RESOL = slice(N_CALIB, N_CORE)
 
 
@@ -63,8 +63,8 @@ class FitParamSpace:
         return bounds
 
     def x0(self) -> np.ndarray:
-        # Flat start: s1 = s2 = s3 = initial_scale (constant scale across the
-        # window) with the control channel s0 at the window midpoint.
+        # Constant-scale start: s1 = s2 = s3 = initial_scale, s0 at the
+        # window midpoint.
         scale_blocks = [
             [0.5 * (ch_lo + ch_hi)] + [float(s)] * (N_SCALE - 1)
             for s, (ch_lo, ch_hi) in zip(self.init_scales, self.channel_windows)]

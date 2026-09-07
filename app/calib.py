@@ -128,12 +128,10 @@ def _run_calib(args) -> int:
     if args.no_root_output:
         return 0
 
-    # Export the fitted detector response to ROOT: build the complete
-    # deposition-to-channel response matrix on the full channel range with
-    # its per-element errors and the fitted parameter covariance, serialize
-    # them with the model formulas and parameters into a temporary file,
-    # and convert it with the ROOT macro (which deletes the temporary
-    # file).
+    # Export the fitted response to ROOT: serialize the full-range matrix
+    # (with per-element errors and covariance) to a temporary file and
+    # convert it with the ROOT macro, which deletes the temp file on
+    # success.
     if args.root_output is not None:
         root_out = args.root_output.expanduser().resolve()
     else:
@@ -154,11 +152,9 @@ def _run_calib(args) -> int:
     print(f"[calib] response column sums: min = {col_sums.min():.6g}, "
           f"max = {col_sums.max():.6g} "
           f"({n_trunc} columns truncated at the detector range edges)")
-    # Relative errors are only meaningful on elements that carry
-    # non-negligible probability; far off-diagonal elements are ~0 with
-    # correspondingly huge (and irrelevant) relative errors.  The largest
-    # absolute errors sit on the peaks, so restricting the maximum to the
-    # same subset is equally informative.
+    # Relative errors are meaningless on elements that carry no
+    # probability (~0 with huge relative errors), so report them on the
+    # same > 1e-3 subset.
     pos = response.matrix > 1e-3
     n_pos = int(pos.sum())
     if n_pos > 0:

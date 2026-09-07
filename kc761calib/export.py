@@ -1,53 +1,28 @@
 """Binary export of the fitted detector response for the ROOT writer.
 
-The fitted calibration and resolution fully determine the detector
-response.  After the fit, this module builds the complete response matrix
-over the full detector channel range -- the energy-deposition bins are the
-calibration image of the channel bins -- and serializes it together with
-the model formulas (:data:`kc761calib.response.CALIB_FORMULA` /
+After the fit this module builds the complete deposition-to-channel
+response matrix over the full detector channel range -- the
+energy-deposition bins are the calibration image of the channel bins --
+and serializes it with the model formulas
+(:data:`kc761calib.response.CALIB_FORMULA` /
 :data:`kc761calib.response.RESOL_FORMULA`), the fitted parameters, their
-7x7 covariance and the per-element errors of the response matrix into a
-temporary binary file that :file:`kc761calib/calib2root.cxx` reads and
-turns into the final ROOT file.
+7x7 covariance and the per-element errors into a temporary binary file
+that :file:`kc761calib/calib2root.cxx` reads and turns into the final ROOT
+file.
 
-The response-matrix convention matches :mod:`kc761calib.folding`:
-``matrix[i, j]`` is the probability that a count in the energy-deposition
-bin ``j`` is detected in the channel bin ``i``.  Unlike the fit's sparse
-matrix, the exported matrix is dense over the full channel range, keeps
-the full Gaussian (no kernel-support cutoff) and does not renormalize the
-columns: the part of the Gaussian outside the detector channel range is
-truncated -- physically lost -- so columns near the range edges sum to
-less than 1.  The resolution is evaluated at the energy-deposition bin
-centers with :func:`kc761calib.response.resol_sigma_model`, which
-saturates ``sigma`` at ``b0`` for ``E <= 0``, where the variance
-polynomial is not usable.
-
-Parameter and matrix errors: the response depends only on the 7 shared
-core parameters ``q = (c0, k1, k2, k3, b0, b1, b2)`` (the per-dataset
-scale parameters never enter it).  The per-element 1-sigma error is
-propagated linearly from the fit's core covariance ``cov`` -- the same
-Gauss-Newton estimate that defines the reported parameter errors, so the
-two mean exactly the same thing:
-
-    err[i, j]^2 = G[i, j]^T cov G[i, j],   G_p[i, j] = dR[i, j]/dq_p.
-
-The Jacobian is analytic (the Gaussian kernel, the cubic calibration
-polynomial and the Bernstein resolution polynomial are all elementary
-functions, and the two clamps of ``sigma(E)`` -- the ``t = 0`` saturation
-and the ``MIN_SIGMA`` floor -- contribute exact one-sided derivatives
-through :func:`kc761calib.response.resol_sigma_model_grad`), so the error
-matrix is deterministic and bit-reproducible.  Undetermined parameters
-(all-NaN covariance rows/columns) are treated as fixed for the matrix
-errors -- their gradient contributions are dropped, matching the error-band
-treatment in :mod:`kc761calib.plot` -- while the stored covariance keeps
-their rows/columns as NaN.  If every core parameter is undetermined the
-error matrix is all-NaN.
-
-The serialized covariance is in the reported basis ``(c0, c1, c2, c3, b0,
-b1, b2)`` -- the parameterization the stored formulas and parameters use
--- obtained from the internal-basis core covariance by
-:func:`kc761calib.response.reported_core_cov`, which shares the NaN-aware
-transform semantics of :func:`kc761calib.response.reported_calib`.
+The convention matches :mod:`kc761calib.folding` (``matrix[i, j]`` is the
+probability that a count in energy bin ``j`` is detected in channel bin
+``i``); unlike the fit's sparse matrix, the export is dense over the full
+channel range, keeps the full Gaussian (no kernel-support cutoff) and does
+not renormalize the columns, so the probability beyond the detector range
+is truncated, not redistributed.  The response depends only on the 7 core
+parameters ``(c0, k1, k2, k3, b0, b1, b2)``; the per-element 1-sigma
+errors are the linear propagation ``G^T cov G`` (``G_p = dR/dq_p``) of
+the fit's core covariance, matching the reported parameter errors.
+Undetermined parameters (all-NaN covariance rows/columns) are treated as
+fixed for the matrix errors while the stored covariance keeps their
+rows/columns as NaN; the stored ``param_cov`` is in the reported basis
+``(c0, c1, c2, c3, b0, b1, b2)``.
 
 Temporary-file layout (native byte order; the file is produced and
 consumed on the same machine):
@@ -91,22 +66,8 @@ _MAGIC = b"kc761calib-export-v2\n"
 
 @dataclass
 class FullResponse:
-    """Complete detector response on the full channel range.
-
-    ``matrix[i, j]`` is the probability that a count in the
-    energy-deposition bin ``j`` is detected in the channel bin ``i``.
-    Channel bins are the full detector range ``0 .. n_channels-1``
-    (uniform width 1, integer centers); the energy-deposition bins are
-    their calibration image (variable width).  Columns are not
-    renormalized, so the Gaussian probability truncated by the detector
-    range edges is lost, not redistributed.
-
-    ``matrix_errors`` holds the per-element 1-sigma uncertainty propagated
-    linearly from the fit's core covariance (same convention and layout as
-    ``matrix``); ``param_cov`` is the 7x7 covariance of the stored
-    parameters in the reported basis ``(c0, c1, c2, c3, b0, b1, b2)``,
-    including the calib-resol cross block.
-    """
+    """Complete dense response on the full channel range (module docstring
+    for conventions and error/covariance semantics)."""
 
     n_channels: int
     energy_edges: np.ndarray  # n_channels + 1; energy-deposition bin edges
@@ -164,19 +125,14 @@ def _matrix_error_variance(centers, widths, sigma, ds_dE, ds_db,
 
 def build_full_response(result: FitResult, channel_max: float,
                         last_channel: int) -> FullResponse:
-    """Build the complete deposition-to-channel response and its errors.
+    """Build the complete response from the fitted core parameters.
 
-    ``result`` is the fitted :class:`kc761calib.types.FitResult`; the
-    response is built from its fitted core parameters
-    ``(c0, k1, k2, k3, b0, b1, b2)`` and the per-element errors from their
-    7x7 covariance (including the calib-resol cross block).  The exported
-    coefficients are the equivalent plain cubic ``(c0, c1, c2, c3)`` of the
-    calibration formula (see
-    :func:`kc761calib.response.c0k1k2k3_to_c0c1c2c3`), so the stored
-    formula is self-contained, and the exported covariance is in the same
-    reported basis.  ``channel_max`` is the upper edge of the detector
-    channel axis and ``last_channel`` its last channel index
-    (``n_channels = last_channel + 1``).
+    The exported coefficients are the equivalent plain cubic
+    ``(c0, c1, c2, c3)`` (module docstring), so the stored formula is
+    self-contained, and the exported covariance is in the same reported
+    basis.  ``channel_max`` is the upper edge of the detector channel
+    axis; ``last_channel`` its last index (``n_channels = last_channel +
+    1``).
     """
     calib_params = np.asarray(result.calib_params, dtype=float)
     resol_params = np.asarray(result.resol_params, dtype=float)
@@ -191,10 +147,9 @@ def build_full_response(result: FitResult, channel_max: float,
     if n < 1:
         raise ValueError(f"last_channel must be >= 0, got {last_channel}")
 
-    # Channel bin edges over the full detector range: uniform bins of
-    # width 1 with integer centers 0 .. n-1 (edges -0.5 .. n-0.5).  The
-    # energy-deposition edges are the calibration image of these channel
-    # edges.
+    # Channel bins over the full detector range: width 1, integer centers
+    # 0 .. n-1 (edges -0.5 .. n-0.5); the energy-deposition edges are the
+    # calibration image of these edges.
     channel_edges = np.arange(n + 1, dtype=float) - 0.5
     energy_edges = calib_model(calib_params, channel_edges, channel_max)
     if np.any(np.diff(energy_edges) <= 0.0):
@@ -203,28 +158,19 @@ def build_full_response(result: FitResult, channel_max: float,
             "channel range; the response-matrix binning requires a "
             "monotone calibration")
 
-    # Energy-deposition bin centers are the midpoints of the bin energy
-    # edges -- the same quadrature nodes the fit's response matrix uses.
+    # Bin centers are the midpoints of the energy edges -- the same
+    # quadrature nodes the fit's sparse matrix uses.
     centers = 0.5 * (energy_edges[:-1] + energy_edges[1:])
     widths = np.diff(energy_edges)
-
-    # Resolution at the energy-deposition bin centers; sigma saturates at
-    # b0 for E <= 0 (the variance polynomial is only valid on t in [0, 1]).
     sigma = resol_sigma_model(resol_params, centers)
 
-    # R[i, j] = gaussian_pdf(c_i - c_j; sigma_j) * dE_i: the midpoint
-    # quadrature of the Gaussian integral over channel bin i, with the
-    # density evaluated by the same shared kernel the fit's response
-    # matrix uses.  The full Gaussian is kept (no kernel-support cutoff)
-    # and the columns are not renormalized, so the probability beyond the
-    # detector channel range is truncated, not redistributed onto the
-    # edge bins.
+    # Midpoint quadrature of the Gaussian integral over each channel bin
+    # (same kernel as the fit); full Gaussian, no column renormalization.
     matrix = (gaussian_pdf(centers[:, None] - centers[None, :],
                            sigma[None, :]) * widths[:, None])
 
     # Per-element 1-sigma errors: linear propagation of the core
-    # covariance through the analytic Jacobian of R w.r.t.
-    # (c0, k1, k2, k3, b0, b1, b2).
+    # covariance through the analytic Jacobian of R.
     edge_grad = poly_basis(channel_edges, 3) @ jac_c0k1k2k3(channel_max)
     center_grad = 0.5 * (edge_grad[:-1] + edge_grad[1:])
     width_grad = edge_grad[1:] - edge_grad[:-1]
@@ -232,15 +178,13 @@ def build_full_response(result: FitResult, channel_max: float,
     if np.all(np.isnan(core_cov)):
         matrix_errors = np.full((n, n), np.nan)
     else:
-        # Undetermined parameters are treated as fixed for the matrix
-        # errors (their gradient contributions are dropped), matching the
-        # band treatment in kc761calib.plot.
+        # Undetermined parameters are fixed for the matrix errors (their
+        # gradient contributions are dropped), as in the plot band.
         cov_work = np.where(np.isnan(core_cov), 0.0, core_cov)
         var = _matrix_error_variance(centers, widths, sigma, ds_dE, ds_db,
                                      center_grad, width_grad, cov_work)
-        # Clamp and square root in place (the tolerance for the tiny
-        # negative round-off of the quadratic form) to avoid two extra
-        # full-matrix temporaries.
+        # Clamp and sqrt in place (tolerate tiny negative round-off of the
+        # quadratic form) to avoid extra full-matrix temporaries.
         np.maximum(var, 0.0, out=var)
         np.sqrt(var, out=var)
         matrix_errors = var

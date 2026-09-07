@@ -100,9 +100,7 @@ def compute_covariances(prob: UnfoldProblem, mu: np.ndarray, free: np.ndarray,
     """Statistical and systematic covariance matrices at the optimum.
 
     Returns ``(C_stat, C_sys, sigma_stat, sigma_syst)``; the per-bin
-    total error is ``sqrt(diag(C_stat) + diag(C_sys))``.  With a
-    resolution floor (``resol_frac > 0``) both covariances are evaluated
-    on the solved variable and conjugated to the presented spectrum.
+    total error is ``sqrt(diag(C_stat) + diag(C_sys))``.
     """
     ab, u = prob.hessian_banded()
     factor = embed_and_factor(ab, u, free)

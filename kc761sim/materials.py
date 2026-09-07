@@ -144,7 +144,7 @@ def build_all_materials(*specs: SourceSpec) -> dict[str, G4Material]:
     }
     densities: dict[str, float] = {}
 
-    # Detector-facing world volume.
+    # World volume material.
     mats["G4_AIR"] = nist.FindOrBuildMaterial("G4_AIR")
 
     for spec in specs:

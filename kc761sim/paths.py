@@ -10,16 +10,16 @@ from kc761util.spectrum import SPECTRUM_HIST_NAME  # noqa: F401 (re-export)
 
 NTUPLE_NAME = "kc761_data"
 
-#: Worker/merged histogram name of the matrix modes' gamma transport
-#: matrix G (x = energy deposition, y = primary energy).
+# Worker/merged histogram name of the matrix modes' gamma transport
+# matrix G (x = energy deposition, y = primary energy).
 MATRIX_G_HIST_NAME = "primary_deposition_matrix"
 
-#: Worker/merged histogram name of the matrix modes' per-primary-column
-#: zero-deposition counts.
+# Worker/merged histogram name of the matrix modes' per-primary-column
+# zero-deposition counts.
 MATRIX_ZERO_HIST_NAME = "zero_deposition_counts"
 
-#: Ntuple column order and dtypes; written by actions.RunAction and
-#: re-created by runner.merge_root_files when combining worker files.
+# Ntuple column order and dtypes; written by actions.RunAction and
+# re-created by runner.merge_root_files when combining worker files.
 NTUPLE_COLUMNS: dict[str, np.dtype] = {
     "event_id": np.dtype(np.int32),
     "edep": np.dtype(np.float32),

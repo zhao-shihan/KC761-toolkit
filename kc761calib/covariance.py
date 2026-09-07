@@ -1,32 +1,20 @@
 """Parameter covariance from numerically differentiated residuals.
 
-The fitted parameters ``q`` are the least-squares minimizer of the weighted
-residuals ``r(q)`` of :class:`kc761calib.globalfit.GlobalFitModel`, whose
-per-bin denominators combine the data's statistical and systematic errors
-with the Monte Carlo statistical error of the scaled model prediction.
-Near the minimum the parameter covariance is estimated by the Gauss-Newton
-formula
+Near the least-squares minimum of the weighted residuals of
+:class:`kc761calib.globalfit.GlobalFitModel` the covariance is estimated by
+the Gauss-Newton formula ``cov = s^2 (J^T J)^-1`` with ``J = dr/dq`` and
+``s^2 = chi^2 / ndof`` the reduced chi-square -- the same residual-variance
+rescaling as ``scipy.optimize.curve_fit``: ``chi^2/ndof ~ 1`` leaves the
+covariance unchanged, a poor fit inflates the reported errors.
 
-    cov = s^2 (J^T J)^-1,
-
-where ``J = dr/dq`` is the residual Jacobian and ``s^2 = chi^2 / ndof`` is the
-residual-variance estimate (the reduced chi-square).  ``s^2`` rescales the
-covariance to the observed scatter of the residuals, matching the standard
-treatment of ``scipy.optimize.curve_fit``: when the data uncertainties are
-only known up to an overall scale, ``chi^2/ndof ~ 1`` leaves the covariance
-unchanged, while a poor fit inflates the reported errors accordingly.
-
-``J`` is always obtained by finite differences -- the model has no analytic
-derivatives.  For each parameter the step balances the ``O(h^2)`` truncation
-error against the ``O(eps/h)`` round-off error, giving the relative step
-``eps^(1/3) ~ 4.9e-3`` for central differences (``eps^(1/2)`` for the
-one-sided differences used at bounds), based on float32 eps.  Each probe that
-falls outside a bound or evaluates to a non-finite residual vector degrades
-that column: central difference when both probes are usable, one-sided
-difference otherwise, and NaN only when the parameter cannot be probed at
-all.  The covariance is assembled by inverting ``J^T J`` on the identifiable
-subspace (SVD rank test); undetermined parameters report NaN errors instead
-of a misleading finite or zero value.
+``J`` is always obtained by finite differences (the model has no analytic
+derivatives).  The step balances the ``O(h^2)`` truncation error against the
+``O(eps/h)`` round-off error, giving the relative step ``eps^(1/3) ~ 4.9e-3``
+for central differences (``eps^(1/2)`` for the one-sided differences used at
+bounds), based on float32 eps (see :func:`numerical_jacobian`).  The
+covariance is assembled by inverting ``J^T J`` on the identifiable subspace
+(SVD rank test); undetermined parameters report NaN errors instead of a
+misleading finite or zero value.
 """
 
 from __future__ import annotations
@@ -73,7 +61,6 @@ def numerical_jacobian(fun, x: np.ndarray,
         hi = np.inf if bounds is None else float(bounds[k][1])
         hc = float(rel_step) * scale
 
-        # Central difference: both probes must lie inside the bounds.
         if x[k] - hc >= lo and x[k] + hc <= hi:
             q_p, q_m = np.array(x, copy=True), np.array(x, copy=True)
             q_p[k] += hc
@@ -123,7 +110,6 @@ def _inverse_fisher(jac: np.ndarray) -> np.ndarray:
     keep = s > tol
     inv_s = np.zeros_like(s)
     np.divide(1.0, s, out=inv_s, where=keep)
-    # Moore-Penrose inverse on the identifiable subspace
     cov = (u * inv_s) @ vt
     if not keep.all():
         null = u[:, ~keep]

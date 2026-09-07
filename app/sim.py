@@ -189,10 +189,8 @@ def batch_matrix_mode(args: argparse.Namespace, mode: str, calib_path: str,
     threads = args.threads if args.threads and args.threads > 0 else max(
         1, os.cpu_count() or 1)
 
-    # Fail fast on the calibration input before launching any worker:
-    # everything compose requires of the calibration (including the
-    # per-element error buffer) is checked up front, so a deterministically
-    # invalid input cannot waste the whole batch.
+    # Fail fast on the calibration input before launching any worker, so
+    # a deterministically invalid input cannot waste the whole batch.
     calib_file = Path(calib_path).expanduser().resolve()
     if not calib_file.is_file():
         raise SystemExit(f"error: calibration file not found: {calib_file}")
@@ -213,10 +211,9 @@ def batch_matrix_mode(args: argparse.Namespace, mode: str, calib_path: str,
             _SIM_OUT_DIR,
             f"{calib_file.stem}-{mode}-response-{count_label(args.events)}.root")
 
-    # The merged G histogram is an intermediate file next to the output;
-    # the composite output is composed from it afterwards.  The stem must
-    # stay dot-free: the Geant4 ROOT analysis manager appends ".root" only
-    # to file names without a dot.
+    # The merged G histogram is an intermediate next to the output; its
+    # stem must stay dot-free (the Geant4 analysis manager appends ".root"
+    # only to dot-free names).
     g_path = output_stem(args.output) + "-g.root"
     if args.compose_from is not None:
         # Retry path: reuse a kept intermediate instead of re-simulating.
@@ -238,9 +235,8 @@ def batch_matrix_mode(args: argparse.Namespace, mode: str, calib_path: str,
                       f"--compose-from {g_path}")
         raise SystemExit(
             f"error: composite export failed (exit code {rc}){retry}")
-    # G is fully preserved in the composite output (counts + statistical
-    # errors); the intermediate has no further use and is removed (unless
-    # the user supplied it via --compose-from).
+    # G lives on in the composite output, so drop the intermediate unless
+    # the user supplied it via --compose-from.
     if args.compose_from is None:
         os.remove(g_path)
     print(f"Composite response written: {final_output_path(args.output)}")

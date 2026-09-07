@@ -253,17 +253,14 @@ def merge_worker_outputs(output_path: str, input_paths: list[str], *,
                          hadd_exe: str | None = None) -> int:
     """Merge worker ROOT files into the final simulation output via hadd.
 
-    Delegates to :func:`kc761util.hadd.merge_root_files`, which merges the
-    worker ntuples entry-by-entry and sums the histograms together with
-    their ``sumw2`` buffers, so the merged file carries the Monte Carlo
-    statistical errors.  Before merging, the worker histogram binnings are
-    validated axis by axis: hadd silently adds differently binned
-    histograms bin-by-bin, which would corrupt the merged result, so a
-    mismatch is a hard error here.  The objects to expect -- and their
-    validation mode -- come from the ``expectation`` descriptor, which
-    keeps the radioactive and matrix paths sharing this function.  After
-    merging, the output is validated and any partial output from a failed
-    merge is removed.
+    Delegates to :func:`kc761util.hadd.merge_root_files` (ntuples merged
+    entry-by-entry, histograms summed with their ``sumw2`` buffers).  The
+    worker histogram binnings are validated axis by axis before merging
+    (there the hadd bin-by-bin addition would corrupt the result): the
+    objects to expect come from the ``expectation`` descriptor, which keeps
+    the radioactive and matrix paths sharing this function.  After merging,
+    the output is validated and a partial output from a failed merge is
+    removed.
     """
     import numpy as np
     import uproot

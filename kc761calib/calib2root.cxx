@@ -150,13 +150,9 @@ void calib2root(const std::string& exportFile, const std::string& output) {
     }
     fout.cd();
 
-    // Write order: calibration formula, calibration parameters (each with
-    // its 1-sigma error right after it), resolution formula, resolution
-    // reference energy, resolution parameters (each with its 1-sigma
-    // error), the parameter order and covariance, response matrix with its
-    // per-bin errors.  The metadata block is written by the shared helper
-    // (the contract read by name in kc761util/calibfile.py and
-    // kc761unfold); the per-parameter errors are the covariance diagonals.
+    // The metadata block is the contract read by name in
+    // kc761util/calibfile.py (see the header comment for the object
+    // order); the per-parameter errors are the covariance diagonals.
     double calibErr[kNC];
     for (int i = 0; i < kNC; ++i)
         calibErr[i] = std::sqrt(std::max(paramCov[i * kNCore + i], 0.0));

@@ -2,16 +2,13 @@
 
 The unfolded spectrum is parameterized as ``mu = S nu`` with ``S`` a
 Gaussian smoother whose width is ``resol_frac`` times the analytic
-resolution model (the same :func:`kc761calib.response.resol_sigma_model`
-kernel that builds the deposition response, so the resolution floor and
-the calibration share one source of truth).  The effective response seen
-by the solver is ``R S``, and presented features are at least
-``resol_frac * sigma`` wide; ``resol_frac = 0`` disables the floor
-(unfold ``mu`` directly).
-
-The kernel support is truncated at ``+-5`` sigma (the same cutoff as the
-calibration folding) and each column is renormalized to sum exactly 1,
-so the floor conserves peak areas.
+resolution model (the same kernel that builds the deposition response, so
+the floor and the calibration share one source of truth); the solver
+works on the effective response ``R S``, so presented features are at
+least ``resol_frac * sigma`` wide (``resol_frac = 0`` disables the floor
+and unfolds ``mu`` directly).  The kernel support is truncated at ``+-5``
+sigma and each column is renormalized to sum exactly 1, so the floor
+conserves peak areas.
 """
 
 from __future__ import annotations
@@ -58,7 +55,7 @@ def build_resolution_smoother(energy_edges, resol_params,
         d = centers[idx] - centers[j]
         kern = np.exp(-0.5 * (d / sigma[j]) ** 2) \
             / (np.sqrt(2.0 * np.pi) * sigma[j]) * de[idx]
-        kern = kern / kern.sum()  # column renormalized to 1
+        kern = kern / kern.sum()
         rows.append(idx)
         cols.append(np.full(idx.size, j))
         data.append(kern)

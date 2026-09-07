@@ -41,9 +41,9 @@ from .sources import MatrixSource
 
 G4AnalysisManager = G4RootAnalysisManager
 
-#: Geant4 root-manager column method, chosen by the numpy dtype *name* in
-#: ``paths.NTUPLE_COLUMNS`` (int32/float32/float64).  Note ``dtype.kind`` is
-#: not usable here: both float32 and float64 report kind ``'f'``.
+# Geant4 root-manager column method, chosen by the numpy dtype *name* in
+# ``paths.NTUPLE_COLUMNS`` (int32/float32/float64).  Note ``dtype.kind`` is
+# not usable here: both float32 and float64 report kind ``'f'``.
 _NTUPLE_COLUMN_CREATORS = {
     "int32": "CreateNtupleIColumn",
     "float32": "CreateNtupleFColumn",
@@ -122,10 +122,8 @@ class MatrixRunAction(_AnalysisRunAction):
     """Matrix path: declares only the G histogram and the zero-dep counter.
 
     Both axes of G use the variable-width edges of the input calibration
-    file: x = energy deposition, y = primary energy -- the toolkit
-    convention that the x axis is the matrix output side and the y axis
-    the input side (like the response matrices themselves).  No ntuple and
-    no spectrum histogram exist on this path.
+    file (x = energy deposition, y = primary energy).  No ntuple and no
+    spectrum histogram exist on this path.
     """
 
     def __init__(self, output_stem: str, primary_edges,
@@ -225,10 +223,7 @@ class MatrixEventAction(G4UserEventAction):
 
     def EndOfEventAction(self, event) -> None:
         am = G4AnalysisManager.Instance()
-        # Fills use the keV convention of the histogram axes (the values
-        # are divided by keV; the G4 internal deposit/energy are in MeV).
-        # G is stored as [deposition, primary]: x = output side, y = input
-        # side, the toolkit matrix convention.
+        # Fills in keV; the internal deposit/energy are in MeV.
         if self.total > 0.0:
             am.FillH2(0, self.total / keV, self.state.e_gamma / keV)
         else:

@@ -26,18 +26,17 @@ DEFAULT_SNIP_ITER = 24
 
 @dataclass
 class CalibrationFile:
-    """Validated kc761calib export or kc761sim composite-response file.
+    """Validated snapshot of a kc761calib export or kc761sim composite file
+    on the selected channel subrange.
 
-    ``matrix`` is the thresholded response on the selected channel
-    subrange ``[channel_low, channel_high]``: entry ``[i, j]`` is the
-    probability that a count in energy bin ``channel_low + j`` is
-    detected in channel bin ``channel_low + i``.  The energy axis is the
-    energy-deposition axis for kc761calib exports (the calibration image
-    of the channel bins) and the true primary-gamma-energy axis for
-    kc761sim matrix-mode composite files; both are read identically.
-    ``energy_edges``/``centers``/``widths`` are the corresponding slice
-    of the full energy binning.  ``param_cov`` is the 7x7 covariance of
-    ``(c0, c1, c2, c3, b0, b1, b2)`` in the reported basis.
+    ``matrix`` is the thresholded response on ``[channel_low,
+    channel_high]``; the energy axis is the axis the matrix maps from
+    (energy deposition for calibration files, true primary gamma energy
+    for composite files, both read identically -- see
+    :mod:`kc761unfold.reader`).  ``energy_edges``/``centers``/``widths``
+    are the corresponding slice of the full binning; ``param_cov`` is the
+    7x7 covariance of ``(c0, c1, c2, c3, b0, b1, b2)`` in the reported
+    basis.
     """
 
     n_channels: int  # full channel count of the calibration file
@@ -48,10 +47,10 @@ class CalibrationFile:
     centers: np.ndarray  # subrange, n_bins
     widths: np.ndarray  # subrange, n_bins
     matrix: sparse.csr_matrix  # subrange n_bins x n_bins
-    #: Composite files only: conditional transport p_tilde[dep, primary]
-    #: (thresholded CSR); None for calibration files.  Used by the
-    #: systematic-error propagation to rebuild the response's parameter
-    #: dependence, R(q) = C(q) p_tilde diag(eta).
+    # Composite files only: conditional transport p_tilde[dep, primary]
+    # (thresholded CSR); None for calibration files.  Used by the
+    # systematic-error propagation to rebuild the response's parameter
+    # dependence, R(q) = C(q) p_tilde diag(eta).
     transport: sparse.csr_matrix | None
     calib_coeffs: np.ndarray  # (c0, c1, c2, c3)
     resol_params: np.ndarray  # (b0, b1, b2)
@@ -66,16 +65,12 @@ class CalibrationFile:
 class UnfoldSettings:
     """Hybrid regularized unfolding configuration; every field is CLI-exposed.
 
-    The working range is given by the energy window ``energy_low`` ..
-    ``energy_high`` (keV); ``channel_low``/``channel_high`` are the
-    derived channel bins (the bins whose centers fall inside the energy
-    window).  ``alpha`` is the dimensionless regularization strength.
-    ``resol_frac`` is the resolution-fraction of the presentation floor:
-    the unfolded spectrum is parameterized as mu = S nu with S a
-    Gaussian smoother of width ``resol_frac`` times the analytic
-    resolution model, so presented features are at least
-    ``resol_frac * sigma`` wide (0 disables the floor and unfolds mu
-    directly).
+    The working range is the energy window ``energy_low`` .. ``energy_high``
+    (keV); ``channel_low``/``channel_high`` are the derived channel bins
+    (their centers fall inside the window).  ``alpha`` is the
+    dimensionless regularization strength; ``resol_frac`` the
+    resolution-floor fraction of :mod:`kc761unfold.smoothing` (0 disables
+    the floor).
     """
 
     alpha: float = DEFAULT_ALPHA  # fixed regularization strength
@@ -95,16 +90,14 @@ class UnfoldSettings:
 class UnfoldResult:
     """One output spectrum: the single structure behind ROOT export/plot.
 
-    Unfold mode (``calib_only=False``): ``counts`` is the unfolded
-    mu_hat with the analytic per-bin total/statistical/systematic
-    errors and the full n x n covariance pair; ``refolded`` carries the
-    refolded prediction for the residual panel.  Calibration-only mode
-    (``calib_only=True``): ``counts`` are the raw counts relabeled onto
-    the energy axis; ``sigma_stat`` is the stored subtraction error,
-    ``sigma_syst`` combines the fractional systematic with the
-    calibration-model error propagated vertically through the spectrum
-    derivative (``sigma_calib``); covariance matrices and diagnostics
-    are None.
+    Unfold mode (``calib_only=False``): ``counts`` is the unfolded mu_hat
+    with the analytic per-bin total/statistical/systematic errors and the
+    full covariance pair; ``refolded`` carries the refolded prediction for
+    the residual panel.  Calibration-only mode (``calib_only=True``):
+    ``counts`` are the raw counts relabeled onto the energy axis,
+    ``sigma_calib`` is the calibration-model error propagated vertically
+    through the spectrum derivative, and the covariance matrices and
+    diagnostics are None.
     """
 
     calib_only: bool

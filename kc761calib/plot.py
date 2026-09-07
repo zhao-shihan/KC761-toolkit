@@ -167,12 +167,10 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
                           ds.channel_low, ds.channel_high)
     stairs_handle = ax.stairs(sb_full * ds.unsmeared_sim, ds.bin_edges,
                               lw=0.8, color=_COLOR_SIM_RAW, zorder=2)
-    # Monte Carlo statistical error bars of the raw (pre-folding) rebinned
-    # simulation, scaled by the same scale curve as the stairs.  The bin
-    # centers are the midpoints of the energy-deposition bin edges, matching
-    # the
-    # stairs binning exactly.  No own legend entry: the legend reuses the
-    # "Raw sim." handle, overlaid with the error-bar artist.
+    # MC statistical error bars of the raw (pre-folding) rebinned sim,
+    # scaled by the same scale curve as the stairs, at the midpoints of the
+    # energy-deposition bin edges.  No own legend entry: the legend reuses
+    # the "Raw sim." handle, overlaid with the error-bar artist.
     sim_centers = 0.5 * (ds.bin_edges[:-1] + ds.bin_edges[1:])
     sim_err_handle = ax.errorbar(
         sim_centers, sb_full * ds.unsmeared_sim,
@@ -229,8 +227,7 @@ def _residual_panel(ax, bin_centers, data_counts, combined_errors, model_predict
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Residual")
     ax.set_xlim(energy_low, energy_high)
-    # Fixed range so that the panels of all datasets are directly comparable.
-    ax.set_ylim(-_RESIDUAL_MAX, _RESIDUAL_MAX)
+    ax.set_ylim(-_RESIDUAL_MAX, _RESIDUAL_MAX)  # fixed, for comparability
     ax.set_title(title, fontsize=9)
 
 
@@ -348,8 +345,6 @@ def _resolution_panel(ax, resol_params, energy_max: float, resol_cov=None,
         f"Energy resolution ({"FWHM" if _RESOL_AS_FWHM else r"$\sigma$"}, %)")
     ax.set_title(title, fontsize=10)
     ax.grid(alpha=0.3)
-    # One legend entry combining the fitted curve and its band; the band is
-    # the 1-sigma covariance band scaled up for visibility.
     resol_label = (r"$\text{FWHM}(E)\,/\,E$" if _RESOL_AS_FWHM
                    else r"$\sigma(E)\,/\,E$")
     if band_handle is not None:

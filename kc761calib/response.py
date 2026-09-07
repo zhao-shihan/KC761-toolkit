@@ -1,37 +1,26 @@
-"""Detector response: deposition-energy calibration E(channel) and
-resolution sigma^2(E).
+"""Detector response: deposition-energy calibration E(channel) and resolution
+sigma^2(E).
 
-The calibration is cubic in the channel number and is parameterized by the
+The calibration is cubic in the channel number, parameterized by the
 intercept plus three slopes ``(c0, k1, k2, k3)``:
 
    E(channel) = c0 + k1 channel + (4 k2 - 3 k1 - k3)/(2 channel_max) channel^2
                  + 2 (k1 - 2 k2 + k3)/(3 channel_max^2) channel^3,
    E'(0) = k1,   E'(channel_max/2) = k2,   E'(channel_max) = k3.
 
-Monotonicity on [0, channel_max] is guaranteed by the fit bounds (no separate
-check).  Reported coefficients are the plain cubic form ``(c0, c1, c2, c3)`` with
-``c1 = k1``, ``c2 = (4 k2 - 3 k1 - k3)/(2 channel_max)`` and
-``c3 = 2 (k1 - 2 k2 + k3)/(3 channel_max^2)`` via the constant, invertible map
-``c0k1k2k3_to_c0c1c2c3``.
+Monotonicity on [0, channel_max] is guaranteed by the fit bounds; the
+reported plain cubic ``(c0, c1, c2, c3)`` is recovered from the slopes
+through the constant map ``c0k1k2k3_to_c0c1c2c3``.
 
-Resolution is a pure Gaussian with energy-dependent standard deviation
-``sigma(E)``.  ``sigma^2`` is a quadratic Bernstein polynomial in
-``t = E / RESOL_E_REF`` (``RESOL_E_REF = 2000`` keV), equivalently a
-quadratic Bezier curve with control values ``(b0^2, b1^2, b2^2)``:
+``sigma^2`` is a quadratic Bernstein polynomial in ``t = E / RESOL_E_REF``
+(control values ``(b0^2, b1^2, b2^2)``):
 
    sigma^2(t) = (1-t)^2 b0^2 + 2(1-t)t b1^2 + t^2 b2^2
 
-The Bernstein basis is a non-negative partition of unity only on
-``t`` in [0, 1], so ``t`` is clamped at 0 before evaluation: for
-``E <= 0`` the resolution saturates at ``b0``, keeping the variance
-non-negative at the low-energy edge and preventing a degenerate delta
-response there.  Above ``RESOL_E_REF`` the polynomial continues unclamped;
-``MIN_SIGMA`` remains as numerical safety.
-
-Folding the Gaussian response into histograms is done by the extended
-binning and sparse response matrix in :mod:`kc761calib.folding`, which maps
-energy-deposition bins to detected channel bins; its fused assembly kernel
-calls :func:`gaussian_pdf` directly.
+``t`` is clamped at 0, so ``sigma`` saturates at ``b0`` for ``E <= 0`` (the
+polynomial is not usable there) and the variance floor ``MIN_SIGMA`` is
+purely numerical safety; above ``RESOL_E_REF`` the polynomial runs
+unclamped.  The response matrix is assembled in :mod:`kc761calib.folding`.
 """
 
 from __future__ import annotations
@@ -41,8 +30,7 @@ import numpy as np
 
 from .util import _bernstein_basis
 
-# --------------------------------------------------------------------------
-# initial values and fit bounds
+# --- initial values and fit bounds ---
 
 N_CALIB = 4  # (c0, k1, k2, k3)
 INIT_CALIB = np.array([-180.0, 1.5, 2.5, 3.5])
@@ -60,30 +48,24 @@ PARAM_NAMES_K = ["k1", "k2", "k3"]
 PARAM_NAMES_B = ["b0", "b1", "b2"]
 
 
-# --------------------------------------------------------------------------
-# canonical model formulas
+# --- canonical model formulas ---
 #
-# The single source of truth for the model formula texts: stored verbatim in
-# the ROOT export (kc761calib.export) and printed by the console report
+# The single source of truth for the formula texts: stored verbatim in the
+# ROOT export (kc761calib.export) and printed by the console report
 # (kc761calib.report).  They must stay consistent with calib_model and
 # resol_sigma_model.
 
-# Calibration formula with the plain cubic coefficients (c0, c1, c2, c3),
-# the parameterization reported by c0k1k2k3_to_c0c1c2c3.
+# Plain-cubic parameterization reported by c0k1k2k3_to_c0c1c2c3.
 CALIB_FORMULA = ("E(ch) = c0 + c1*ch + c2*ch^2 + c3*ch^3"
                  "   (E in keV, ch = channel)")
 
-# Resolution formula: sigma^2 is the quadratic Bernstein polynomial (a
-# quadratic Bezier curve with control values b0^2, b1^2, b2^2) in
-# t = E / RESOL_E_REF.  t is clamped at 0, so sigma saturates at b0 for
-# E <= 0, where the polynomial is not usable.
+# Bernstein sigma^2 in t = max(E, 0)/RESOL_E_REF (see module docstring).
 RESOL_FORMULA = (f"sigma^2(E) = (1-t)^2*b0^2 + 2*(1-t)*t*b1^2 + t^2*b2^2,"
                  f"   t = max(E, 0)/{RESOL_E_REF:g} keV"
                  f"   (sigma in keV, saturated at b0 for E <= 0)")
 
 
-# --------------------------------------------------------------------------
-# energy calibration E(ch)
+# --- energy calibration E(ch) ---
 
 def poly_basis(x: np.ndarray | float, degree: int) -> np.ndarray:
     """Monomial basis vector [1, x, ..., x^degree] on the last axis."""
@@ -93,12 +75,11 @@ def poly_basis(x: np.ndarray | float, degree: int) -> np.ndarray:
 
 @numba.njit(inline="always", cache=True)
 def calib_model(calib_params, channel, channel_max):
-    """Cubic E(channel) from an intercept and three slopes.
+    """Cubic E(channel) from ``(c0, k1, k2, k3)`` (module docstring).
 
-    ``calib_params = [c0, k1, k2, k3]`` where ``k1 = E'(0)``, ``k2 = E'(channel_max/2)``
-    and ``k3 = E'(channel_max)``; ``channel_max`` is the maximum channel number of the
-    acquisition, a fixed constant of the data.  ``calib_params`` is a float64
-    array of length 4 and ``channel`` a float64 scalar or array.
+    ``channel_max`` is the maximum channel number of the acquisition, a
+    fixed constant of the data; ``calib_params`` is a float64 array of
+    length 4 and ``channel`` a float64 scalar or array.
     """
     c0 = calib_params[0]
     k1 = calib_params[1]
@@ -110,12 +91,8 @@ def calib_model(calib_params, channel, channel_max):
 
 
 def c0k1k2k3_to_c0c1c2c3(calib_params: np.ndarray | list[float], channel_max: float) -> np.ndarray:
-    """Cubic coefficients [c0, c1, c2, c3] from the calibration parameters.
-
-    ``calib_params = [c0, k1, k2, k3]`` where ``k1 = E'(0)``, ``k2 = E'(channel_max/2)``
-    and ``k3 = E'(channel_max)``: ``c1 = k1``, ``c2 = (4 k2 - 3 k1 - k3)/(2 channel_max)`` and
-    ``c3 = 2 (k1 - 2 k2 + k3)/(3 channel_max^2)``.
-    """
+    """Plain cubic ``[c0, c1, c2, c3]`` from the slope parameterization (module
+    docstring: ``c1 = k1`` and the slope-image map for ``c2``, ``c3``)."""
     c0, k1, k2, k3 = np.asarray(calib_params, dtype=float)
     c1 = k1
     c2 = (4 * k2 - 3 * k1 - k3) / (2.0 * channel_max)
@@ -181,32 +158,28 @@ def reported_core_cov(core_cov: np.ndarray, channel_max: float) -> np.ndarray:
 
 def reported_calib(calib_params: np.ndarray | list[float], calib_cov: np.ndarray,
                    channel_max: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Reported (c0, c1, c2, c3) values, errors and covariance from raw params.
+    """Reported (c0, c1, c2, c3) values, errors and covariance.
 
-    Useful only for display: internally the parameterization works with
-    ``(c0, k1, k2, k3)``, and the plain cubic coefficients are recovered on
-    demand via the constant map ``c0k1k2k3_to_c0c1c2c3``; the covariance is
-    similarity-transformed by the same map, NaN-aware: a reported entry is
-    NaN exactly when it depends on an undetermined raw parameter.
+    Display-only: the coefficients come from ``c0k1k2k3_to_c0c1c2c3`` and the
+    covariance is similarity-transformed by the same map, NaN-aware (a
+    reported entry is NaN exactly when it depends on an undetermined
+    parameter).
     """
     c = c0k1k2k3_to_c0c1c2c3(calib_params, channel_max)
     cov = _basis_transform_cov(calib_cov, jac_c0k1k2k3(channel_max))
     err = np.sqrt(np.maximum(np.diag(cov), 0.0))
     return c, err, cov
 
-# --------------------------------------------------------------------------
-# resolution: Gaussian sigma(E)
+# --- resolution: Gaussian sigma(E) ---
 
 
 @numba.njit(inline="always", cache=True)
 def gaussian_pdf(d, sigma):
-    """Normal (Gaussian) probability density at offset ``d`` for ``sigma > 0``.
+    """Normal density at offset ``d`` for ``sigma > 0``.
 
-    ``exp(-d^2 / (2 sigma^2)) / (sqrt(2 pi) sigma)``, elementwise: ``d`` and
-    ``sigma`` are float64 scalars or broadcastable float64 arrays (the result
-    has the broadcast shape).  ``np.exp``/``np.sqrt`` are numba intrinsics
-    and constant-fold inside the fused kernel, so the scalar hot path in
-    :mod:`kc761calib.folding` is unchanged.
+    ``exp(-d^2 / (2 sigma^2)) / (sqrt(2 pi) sigma)``, elementwise over
+    float64 scalars or broadcastable arrays.  ``np.exp``/``np.sqrt`` are
+    numba intrinsics that constant-fold inside the fused folding kernel.
     """
     return np.exp(-0.5 * (d / sigma)**2) / (np.sqrt(2.0 * np.pi) * sigma)
 
@@ -215,13 +188,10 @@ def gaussian_pdf(d, sigma):
 def _sigma_intermediates(resol_params, energy):
     """Clipped ``t``, the Bernstein basis, ``var`` and ``sigma`` of the model.
 
-    The single source of truth for the sigma evaluation chain shared by
-    :func:`resol_sigma_model` and :func:`resol_sigma_model_grad`: ``t`` is
-    clamped at 0, ``var = sum_k B_k(t) b_k^2`` over the degree-2 Bernstein
-    basis and ``sigma = sqrt(max(var, MIN_SIGMA**2))``, so both the value
-    and its derivatives can never drift apart.  ``resol_params`` is a
-    float64 array of length 3 and ``energy`` a float64 scalar or array;
-    ``t``/``var``/``sigma`` have the shape of ``energy``.
+    Shared by :func:`resol_sigma_model` and :func:`resol_sigma_model_grad`,
+    so value and derivatives can never drift apart: ``var = sum_k B_k(t)
+    b_k^2`` with ``sigma = sqrt(max(var, MIN_SIGMA**2))``.  ``resol_params``
+    is a float64 array of length 3 and ``energy`` a float64 scalar or array.
     """
     e = np.asarray(energy, dtype=np.float64)
     b_sq = np.asarray(resol_params, dtype=np.float64) ** 2
@@ -234,25 +204,20 @@ def _sigma_intermediates(resol_params, energy):
 
 @numba.njit(cache=True)
 def resol_sigma_model_grad(resol_params, energy):
-    """Elementwise derivatives of ``sigma(E)`` w.r.t. energy and ``resol_params``.
+    """Elementwise derivatives of ``sigma(E)``.
 
-    Returns ``(ds_dE, ds_db)``: ``ds_dE`` is ``d sigma/dE`` at each energy
-    (with the same shape as ``energy``) and ``ds_db`` is ``d sigma/db_k``
-    with a last axis over ``k = 0..2``.  The basis and both clamps are
-    shared with :func:`resol_sigma_model` through
-    :func:`_sigma_intermediates`, so the derivative is exact to it: where
-    ``t`` is clamped (``E <= 0``) or where the ``MIN_SIGMA`` variance floor
-    is active, the corresponding derivative vanishes (one-sided
-    derivative).
+    Returns ``(ds_dE, ds_db)`` with ``ds_db`` having a last axis over
+    ``k = 0..2``.  Both the basis and the clamps are shared with
+    :func:`resol_sigma_model` through :func:`_sigma_intermediates`, so the
+    derivative is exact: it vanishes where ``t`` is clamped (``E <= 0``) or
+    where the ``MIN_SIGMA`` floor is active (one-sided derivative).
     """
     e = np.asarray(energy, dtype=np.float64)
     b_sq = np.asarray(resol_params, dtype=np.float64) ** 2
     t, basis, var, sigma = _sigma_intermediates(resol_params, e)
     ds_dvar = np.where(var > MIN_SIGMA**2, 0.5 / sigma, 0.0)
     # dB/dt of the degree-2 Bernstein basis: [-2(1-t), 2(1-2t), 2t],
-    # assembled column-wise so scalar energy stays supported (numba does
-    # not stack or add axes to 0-D arrays, and np.clip collapses a 0-D
-    # array to a scalar, so the allocation uses e.shape).
+    # assembled column-wise so 0-D (scalar) arrays stay supported.
     db_dt = np.empty(e.shape + (3,), dtype=np.float64)
     db_dt[..., 0] = 2.0 * (t - 1.0)
     db_dt[..., 1] = 2.0 * (1.0 - 2.0 * t)
@@ -267,19 +232,13 @@ def resol_sigma_model_grad(resol_params, energy):
 
 @numba.njit(cache=True)
 def resol_sigma_model(resol_params, energy):
-    """sigma(E) from the resolution parameters ``resol_params = [b0, b1, b2]`` (in keV).
+    """sigma(E) from ``resol_params = [b0, b1, b2]`` (in keV).
 
-    ``sigma^2`` is the quadratic Bernstein polynomial in ``t = E / RESOL_E_REF``
-    with coefficients ``(b0^2, b1^2, b2^2)``, i.e. a quadratic Bezier curve
-    with those coefficients as control values.  ``t`` is clamped at 0 before
-    evaluation, so ``sigma^2`` is a non-negative convex combination of the
-    squared coefficients for ``0 <= t <= 1`` -- the Bernstein basis is not
-    non-negative for negative ``t``, and clamping is what keeps the variance
-    from going negative there.  Physically this saturates the resolution at
-    the low-energy edge: ``sigma(E <= 0) = b0``.  Above ``RESOL_E_REF`` the
-    polynomial continues unclamped, so ``sigma`` keeps growing with energy as
-    before and the plotted model band stays consistent with it.  The
-    ``MIN_SIGMA`` floor is numerical safety only.  ``resol_params`` is a
-    float64 array of length 3 and ``energy`` a float64 scalar or array.
+    The module's Bernstein model: ``t`` clamped at 0, saturating at ``b0``
+    for ``E <= 0`` and running unclamped above ``RESOL_E_REF`` (the
+    variance stays non-negative because the Bernstein basis is a
+    non-negative partition of unity on ``t`` in [0, 1]).  ``resol_params``
+    is a float64 array of length 3 and ``energy`` a float64 scalar or
+    array.
     """
     return _sigma_intermediates(resol_params, energy)[3]

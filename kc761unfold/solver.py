@@ -23,8 +23,7 @@ from scipy.linalg import cholesky_banded, cho_solve_banded
 JITTER_FRAC = 1e-10  # relative diagonal jitter for the banded Cholesky
 
 
-# --------------------------------------------------------------------------
-# banded storage helpers
+# --- banded storage helpers ---
 
 
 def csr_to_upper_banded(h: sparse.csr_matrix, n: int
@@ -79,8 +78,7 @@ def solve_embedded(ab: np.ndarray, u: int, free: np.ndarray, rhs: np.ndarray,
     return cho_solve_banded(factor, b)
 
 
-# --------------------------------------------------------------------------
-# problem and optimization
+# --- problem and optimization ---
 
 
 def objective_gradient(r: sparse.csr_matrix, y: np.ndarray, w: np.ndarray,
@@ -114,7 +112,7 @@ class UnfoldProblem:
         # constant penalty part of the Hessian (quadratic objective)
         self._dtd = (2.0 * (d_op.T @ d_op)).tocsr()
 
-    # -- objective --------------------------------------------------------
+    # --- objective ---
 
     def _chi2(self, mu: np.ndarray) -> float:
         r_ = self.y - self.r @ mu
@@ -133,7 +131,7 @@ class UnfoldProblem:
         h = self._rtwr + self.alpha * self._dtd
         return csr_to_upper_banded(h, self.n)
 
-    # -- quadratic warm start ----------------------------------------------
+    # --- quadratic warm start ---
 
     def warm_start(self) -> np.ndarray:
         """Exact non-negative quadratic solution (the objective is quadratic).
@@ -157,7 +155,7 @@ class UnfoldProblem:
             free = free & ~viol
         return np.where(free, mu, 0.0)
 
-    # -- damped Newton with an active set ------------------------------------
+    # --- damped Newton with an active set ---
 
     def solve(self, maxiter: int = 400) -> np.ndarray:
         """Minimize the unfolding objective with banded damped Newton steps.

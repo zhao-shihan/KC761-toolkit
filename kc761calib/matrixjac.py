@@ -29,16 +29,15 @@ dg_ds = (d^2/sigma_j^2 - 1)/sigma_j * pdf, and the sigma derivatives from
                     + dg_ds * ds_dE_j * dc_j/dc_p * width_a,
     dC[a,j]/db_p = dg_ds * ds_db[j,p] * width_a,
 
-(both clamps -- the t = 0 saturation and the MIN_SIGMA floor -- carry
-exact one-sided derivatives through resol_sigma_model_grad, as in
-:mod:`kc761calib.export`).
+(both clamps of sigma(E) carry exact one-sided derivatives through
+:func:`kc761calib.response.resol_sigma_model_grad`).
 
 Note on the stored per-element errors: kc761calib computes them in its
 internal basis; the reported-basis quadratic form here is the same value
-up to floating-point rounding (a constant, invertible linear change of
-basis), so Var_C agrees with the file's ``C_err^2`` to ~1e-16 relative.
-The C copy in the composite output inherits the file's errors bitwise;
-only the propagated R errors use this recomputed Jacobian.
+up to floating-point rounding (a constant, invertible change of basis), so
+Var_C agrees with the file's ``C_err^2`` to ~1e-16 relative.  The C copy in
+the composite output inherits the file's errors bitwise; only the
+propagated R errors use this recomputed Jacobian.
 
 Memory: the returned tensor has shape (n, n, 7); for the 2048-bin
 calibration that is ~235 MB of float64, acceptable for a one-shot
@@ -57,13 +56,11 @@ N_PARAMS = 7  # reported basis (c0..c3, b0..b2)
 
 @numba.njit(parallel=True, cache=True)
 def _jacobian_kernel(ch, centers, widths, sigma, ds_dE, ds_db):
-    """Per-element gradient of C w.r.t. the reported basis, as above.
+    """Per-element gradient of C w.r.t. the reported basis (module docstring).
 
-    Column-parallel: column ``j`` uses only the shared per-bin arrays and
-    its own per-column scalars, so every ``(i, j)`` entry is written
-    exactly once.  The row-dependent calibration derivatives ``dm``/``dw``
-    are precomputed once per row (they are recomputed for every column
-    otherwise).
+    Column-parallel: each ``(i, j)`` entry is written exactly once.  The
+    row-dependent calibration derivatives ``dm``/``dw`` are precomputed
+    once per row (they would otherwise be recomputed per column).
     """
     n = centers.shape[0]
     dm = np.empty((n, 4), dtype=np.float64)  # d(center_i)/dc_p
@@ -80,7 +77,6 @@ def _jacobian_kernel(ch, centers, widths, sigma, ds_dE, ds_db):
         s2 = s_j * s_j
         ds_dE_j = ds_dE[j]
         ch_j = ch[j]
-        # d(center_j)/dc_p = 0.5 * [(ch_j+0.5)^p + (ch_j-0.5)^p]
         dm_j = np.empty(4, dtype=np.float64)
         for p in range(4):
             dm_j[p] = 0.5 * ((ch_j + 0.5) ** p + (ch_j - 0.5) ** p)

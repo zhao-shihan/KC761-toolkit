@@ -1,79 +1,54 @@
 """Shared extended binning and sparse detector response matrix (energy
 deposition to channel).
 
-The measured spectra are binned in channels, so the channel axis is the
-detected (output) axis of the response matrix: a uniform binning of bin
-width 1, edges ``-0.5 .. channel_max + 0.5``, bin centers equal to the
-channel indices.  The data counts/errors live on it and never move.  The
-simulation instead is an energy-deposition histogram: the response matrix
-maps it to the detected channel space, ``R[i, j]`` being the probability
-that a count in the energy-deposition bin ``j`` is detected in the channel
-bin ``i``.
+The channel axis is the detected (output) axis: uniform bins of width 1,
+edges ``-0.5 .. channel_max + 0.5``, centers equal to the channel indices;
+the data counts/errors live on it and never move.  The simulation is an
+energy-deposition histogram, mapped into channel space by ``R[i, j]`` --
+the probability that a count in energy bin ``j`` is detected in channel bin
+``i``:
+
+    R[i, j] = gaussian_density(c_i - c_j; sigma_j) * dE_i,
+
+with ``c_k`` the energy-bin centers (midpoints of ``E(ch +- 0.5)``),
+``sigma_j`` the resolution at ``c_j`` and ``dE_i`` the energy width of
+channel bin ``i`` (the midpoint-quadrature weight of the Gaussian integral
+over that bin).  The matrix is kept nonzero only inside the kernel support
+``[c_j - n_sigma sigma_j, c_j + n_sigma sigma_j]`` (``n_sigma = 5``: the
+cutoff ``exp(-12.5) ~ 3.7e-6`` makes the truncation negligible and keeps the
+residual smooth in the resolution parameters, so finite-difference
+covariance steps sample the same derivative everywhere) and each column is
+renormalized to sum exactly 1, absorbing the ~1e-6 quadrature error of the
+finite support.  The renormalization is a fit-internal choice: the exported
+full-range matrix (:mod:`kc761calib.export`) keeps the columns unnormalized,
+so the probability beyond the detector range stays truncated.  Because
+``sigma`` saturates at its ``E = 0`` value (see :mod:`kc761calib.response`),
+the kernel support never collapses to a sub-bin delta below the fit range.
 
 The energy-deposition (input) axis is the calibration image of the channel
-axis -- energy bin ``j`` is the relabeling of channel bin ``j`` through
-``E(ch)`` -- so the energy-deposition bins are non-uniform, and both axes
-share one extended bin set.  For every chi-square evaluation one
-:class:`Response` (an extended binning plus its response matrix) is built
-from the shared calibration/resolution parameters and reused by all
-datasets.
+axis, so both axes share one extended bin set covering the fit range (the
+union of the datasets' fit ranges) plus every bin whose Gaussian kernel can
+reach it -- truncating to this binning does not affect the fit-range bins.
+For every chi-square evaluation one :class:`Response` (binning + matrix) is
+built from the shared calibration/resolution parameters and reused by all
+datasets.  The nonzero triple is located with searchsorted and assembled by
+a single fused, parallel numba kernel in CSC layout, avoiding numpy
+fancy-indexing and COO/CSR conversion overhead; :class:`Response` converts
+to CSR because rows drive both the sparse @ dense folding and the variance
+kernel.
 
-The extended binning covers the union of the datasets' fit channel ranges
-(the *fit range*) plus every channel bin whose Gaussian kernel can reach it,
-so truncating the matrix to this binning does not affect the fit-range bins.
-
-Response-matrix convention: ``R[i, j]`` is the probability that a count in
-the energy-deposition bin ``j`` is detected in channel bin ``i``:
-``R[i, j] = gaussian_density(c_i - c_j; sigma_j) * dE_i``, with ``c_i`` and
-``c_j`` the energy-bin centers (the midpoints of the bin energy edges,
-``c_k ~ E(ch_k)``), ``sigma_j`` the resolution at ``c_j``, and
-``dE_i = E(ch_i + 0.5) - E(ch_i - 0.5)`` the energy width of channel bin
-``i`` -- the midpoint quadrature weight of the Gaussian integral over that
-channel bin.  ``R[i, j]`` is kept nonzero only inside the kernel support
-``[c_j - n_sigma sigma_j, c_j + n_sigma sigma_j]`` -- the same condition the
-binning extension uses, so the two are self-consistent -- and each column is
-then renormalized to sum exactly 1, absorbing the ~1e-6 truncation/quadrature
-error of the finite support.  That renormalization is a fit-internal choice:
-the exported full-range matrix (:mod:`kc761calib.export`) keeps the columns
-unnormalized, so the probability beyond the detector channel range stays
-truncated -- physically lost -- instead of being redistributed onto the
-edge bins.  The resolution ``sigma`` saturates at the
-low-energy edge of its model domain (``E = 0``; see
-:mod:`kc761calib.response`), so the kernel support never collapses to a
-sub-bin delta from negative-variance clamping below the fit range.
-``n_sigma = 5`` places the cutoff deep in the
-Gaussian tail (``exp(-12.5) ~ 3.7e-6``), which makes the truncation negligible
-and keeps the residual smooth in the resolution parameters to numerical
-precision: finite-difference covariance steps (``~1e-6`` relative) then sample
-the same derivative everywhere instead of catching the bin enter/leave jumps
-that a tighter cutoff produces.
-
-The band spans are located with searchsorted and the ``(indptr, indices,
-data)`` triple is assembled by a single fused, parallel numba kernel
-(column-major, i.e. CSC layout), which avoids the numpy fancy-indexing and
-COO->CSR conversion overheads of a vectorized build; the matrix build is the
-dominant cost of an evaluation.
-
-Besides the smeared per-channel counts, each projection carries their Monte
-Carlo statistical variance.  The simulation histogram has per-source-bin
-variance ``v`` (its ``sumw2`` buffer, or the Poisson estimate when the file
-stores none); the exact rebin onto the energy-deposition bins is the linear
-map ``W`` (each source bin is redistributed over the target bins it overlaps
-with weights equal to the overlap fractions), and the smeared model is
-``m = R W n``.  With independent source bins,
-``Var(m) = diag(R W diag(v) W^T R^T) = (R W)^2 v``, i.e. the exact diagonal
-of the propagated covariance -- including the small correlation that a
-source bin straddling an energy-deposition bin boundary induces between
-adjacent energy-deposition bins, since ``(R W)^2`` mixes them through the
-full matrix square.  The rebinned counts and the banded rebinned covariance
-``B = W diag(v) W^T`` (banded because each source bin overlaps at most a few
-consecutive target bins) are accumulated by a fused numba kernel over the
-source-major rebin triples, and the smeared variances ``diag(R B R^T)`` are
-evaluated by a row-parallel numba kernel over the response matrix's CSR
-triples -- the sparse matrices ``W`` and ``R W`` are never materialized.
-The per-bin Monte Carlo error enters the chi-square denominator in
-quadrature with the data's statistical and systematic errors
-(:mod:`kc761calib.fitmodel`).
+Each projection carries the Monte Carlo statistical variance of the smeared
+counts: with independent source bins, the exact diagonal of the propagated
+covariance is ``Var(m) = (R W)^2 v``, where ``W`` is the exact-rebin map
+(overlap fractions of source bins on target bins) and ``v`` the source-bin
+variances (the file's ``sumw2``, or the Poisson estimate without one).  The
+rebinned counts and the banded rebinned covariance ``B = W diag(v) W^T``
+(banded because a source bin overlaps few consecutive target bins) are
+accumulated by a fused kernel over the source-major rebin triples, and the
+smeared variances ``diag(R B R^T)`` by a row-parallel kernel over the
+matrix's CSR triples -- ``W`` and ``R W`` are never materialized.  The
+per-bin MC error enters the chi-square denominator in quadrature with the
+data-side errors (:mod:`kc761calib.fitmodel`).
 """
 
 from __future__ import annotations
@@ -91,17 +66,8 @@ N_SIGMA = 5.0
 
 @dataclass
 class ExtendedBinning:
-    """Extended detected-channel binning and its energy-deposition relabeling.
-
-    The channel axis is the detected (output) axis of the response matrix:
-    uniform bins of width 1 whose centers are the channel indices.  The
-    energy arrays are the energy-deposition (input) axis: the calibration
-    image of the same extended bins, onto which the simulation is rebinned
-    before folding and on which the Gaussian kernel is evaluated.  Both axes
-    share one extended bin set (energy bin ``j`` is the image of channel bin
-    ``j``), so the matrix is square with identically indexed rows and
-    columns.
-    """
+    """Extended detected-channel binning and its energy-deposition relabeling
+    (module docstring for the axis conventions)."""
 
     channel_lo: int  # first extended channel (inclusive)
     channel_hi: int  # last extended channel (inclusive)
@@ -256,23 +222,12 @@ def _assemble_matrix(centers, widths, sigma, lo, hi):
 def build_response_matrix(binning: ExtendedBinning,
                           resol_params: np.ndarray,
                           n_sigma: float = N_SIGMA) -> sparse.csc_matrix:
-    """Sparse response matrix mapping energy-deposition bins to detected channels.
-
-    Row ``i`` (channel bin ``i``), column ``j`` (energy-deposition bin
-    ``j``): ``gaussian_density(c_i - c_j; sigma_j) * dE_i`` for ``c_i``
-    inside the kernel support of column ``j``; zero otherwise.  ``c_i`` and
-    ``c_j`` are the energy-bin centers (midpoints of the bin energy edges,
-    ``~ E(ch)``), ``sigma_j`` the resolution at ``c_j``, and ``dE_i`` the
-    energy width of channel bin ``i`` (the midpoint quadrature weight of the
-    Gaussian integral over that channel bin).  Columns are renormalized to
-    sum exactly 1, absorbing the truncation/quadrature error of the finite
-    kernel support.
-
-    Rows and columns traverse the same extended bin set, so the row kernel
-    position ``c_i`` and its quadrature weight ``dE_i`` are the shared
-    ``energy_centers[i]`` and ``energy_widths[i]``.  The nonzero triple is
-    assembled column-major, so the returned matrix is CSC; ``R @ v`` is
-    bit-identical to the CSR form.
+    """Sparse response matrix on the extended binning (module docstring for
+    the ``R[i, j]`` convention and the column renormalization).  Rows and
+    columns traverse the same extended bin set, so the row kernel position
+    and quadrature weight are the shared ``energy_centers`` /
+    ``energy_widths``; the nonzero triple is assembled column-major, so the
+    result is CSC (``R @ v`` is bit-identical to the CSR form).
     """
     centers = binning.energy_centers
     widths = binning.energy_widths
@@ -430,15 +385,11 @@ def _smeared_variances_csr(indptr, indices, data, bands_all, band_dims):
 class SimProjection:
     """One simulation projected through the response onto channel bins.
 
-    ``counts`` are the rebinned, resolution-smeared sim counts per channel
-    bin of the extended binning (``m = R W n``); ``variances`` are their
-    exact Monte Carlo statistical variances per channel bin
-    (``Var(m) = diag(R B R^T)`` with ``B = W diag(v) W^T`` the rebinned
-    counts' covariance and ``v`` the source-bin variances), assuming
-    independent source bins.  ``rebinned`` and ``rebinned_variances`` carry
-    the pre-folding rebinned counts and their variances on the
-    energy-deposition bins (``W n`` and ``W^2 v``), so consumers needing the
-    raw-sim spectrum do not recompute the rebin.
+    ``counts``/``variances`` are the smeared counts and their exact MC
+    variance per channel bin (module docstring); ``rebinned`` /
+    ``rebinned_variances`` carry the pre-folding ``W n`` and ``W^2 v`` on
+    the energy-deposition bins, so consumers needing the raw-sim spectrum do
+    not recompute the rebin.
     """
 
     counts: np.ndarray
@@ -448,23 +399,16 @@ class SimProjection:
 
 
 class Response:
-    """Extended binning + deposition-to-channel response matrix shared by all
-    datasets.
-
-    Built once per chi-square evaluation from the shared calibration and
-    resolution parameters; each dataset rebins its simulation onto the
-    energy-deposition binning, folds it through the response matrix into
-    channel space, and slices its own channel range.  The matrix is stored
-    in CSR layout (the row-major form of the column-major assembly): rows
-    drive both the sparse @ dense folding and the row-parallel Monte Carlo
-    variance kernel.  Projections carry both the smeared counts and their
-    Monte Carlo statistical variances (:class:`SimProjection`).
+    """Extended binning + response matrix shared by all datasets, built once
+    per chi-square evaluation.  Each dataset rebins its simulation onto the
+    binning, folds it through the matrix into channel space, and slices its
+    own channel range; projections carry the smeared counts with their MC
+    variances (:class:`SimProjection`).
     """
 
     def __init__(self, binning: ExtendedBinning, matrix: sparse.spmatrix):
         self.binning = binning
-        # Normalize to CSR (the row-major form of the column-major
-        # assembly): rows drive both the sparse @ dense folding and the
+        # CSR: rows drive both the sparse @ dense folding and the
         # row-parallel Monte Carlo variance kernel.
         self.matrix = matrix.tocsr()
 
@@ -511,16 +455,11 @@ class Response:
     def project_many(self, sims) -> list[SimProjection]:
         """Project several sims; single-sim ``project`` delegates here.
 
-        Rebins each simulation onto the energy-deposition binning, stacks
-        the
-        vectors, and folds them through the shared response matrix in one
-        sparse @ dense multiply (better reuse of the matrix structure than N
-        separate matvecs).  The per-sim Monte Carlo variances are propagated
-        exactly as ``diag(R B R^T)`` with ``B`` the banded rebinned
-        covariance, by one row-parallel numba kernel over the response
-        matrix's CSR triples shared by all sims.  Sims sharing a binning
-        (equal edge arrays) reuse one rebin structure, since it depends only
-        on the edges.
+        Rebins each sim onto the binning and folds them through the shared
+        matrix in one sparse @ dense multiply (better matrix-structure reuse
+        than N matvecs); the variances are propagated by one row-parallel
+        kernel over the CSR triples.  Sims sharing a binning reuse one rebin
+        structure.
         """
         if not sims:
             return []

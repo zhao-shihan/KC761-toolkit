@@ -3,14 +3,12 @@ kc761unfold.
 
 Delegates the raw reading and geometry validation to
 :func:`kc761util.calibfile.load_calib_file` (which accepts both response
-matrix object names -- ``response_matrix`` for kc761sim composites and
-legacy calib exports, ``deposition_response_matrix`` for kc761calib
-exports -- and treats the energy axis as the axis the matrix maps from),
-then applies the unfold-side policies: the dense response is thresholded
-to a CSR matrix (relative 1e-12 per column, banded in practice because the
-Gaussian kernel decays super-fast) and undetermined calibration parameters
-(NaN covariance rows) are treated as fixed.  :func:`slice_calibration`
-produces the working subrange view without re-reading the file.
+matrix object names and treats the energy axis as the axis the matrix maps
+from), then applies the unfold-side policies: the dense response is
+thresholded to a CSR matrix (relative 1e-12 per column) and undetermined
+calibration parameters (NaN covariance rows) are treated as fixed.
+:func:`slice_calibration` produces the working subrange view without
+re-reading the file.
 """
 
 from __future__ import annotations
