@@ -15,7 +15,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Unfold a KC761 channel spectrum into an energy spectrum "
                     "with the SWR (significance-weighted robust) method, "
-                    "using the response matrix of a kc761calib export.  "
+                    "using the response matrix of a kc761calib export or a "
+                    "kc761sim composite-response file.  "
                     "Alternatively, --calib-only relabels the channel axis "
                     "to energy without unfolding.  The unfolded spectrum "
                     "(TH1D, total errors), the statistical and systematic "
@@ -27,8 +28,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="background-subtracted data ROOT file "
                              "(kc761_spectrum TH1D)")
     parser.add_argument("--calib", type=Path, required=True, metavar="FILE",
-                        help="kc761calib export ROOT file with the response "
-                             "matrix (required)")
+                        help="kc761calib export or kc761sim "
+                             "composite-response ROOT file with the "
+                             "response matrix (required)")
     parser.add_argument("--calib-only", action="store_true",
                         help="relabel the channel axis to energy without "
                              "unfolding")

@@ -50,7 +50,7 @@ class DatasetDetail:
     model_errors: np.ndarray  # MC unc of the scaled model (used bins)
     combined_errors: np.ndarray  # stat + syst + model MC unc
     model_prediction: np.ndarray  # best-fit, scaled smeared sim per channel bin
-    unsmeared_sim: np.ndarray  # sim on the true-energy bins, unscaled (full)
+    unsmeared_sim: np.ndarray  # sim on the deposition bins, unscaled (full)
     unsmeared_sim_errors: np.ndarray  # rebinned sim unc, unscaled (full)
     scale_params: np.ndarray  # (s0, s1, s2, s3) quadratic-Bezier scale
     chi2: float

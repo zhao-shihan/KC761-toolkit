@@ -19,7 +19,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     "dataset (all required).  Besides the plot report, the "
                     "fitted calibration/resolution formulas, parameters with "
                     "their 1-sigma errors and 7x7 covariance, and the "
-                    "complete energy-to-channel response matrix with its "
+                    "complete deposition-to-channel response matrix with its "
                     "per-element errors are written to a ROOT file via "
                     "kc761calib/calib2root.cxx."
     )

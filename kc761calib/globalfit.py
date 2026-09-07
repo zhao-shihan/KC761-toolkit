@@ -37,7 +37,7 @@ class GlobalFitModel:
             raise ValueError("GlobalFitModel requires at least one dataset")
 
         self.syst_fracs = [float(v) for v in
-                          broadcast(syst_frac, self.n_datasets, "syst_frac")]
+                           broadcast(syst_frac, self.n_datasets, "syst_frac")]
         if labels is None:
             labels = [f"dataset{i + 1}" for i in range(self.n_datasets)]
         self.labels = [str(l) for l in
@@ -108,7 +108,7 @@ class GlobalFitModel:
 
     def _build_response(self, calib_params: np.ndarray,
                         resol_params: np.ndarray) -> Response:
-        """One shared binning + energy-to-channel response matrix per evaluation."""
+        """One shared binning + deposition-to-channel response matrix per evaluation."""
         return Response.build(
             calib_params, resol_params, self.channel_max, self.fit_channel_lo,
             self.fit_channel_hi, self.last_channel)

@@ -20,7 +20,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "signal", type=Path,
         help=f"signal (data) ROOT file containing TH1D '{SPECTRUM_HIST_NAME}' "
-             "and TParameter<double> 'daq_time'",
+        "and TParameter<double> 'daq_time'",
     )
     parser.add_argument(
         "background", type=Path,

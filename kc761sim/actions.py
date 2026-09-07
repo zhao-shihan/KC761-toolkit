@@ -1,4 +1,16 @@
-"""User actions: primary generation, run/event/stepping hooks and scoring."""
+"""User actions: primary generation, run/event/stepping hooks and scoring.
+
+Two clearly separated scoring paths live here:
+
+* the radioactive-source path (``RunAction``/``EventAction``) declares the
+  ntuple and the 4096-bin spectrum histogram and merges crystal deposits
+  into 10 us pulses;
+* the matrix-mode path (``MatrixRunAction``/``MatrixEventAction``) declares
+  only the gamma-transport histogram G (TH2D, x = energy deposition, y =
+  primary energy, variable-width axes taken from the calibration file)
+  and the zero-deposition counter (TH1D), accumulates the total per-event
+  crystal deposit without pulse merging, and writes no ntuple.
+"""
 
 from __future__ import annotations
 
@@ -10,17 +22,22 @@ from geant4_pybind import (
     G4UserSteppingAction,
     G4VUserActionInitialization,
     G4VUserPrimaryGeneratorAction,
+    G4doubleVector,
     keV,
     s,
     us,
 )
 from .config import SourceSpec
+from .generator import GammaEventState, make_gamma_generator
 from .paths import (
+    MATRIX_G_HIST_NAME,
+    MATRIX_ZERO_HIST_NAME,
     NTUPLE_COLUMNS,
     NTUPLE_NAME,
     SPECTRUM_HIST_NAME,
     ntuple_title,
 )
+from .sources import MatrixSource
 
 G4AnalysisManager = G4RootAnalysisManager
 
@@ -48,15 +65,44 @@ class PrimaryGeneratorAction(G4VUserPrimaryGeneratorAction):
         self.gps.GeneratePrimaryVertex(event)
 
 
-class RunAction(G4UserRunAction):
-    """Opens the output file and declares the ntuple/spectrum schema."""
+class _AnalysisRunAction(G4UserRunAction):
+    """Shared open/write/close lifecycle; subclasses declare the schema.
 
-    def __init__(self, output_stem: str, source_name: str, verbose: int = 0):
+    The histogram declarations happen in the constructor (before the run
+    starts), the output file is opened at begin-of-run and written at
+    end-of-run -- identical for both scoring paths.
+    """
+
+    def __init__(self, output_stem: str, verbose: int = 0):
         super().__init__()
         self.output_stem = output_stem
         am = G4AnalysisManager.Instance()
         am.SetVerboseLevel(verbose)
-        am.CreateNtuple(NTUPLE_NAME, ntuple_title(source_name))
+        self._declare(am)
+
+    def _declare(self, am) -> None:
+        """Declare ntuples/histograms; subclass hook."""
+        raise NotImplementedError
+
+    def BeginOfRunAction(self, run) -> None:
+        am = G4AnalysisManager.Instance()
+        am.OpenFile(self.output_stem)
+
+    def EndOfRunAction(self, run) -> None:
+        am = G4AnalysisManager.Instance()
+        am.Write()
+        am.CloseFile()
+
+
+class RunAction(_AnalysisRunAction):
+    """Radioactive path: declares the ntuple and the spectrum schema."""
+
+    def __init__(self, output_stem: str, source_name: str, verbose: int = 0):
+        self.source_name = source_name
+        super().__init__(output_stem, verbose)
+
+    def _declare(self, am) -> None:
+        am.CreateNtuple(NTUPLE_NAME, ntuple_title(self.source_name))
         # Column set is driven by the canonical NTUPLE_COLUMNS spec so the
         # worker ntuple and the merged tree can never drift apart.
         for name, dtype in NTUPLE_COLUMNS.items():
@@ -71,14 +117,42 @@ class RunAction(G4UserRunAction):
             "keV",
         )
 
-    def BeginOfRunAction(self, run) -> None:
-        am = G4AnalysisManager.Instance()
-        am.OpenFile(self.output_stem)
 
-    def EndOfRunAction(self, run) -> None:
-        am = G4AnalysisManager.Instance()
-        am.Write()
-        am.CloseFile()
+class MatrixRunAction(_AnalysisRunAction):
+    """Matrix path: declares only the G histogram and the zero-dep counter.
+
+    Both axes of G use the variable-width edges of the input calibration
+    file: x = energy deposition, y = primary energy -- the toolkit
+    convention that the x axis is the matrix output side and the y axis
+    the input side (like the response matrices themselves).  No ntuple and
+    no spectrum histogram exist on this path.
+    """
+
+    def __init__(self, output_stem: str, primary_edges,
+                 verbose: int = 0):
+        self.edges = primary_edges
+        super().__init__(output_stem, verbose)
+
+    def _declare(self, am) -> None:
+        # The axes carry the calibration file's keV edge values verbatim
+        # (no unit conversion, which would perturb the last bits through
+        # the MeV<->keV round trip): the merged file's axes then match the
+        # calibration deposition-energy edges bit-for-bit, and the event
+        # action fills with the keV values of the same convention.  The
+        # G4 physics itself is unaffected (the generator sets the particle
+        # energy in MeV).
+        edges = G4doubleVector([float(e) for e in self.edges])
+        am.CreateH2(
+            MATRIX_G_HIST_NAME,
+            "Gamma transport matrix (primary energy -> energy deposition)",
+            edges,
+            edges,
+        )
+        am.CreateH1(
+            MATRIX_ZERO_HIST_NAME,
+            "Zero-deposition events per primary-energy bin",
+            edges,
+        )
 
 
 class EventAction(G4UserEventAction):
@@ -123,8 +197,53 @@ class EventAction(G4UserEventAction):
             am.FillH1(0, edep)
 
 
+class MatrixEventAction(G4UserEventAction):
+    """Matrix path: total per-event crystal deposit, no pulse merging.
+
+    Each event emits exactly one gamma, so a single pulse concept is
+    meaningless here: the total deposit (sum of all stepping deposits in
+    the crystal) is the scored quantity.  Events with a strictly positive
+    deposit fill the G histogram at ``(e_gamma, total)``; events with no
+    deposit at all (geometric misses, absorption in the housing, ...) fill
+    the zero-deposition counter -- exactly zero is a physical boundary,
+    not a threshold: any positive deposit, however small, lands inside the
+    deposition axis, whose lower edge is negative.
+    """
+
+    def __init__(self, state: GammaEventState):
+        super().__init__()
+        self.state = state
+        self.total = 0.0
+
+    def BeginOfEventAction(self, event) -> None:
+        self.total = 0.0
+
+    def AddDeposit(self, global_time: float, edep: float) -> None:
+        # Same signature as EventAction so the shared SteppingAction needs
+        # no knowledge of the scoring path; the time is unused here.
+        self.total += edep
+
+    def EndOfEventAction(self, event) -> None:
+        am = G4AnalysisManager.Instance()
+        # Fills use the keV convention of the histogram axes (the values
+        # are divided by keV; the G4 internal deposit/energy are in MeV).
+        # G is stored as [deposition, primary]: x = output side, y = input
+        # side, the toolkit matrix convention.
+        if self.total > 0.0:
+            am.FillH2(0, self.total / keV, self.state.e_gamma / keV)
+        else:
+            am.FillH1(0, self.state.e_gamma / keV)
+
+
 class SteppingAction(G4UserSteppingAction):
-    def __init__(self, detector, event_action: EventAction):
+    """Collects crystal deposits and hands them to the event action.
+
+    Shared by both scoring paths: the radioactive ``EventAction`` merges
+    the timed deposits into pulses, the matrix ``MatrixEventAction`` sums
+    them into the per-event total.
+    """
+
+    def __init__(self, detector, event_action):
         super().__init__()
         self.detector = detector
         self.event_action = event_action
@@ -174,3 +293,44 @@ class ActionInitialization(G4VUserActionInitialization):
         event_action = EventAction(self.event_offset)
         self.SetUserAction(event_action)
         self.SetUserAction(SteppingAction(self.detector, event_action))
+
+
+class MatrixActionInitialization(G4VUserActionInitialization):
+    """Action set for the matrix modes: generator + G scoring, no ntuple."""
+
+    def __init__(
+        self,
+        source: MatrixSource,
+        detector,
+        output_stem: str,
+        event_offset: int = 0,
+        verbose: int = 0,
+    ):
+        super().__init__()
+        self.source = source
+        self.detector = detector
+        self.output_stem = output_stem
+        self.event_offset = event_offset
+        self.verbose = verbose
+
+    def _build_actions(self) -> None:
+        state = GammaEventState()
+        self.SetUserAction(
+            make_gamma_generator(self.source, state, self.event_offset)
+        )
+        self.SetUserAction(
+            MatrixRunAction(self.output_stem, self.source.axis.edges,
+                            self.verbose)
+        )
+        event_action = MatrixEventAction(state)
+        self.SetUserAction(event_action)
+        self.SetUserAction(SteppingAction(self.detector, event_action))
+
+    def BuildForMaster(self) -> None:
+        self.SetUserAction(
+            MatrixRunAction(self.output_stem, self.source.axis.edges,
+                            self.verbose)
+        )
+
+    def Build(self) -> None:
+        self._build_actions()

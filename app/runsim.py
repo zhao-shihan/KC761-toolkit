@@ -10,7 +10,8 @@ import sys
 import time
 
 from _bootstrap import APP_DIR, REPO_ROOT
-from kc761sim.paths import NTUPLE_NAME, output_stem, temp_work_dir
+from kc761sim.paths import (NTUPLE_NAME, count_label, output_stem,
+                            temp_work_dir)
 
 SIM = os.path.join(APP_DIR, "sim.py")
 OUT_DIR = os.path.join(REPO_ROOT, "out", "sim")
@@ -22,11 +23,6 @@ RUNS: dict[str, int] = {
     "ra226": 100_000_000,
     "th232": 200_000_000,
 }
-
-
-def count_label(n: int) -> str:
-    mantissa, exponent = f"{n:.0e}".split("e")
-    return f"{mantissa}e{int(exponent)}"
 
 
 def output_path(key: str, n: int) -> str:

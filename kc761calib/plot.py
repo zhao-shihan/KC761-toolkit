@@ -169,7 +169,8 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
                               lw=0.8, color=_COLOR_SIM_RAW, zorder=2)
     # Monte Carlo statistical error bars of the raw (pre-folding) rebinned
     # simulation, scaled by the same scale curve as the stairs.  The bin
-    # centers are the midpoints of the true-energy bin edges, matching the
+    # centers are the midpoints of the energy-deposition bin edges, matching
+    # the
     # stairs binning exactly.  No own legend entry: the legend reuses the
     # "Raw sim." handle, overlaid with the error-bar artist.
     sim_centers = 0.5 * (ds.bin_edges[:-1] + ds.bin_edges[1:])

@@ -2,7 +2,7 @@
 
 The fitted calibration and resolution fully determine the detector
 response.  After the fit, this module builds the complete response matrix
-over the full detector channel range -- the true-energy bins are the
+over the full detector channel range -- the energy-deposition bins are the
 calibration image of the channel bins -- and serializes it together with
 the model formulas (:data:`kc761calib.response.CALIB_FORMULA` /
 :data:`kc761calib.response.RESOL_FORMULA`), the fitted parameters, their
@@ -11,16 +11,16 @@ temporary binary file that :file:`kc761calib/calib2root.cxx` reads and
 turns into the final ROOT file.
 
 The response-matrix convention matches :mod:`kc761calib.folding`:
-``matrix[i, j]`` is the probability that a count in the true-energy bin
-``j`` is detected in the channel bin ``i``.  Unlike the fit's sparse
+``matrix[i, j]`` is the probability that a count in the energy-deposition
+bin ``j`` is detected in the channel bin ``i``.  Unlike the fit's sparse
 matrix, the exported matrix is dense over the full channel range, keeps
 the full Gaussian (no kernel-support cutoff) and does not renormalize the
 columns: the part of the Gaussian outside the detector channel range is
 truncated -- physically lost -- so columns near the range edges sum to
-less than 1.  The resolution is evaluated at the true-energy bin centers
-with :func:`kc761calib.response.resol_sigma_model`, which saturates
-``sigma`` at ``b0`` for ``E <= 0``, where the variance polynomial is not
-usable.
+less than 1.  The resolution is evaluated at the energy-deposition bin
+centers with :func:`kc761calib.response.resol_sigma_model`, which
+saturates ``sigma`` at ``b0`` for ``E <= 0``, where the variance
+polynomial is not usable.
 
 Parameter and matrix errors: the response depends only on the 7 shared
 core parameters ``q = (c0, k1, k2, k3, b0, b1, b2)`` (the per-dataset
@@ -64,7 +64,7 @@ binary    int64 n_core; float64 param_cov[n_core * n_core] (row-major,
 binary    int64 n_channels
 binary    float64 energy_edges[n_channels + 1]
 binary    float64 matrix[n_channels * n_channels] (row-major,
-          row = channel bin, column = true-energy bin)
+          row = channel bin, column = energy-deposition bin)
 binary    float64 matrix_errors[n_channels * n_channels] (row-major,
           per-element 1-sigma, same layout as matrix)
 ========  =====================================================
@@ -93,12 +93,13 @@ _MAGIC = b"kc761calib-export-v2\n"
 class FullResponse:
     """Complete detector response on the full channel range.
 
-    ``matrix[i, j]`` is the probability that a count in the true-energy
-    bin ``j`` is detected in the channel bin ``i``.  Channel bins are the
-    full detector range ``0 .. n_channels-1`` (uniform width 1, integer
-    centers); the true-energy bins are their calibration image (variable
-    width).  Columns are not renormalized, so the Gaussian probability
-    truncated by the detector range edges is lost, not redistributed.
+    ``matrix[i, j]`` is the probability that a count in the
+    energy-deposition bin ``j`` is detected in the channel bin ``i``.
+    Channel bins are the full detector range ``0 .. n_channels-1``
+    (uniform width 1, integer centers); the energy-deposition bins are
+    their calibration image (variable width).  Columns are not
+    renormalized, so the Gaussian probability truncated by the detector
+    range edges is lost, not redistributed.
 
     ``matrix_errors`` holds the per-element 1-sigma uncertainty propagated
     linearly from the fit's core covariance (same convention and layout as
@@ -108,7 +109,7 @@ class FullResponse:
     """
 
     n_channels: int
-    energy_edges: np.ndarray  # n_channels + 1; true-energy bin edges
+    energy_edges: np.ndarray  # n_channels + 1; energy-deposition bin edges
     matrix: np.ndarray  # (n_channels, n_channels) float64
     matrix_errors: np.ndarray  # (n_channels, n_channels) float64
     calib_coeffs: np.ndarray  # c0..c3 cubic calibration coefficients
@@ -163,7 +164,7 @@ def _matrix_error_variance(centers, widths, sigma, ds_dE, ds_db,
 
 def build_full_response(result: FitResult, channel_max: float,
                         last_channel: int) -> FullResponse:
-    """Build the complete energy-to-channel response and its errors.
+    """Build the complete deposition-to-channel response and its errors.
 
     ``result`` is the fitted :class:`kc761calib.types.FitResult`; the
     response is built from its fitted core parameters
@@ -192,7 +193,8 @@ def build_full_response(result: FitResult, channel_max: float,
 
     # Channel bin edges over the full detector range: uniform bins of
     # width 1 with integer centers 0 .. n-1 (edges -0.5 .. n-0.5).  The
-    # true-energy edges are the calibration image of these channel edges.
+    # energy-deposition edges are the calibration image of these channel
+    # edges.
     channel_edges = np.arange(n + 1, dtype=float) - 0.5
     energy_edges = calib_model(calib_params, channel_edges, channel_max)
     if np.any(np.diff(energy_edges) <= 0.0):
@@ -201,13 +203,13 @@ def build_full_response(result: FitResult, channel_max: float,
             "channel range; the response-matrix binning requires a "
             "monotone calibration")
 
-    # True-energy bin centers are the midpoints of the bin energy edges --
-    # the same quadrature nodes the fit's response matrix uses.
+    # Energy-deposition bin centers are the midpoints of the bin energy
+    # edges -- the same quadrature nodes the fit's response matrix uses.
     centers = 0.5 * (energy_edges[:-1] + energy_edges[1:])
     widths = np.diff(energy_edges)
 
-    # Resolution at the true-energy bin centers; sigma saturates at b0 for
-    # E <= 0 (the variance polynomial is only valid on t in [0, 1]).
+    # Resolution at the energy-deposition bin centers; sigma saturates at
+    # b0 for E <= 0 (the variance polynomial is only valid on t in [0, 1]).
     sigma = resol_sigma_model(resol_params, centers)
 
     # R[i, j] = gaussian_pdf(c_i - c_j; sigma_j) * dE_i: the midpoint

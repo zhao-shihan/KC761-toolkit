@@ -64,7 +64,8 @@ void FillMatrix(TH2D* h, const std::vector<double>& m, int64_t n,
         h->GetBinContent(static_cast<int>(n), static_cast<int>(n)) !=
             m[nEntries - 1]) {
         std::cerr << "[unfold2root] error: ROOT bin-layout assumption "
-                     "violated; " << name << " would be transposed\n";
+                     "violated; "
+                  << name << " would be transposed\n";
         gSystem->Exit(1);
     }
 }
@@ -165,7 +166,8 @@ void unfold2root(const std::string& exportFile, const std::string& output) {
                                           "calibrated spectrum";
     TH1D* hSpec = new TH1D("kc761_spectrum_unfolded",
                            (std::string(specTitle) +
-                            ";Energy (keV);Counts").c_str(),
+                            ";Energy (keV);Counts")
+                               .c_str(),
                            static_cast<int>(nBins), edgesCopy.data());
     hSpec->Sumw2();
     for (int64_t i = 0; i < nBins; ++i) {

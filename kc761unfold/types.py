@@ -25,15 +25,17 @@ DEFAULT_SNIP_ITER = 24
 
 @dataclass
 class CalibrationFile:
-    """Validated kc761calib export.
+    """Validated kc761calib export or kc761sim composite-response file.
 
-    ``matrix`` is the thresholded energy-to-channel response on the
-    selected channel subrange ``[channel_low, channel_high]``: entry
-    ``[i, j]`` is the probability that a count in true-energy bin
-    ``channel_low + j`` is detected in channel bin ``channel_low + i``.
+    ``matrix`` is the thresholded response on the selected channel
+    subrange ``[channel_low, channel_high]``: entry ``[i, j]`` is the
+    probability that a count in energy bin ``channel_low + j`` is
+    detected in channel bin ``channel_low + i``.  The energy axis is the
+    energy-deposition axis for kc761calib exports (the calibration image
+    of the channel bins) and the true primary-gamma-energy axis for
+    kc761sim matrix-mode composite files; both are read identically.
     ``energy_edges``/``centers``/``widths`` are the corresponding slice
-    of the full energy binning (the calibration image of the channel
-    bins).  ``param_cov`` is the 7x7 covariance of
+    of the full energy binning.  ``param_cov`` is the 7x7 covariance of
     ``(c0, c1, c2, c3, b0, b1, b2)`` in the reported basis.
     """
 

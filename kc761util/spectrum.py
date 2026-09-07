@@ -120,7 +120,8 @@ def load_spectrum(source: str | os.PathLike | uproot.ReadOnlyDirectory,
     try:
         h = file[hist_name]
     except KeyError as exc:
-        raise KeyError(f"histogram '{hist_name}' not found in {label}") from exc
+        raise KeyError(
+            f"histogram '{hist_name}' not found in {label}") from exc
     try:
         counts = np.asarray(h.values(), dtype=float)
         errors = np.asarray(h.errors(), dtype=float)

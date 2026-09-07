@@ -33,6 +33,7 @@ from .config import (
     Sphere,
     Tube,
 )
+from .sources import PlaneGammaSource, SphereGammaSource, make_primary_axis
 
 WORLD_HALF_SIZE = 15.0 * cm
 
@@ -49,6 +50,39 @@ DETECTOR_FRONT_Z = HOUSING_HALF_Z
 
 #: Air gap between the housing front face and the nearest source plane.
 DETECTOR_GAP_MM = 1.0
+
+
+def build_plane_gamma_source(primary_edges) -> PlaneGammaSource:
+    """Plane-mode source: crystal-face-sized square at the housing front.
+
+    The plane spans the crystal end face exactly (2*CRYSTAL_HALF_X by
+    2*CRYSTAL_HALF_Y, never hardcoded) and sits on the housing front
+    surface (DETECTOR_FRONT_Z).  ``primary_edges`` are the input
+    calibration file's deposition-energy edges (keV).
+    """
+    return PlaneGammaSource(
+        size_x=2.0 * CRYSTAL_HALF_X / mm,
+        size_y=2.0 * CRYSTAL_HALF_Y / mm,
+        z_mm=DETECTOR_FRONT_Z / mm,
+        axis=make_primary_axis(primary_edges),
+    )
+
+
+def build_sphere_gamma_source(primary_edges) -> SphereGammaSource:
+    """Sphere-mode source: the housing's minimal circumscribed sphere.
+
+    Centered on the detector center and tangent to the eight housing
+    corners (radius derived from the housing half extents, never
+    hardcoded).  ``primary_edges`` are the input calibration file's
+    deposition-energy edges (keV).
+    """
+    radius = math.sqrt(
+        HOUSING_HALF_X**2 + HOUSING_HALF_Y**2 + HOUSING_HALF_Z**2
+    ) / mm
+    return SphereGammaSource(
+        radius=radius,
+        axis=make_primary_axis(primary_edges),
+    )
 
 
 def _rotate_to_y() -> G4RotationMatrix:
@@ -143,7 +177,7 @@ def _source_position(
 class DetectorConstruction(G4VUserDetectorConstruction):
     def __init__(
         self,
-        source: SourceSpec,
+        source: SourceSpec | None,
         mats: dict[str, G4Material],
         check_overlaps: bool = True,
     ):
@@ -204,7 +238,11 @@ class DetectorConstruction(G4VUserDetectorConstruction):
             self.check_overlaps,
         )
 
-        self._construct_source(world_lv)
+        # A None source builds the bare detector (world + housing +
+        # crystal), used by the matrix simulation modes whose primaries
+        # start on sampling surfaces, not inside source volumes.
+        if self.source is not None:
+            self._construct_source(world_lv)
 
         return world_pv
 

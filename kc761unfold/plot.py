@@ -11,16 +11,16 @@ prediction, darkgoldenrod residual points with red +/-0.3 level guides.
 """
 
 from __future__ import annotations
+from .types import UnfoldResult
+from matplotlib.backend_bases import FigureCanvasBase
+from matplotlib import pyplot as plt
+import numpy as np
 
 from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
-import numpy as np
-from matplotlib import pyplot as plt
-from matplotlib.backend_bases import FigureCanvasBase
 
-from .types import UnfoldResult
 
 # Palette (kc761calib conventions).
 _COLOR_DATA = "blue"  # calibrated spectrum (histogram + error bars)

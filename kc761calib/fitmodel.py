@@ -1,10 +1,11 @@
-"""Per-dataset forward model on the shared energy-to-channel response.
+"""Per-dataset forward model on the shared deposition-to-channel response.
 
 Each dataset keeps its raw channel counts/errors on a fixed channel range;
-the true-energy axis is only the calibration image of those channels, used
-to place the simulation before folding.  The resolution-smeared per-channel
-model comes from the shared :class:`Response` that :class:`GlobalFitModel`
-builds once per chi-square evaluation and reuses across datasets.
+the energy-deposition axis is only the calibration image of those channels,
+used to place the simulation before folding.  The resolution-smeared
+per-channel model comes from the shared :class:`Response` that
+:class:`GlobalFitModel` builds once per chi-square evaluation and reuses
+across datasets.
 
 The per-bin uncertainty combined in the chi-square denominator has three
 terms, added in quadrature: the data's statistical error, a fractional
@@ -54,11 +55,11 @@ class FitModel:
     The fit window is a fixed channel range ``[channel_low, channel_high]``
     (0-based, inclusive).  The data counts/errors are the raw channel values
     and never change with the calibration.  Each evaluation, the simulation
-    is rebinned onto the true-energy bins (the calibration image of the
-    channels) and folded through the shared energy-to-channel response, so
-    the smeared model is predicted per channel bin and compares directly to
-    the data; the bin energy positions (calibration image of the channel
-    centers) are recomputed for display only.
+    is rebinned onto the energy-deposition bins (the calibration image of
+    the channels) and folded through the shared deposition-to-channel
+    response, so the smeared model is predicted per channel bin and compares
+    directly to the data; the bin energy positions (calibration image of the
+    channel centers) are recomputed for display only.
     """
 
     def __init__(self, data, sim, channel_low: int, channel_high: int,

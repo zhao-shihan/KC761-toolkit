@@ -129,8 +129,8 @@ def _run_calib(args) -> int:
         return 0
 
     # Export the fitted detector response to ROOT: build the complete
-    # energy-to-channel response matrix on the full channel range with its
-    # per-element errors and the fitted parameter covariance, serialize
+    # deposition-to-channel response matrix on the full channel range with
+    # its per-element errors and the fitted parameter covariance, serialize
     # them with the model formulas and parameters into a temporary file,
     # and convert it with the ROOT macro (which deletes the temporary
     # file).

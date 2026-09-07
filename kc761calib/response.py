@@ -1,4 +1,5 @@
-"""Detector response: energy calibration E(channel) and resolution sigma^2(E).
+"""Detector response: deposition-energy calibration E(channel) and
+resolution sigma^2(E).
 
 The calibration is cubic in the channel number and is parameterized by the
 intercept plus three slopes ``(c0, k1, k2, k3)``:
@@ -29,8 +30,8 @@ response there.  Above ``RESOL_E_REF`` the polynomial continues unclamped;
 
 Folding the Gaussian response into histograms is done by the extended
 binning and sparse response matrix in :mod:`kc761calib.folding`, which maps
-true-energy bins to detected channel bins; its fused assembly kernel calls
-:func:`gaussian_pdf` directly.
+energy-deposition bins to detected channel bins; its fused assembly kernel
+calls :func:`gaussian_pdf` directly.
 """
 
 from __future__ import annotations

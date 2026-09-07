@@ -2,7 +2,8 @@
 
 SWR (significance-weighted robust) unfolding removes the detector's
 resolution smearing from background-subtracted KC761 channel spectra
-using the response matrix of a kc761calib export.  The unfolded
+using the response matrix of a kc761calib export or a kc761sim
+composite-response file.  The unfolded
 spectrum ``mu`` (counts per variable-width energy bin) minimizes
 
     chi2 = sum_j (y_j - (R mu)_j)^2 / sigma_j^2,
