@@ -6,14 +6,16 @@ Two simulation families share this entry point:
 * radioactive sources (mutually exclusive --<key> flags): the source
   nuclide decays inside its geometry, and per-event energy deposition is
   saved to a ROOT ntuple;
-* response-matrix modes (--plane-front-gamma/--sphere-gamma): one gamma
+* matrix modes (--plane-front-gamma/--sphere-gamma): one gamma
   per event is launched from a sampling surface, and the (primary energy,
-  crystal deposition) pairs accumulate into the gamma transport matrix G,
-  which is composed with a kc761calib export's deposition response C into
-  the true response R = C @ G.  These modes are batch-only and produce no
+  crystal deposition) pairs accumulate into the primary-to-deposition
+  matrix G,
+  which is composed with a kc761calib export's deposition-to-channel matrix
+  C into the primary-to-channel matrix R = C @ G.  These modes are
+  batch-only and produce no
   ntuple; the output ROOT file contains the three matrices
-  (``response_matrix`` = R, ``deposition_response_matrix`` = C copy,
-  ``primary_deposition_matrix`` = G) plus the inherited calibration and
+  (``primary_to_channel`` = R, ``deposition_to_channel`` = C copy,
+  ``primary_to_deposition`` = G) plus the inherited calibration and
   new mode parameters, and is directly readable by kc761unfold.
 """
 
@@ -50,9 +52,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description=(
             "Geant4 gamma-spectrometry Monte Carlo simulation: CsI(Tl) probe "
             "with fixed radioactive sources (per-event energy deposition is "
-            "saved to a ROOT ntuple), or response-matrix modes launching one "
+            "saved to a ROOT ntuple), or matrix modes launching one "
             "gamma per event from a sampling surface and composing the true "
-            "response R = C @ G from a kc761calib export (no ntuple; the "
+            "matrix R = C @ G from a kc761calib export (no ntuple; the "
             "output is directly readable by kc761unfold)."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -69,7 +71,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="matrix mode 1: square plane gamma source on the detector "
         "front surface, Lambertian toward the crystal; CALIB is the "
-        "kc761calib export ROOT file providing the deposition response "
+        "kc761calib export ROOT file providing the deposition-to-channel matrix "
         "(batch-only)",
     )
     sources.add_argument(
@@ -79,7 +81,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="matrix mode 2: circumscribed-sphere isotropic gamma source "
         "wrapping the housing, inward-Lambertian; CALIB is the kc761calib "
-        "export ROOT file providing the deposition response (batch-only)",
+        "export ROOT file providing the deposition-to-channel matrix (batch-only)",
     )
 
     parser.add_argument(
@@ -89,7 +91,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="FILE",
         help="output ROOT file name (default: out/sim_output.root in batch "
         "mode, out/sim_vis_output.root in interactive mode; matrix modes: "
-        "out/sim/<calib>-<mode>-response-<N>.root; a missing .root suffix "
+        "out/sim/<calib>-<mode>-matrix-<N>.root; a missing .root suffix "
         "is appended)",
     )
     parser.add_argument(
@@ -130,7 +132,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="G_FILE",
         default=None,
         help="matrix modes only: skip the simulation and compose the "
-        "composite response from an existing merged-G intermediate "
+        "composite matrix from an existing merged-G intermediate "
         "(the *-g.root kept after a failed export)",
     )
     add_hadd_option(parser)
@@ -209,7 +211,7 @@ def batch_matrix_mode(args: argparse.Namespace, mode: str, calib_path: str,
         os.makedirs(_SIM_OUT_DIR, exist_ok=True)
         args.output = os.path.join(
             _SIM_OUT_DIR,
-            f"{calib_file.stem}-{mode}-response-{count_label(args.events)}.root")
+            f"{calib_file.stem}-{mode}-matrix-{count_label(args.events)}.root")
 
     # The merged G histogram is an intermediate next to the output; its
     # stem must stay dot-free (the Geant4 analysis manager appends ".root"

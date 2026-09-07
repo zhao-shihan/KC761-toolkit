@@ -1,12 +1,11 @@
 """Shared reader/validator for kc761calib exports and kc761sim composite files.
 
-Both file kinds carry one response-matrix TH2D plus the calibration
+Both file kinds carry one TH2D to-channel matrix plus the calibration
 metadata; they differ only in what the matrix's energy (y) axis means
 (channel <- energy deposition for kc761calib exports, channel <- true
-primary gamma energy for kc761sim composites; ``response_matrix`` is also
-the legacy kc761calib name).  The reader therefore accepts either name and
-treats the y axis as "the energy axis the matrix maps from" without
-further interpretation.
+primary gamma energy for kc761sim composites).  The reader therefore
+accepts either name and treats the y axis as "the energy axis the matrix
+maps from" without further interpretation.
 
 The returned snapshot is dense and keeps the stored NaN semantics:
 ``param_cov`` rows/columns may be NaN (undetermined parameters, as
@@ -28,16 +27,16 @@ from dataclasses import dataclass
 import numpy as np
 import uproot
 
-# Response-matrix object name of kc761sim matrix-mode composite files
+# To-channel matrix object name of kc761sim composite files
 # (channel <- true primary gamma energy) and of legacy kc761calib
 # exports written before the deposition naming.
-RESPONSE_HIST_NAME = "response_matrix"
-# Response-matrix object name of kc761calib exports (channel <-
+PRIMARY_TO_CHANNEL_HIST_NAME = "primary_to_channel"
+# To-channel matrix object name of kc761calib exports (channel <-
 # energy deposition).
-DEPOSITION_RESPONSE_HIST_NAME = "deposition_response_matrix"
-# Transport-matrix object name of kc761sim composite files (x = energy
-# deposition, y = primary energy, Monte Carlo counts).
-TRANSPORT_HIST_NAME = "primary_deposition_matrix"
+DEPOSITION_TO_CHANNEL_HIST_NAME = "deposition_to_channel"
+# Primary-to-deposition matrix object name of kc761sim composite files
+# (x = energy deposition, y = primary energy, Monte Carlo counts).
+PRIMARY_TO_DEPOSITION_HIST_NAME = "primary_to_deposition"
 
 # Reported-basis parameter order of ``param_cov``.
 PARAM_NAMES = ("c0", "c1", "c2", "c3", "b0", "b1", "b2")
@@ -64,15 +63,15 @@ class CalibFile:
     n_channels: int
     channel_edges: np.ndarray  # n + 1, uniform width 1
     energy_edges: np.ndarray  # n + 1, strictly increasing
-    matrix: np.ndarray  # (n, n) dense, [channel, energy]
+    channel_matrix: np.ndarray  # (n, n) dense, [channel, energy]
     matrix_errors: np.ndarray | None  # (n, n) stored per-element 1-sigma
-    # Composite files only: the conditional transport matrix
-    # ``p_tilde[deposition, primary] = G / column_sum(G)`` (columns
-    # normalized over the deposited events, zero-deposition excluded);
-    # combined with the stored response's column sums it rebuilds the full
-    # transport model for the systematic-error propagation.  None for
-    # calibration files.
-    transport: np.ndarray | None
+    # Composite files only: the conditional primary-to-deposition
+    # distribution ``p_tilde[deposition, primary] = G / column_sum(G)``
+    # (columns normalized over the deposited events, zero-deposition
+    # excluded); combined with the stored matrix's column sums it
+    # rebuilds the full primary-to-deposition matrix for the
+    # systematic-error propagation.  None for calibration files.
+    primary_to_deposition: np.ndarray | None
     calib_coeffs: np.ndarray  # (c0, c1, c2, c3)
     calib_errors: np.ndarray  # stored 1-sigma of c0..c3
     resol_params: np.ndarray  # (b0, b1, b2)
@@ -84,16 +83,16 @@ class CalibFile:
     param_order: str
 
 
-def _response_hist_name(f) -> str:
+def _channel_hist_name(f) -> str:
     """Name of the response matrix present in an open ROOT file, or fail."""
-    if RESPONSE_HIST_NAME in f:
-        return RESPONSE_HIST_NAME
-    if DEPOSITION_RESPONSE_HIST_NAME in f:
-        return DEPOSITION_RESPONSE_HIST_NAME
+    if PRIMARY_TO_CHANNEL_HIST_NAME in f:
+        return PRIMARY_TO_CHANNEL_HIST_NAME
+    if DEPOSITION_TO_CHANNEL_HIST_NAME in f:
+        return DEPOSITION_TO_CHANNEL_HIST_NAME
     raise ValueError(
-        f"the file does not contain the TH2D {RESPONSE_HIST_NAME!r} (or "
-        f"{DEPOSITION_RESPONSE_HIST_NAME!r}); is it a kc761calib export or "
-        f"a kc761sim composite-response file?")
+        f"the file does not contain the TH2D {PRIMARY_TO_CHANNEL_HIST_NAME!r} (or "
+        f"{DEPOSITION_TO_CHANNEL_HIST_NAME!r}); is it a kc761calib export "
+        f"or a kc761sim composite file?")
 
 
 def _label(source) -> str:
@@ -124,7 +123,7 @@ def load_calib_file(
         label = _label(source)
 
     try:
-        hist_name = _response_hist_name(file)
+        hist_name = _channel_hist_name(file)
         hist = file[hist_name]
         channel_edges = np.asarray(hist.axis(0).edges(), dtype=float)
         energy_edges = np.asarray(hist.axis(1).edges(), dtype=float)
@@ -143,15 +142,15 @@ def load_calib_file(
             errors = np.asarray(hist.errors(), dtype=float)
         except KeyError:
             errors = None  # no sumw2 buffer stored
-        transport = None
-        if TRANSPORT_HIST_NAME in file:
-            # Conditional transport: normalize each primary column over
+        primary_to_deposition = None
+        if PRIMARY_TO_DEPOSITION_HIST_NAME in file:
+            # Conditional primary-to-deposition: normalize each primary column over
             # the deposited events (zero-deposition excluded).
-            t_hist = file[TRANSPORT_HIST_NAME]
+            t_hist = file[PRIMARY_TO_DEPOSITION_HIST_NAME]
             t_values = np.asarray(
                 t_hist.values(), dtype=float)  # [dep, primary]
             t_totals = t_values.sum(axis=0)
-            transport = np.divide(t_values, t_totals,
+            primary_to_deposition = np.divide(t_values, t_totals,
                                   out=np.zeros_like(t_values),
                                   where=t_totals > 0.0)
         try:
@@ -204,9 +203,9 @@ def load_calib_file(
         n_channels=n,
         channel_edges=channel_edges,
         energy_edges=energy_edges,
-        matrix=values,
+        channel_matrix=values,
         matrix_errors=errors,
-        transport=transport,
+        primary_to_deposition=primary_to_deposition,
         calib_coeffs=params[:4],
         calib_errors=calib_errors,
         resol_params=params[4:],

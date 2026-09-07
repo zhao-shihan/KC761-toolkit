@@ -19,7 +19,7 @@
 //                                          basis (calib-resol cross block
 //                                          included; NaN rows/columns mark
 //                                          undetermined parameters)
-//   TH2D                "deposition_response_matrix"
+//   TH2D                "deposition_to_channel"
 //                       x = detected channel (uniform bins of width 1,
 //                       integer bin centers), y = energy deposition
 //                       (variable-width bins from the calibration image of
@@ -38,7 +38,6 @@
 // Usage:  root -l -b -q 'calib2root.cxx("export.tmp","out.root")'
 
 #include "../kc761util/rootmacros.h"
-
 #include "TFile.h"
 #include "TH2D.h"
 
@@ -132,12 +131,12 @@ void calib2root(const std::string& exportFile, const std::string& output) {
     const size_t nEntries = static_cast<size_t>(nCh) * static_cast<size_t>(nCh);
     std::vector<double> matrix(nEntries);
     if (!ReadRaw(f, matrix.data(), matrix.size() * sizeof(double)))
-        bail("malformed response-matrix block");
+        bail("malformed deposition-to-channel block");
     std::vector<double> matrixErrors(nEntries);
     if (!ReadRaw(f, matrixErrors.data(), matrixErrors.size() * sizeof(double)))
-        bail("malformed response-matrix-errors block");
+        bail("malformed deposition-to-channel-errors block");
     if (std::fgetc(f) != EOF)
-        bail("trailing bytes after the response matrix errors");
+        bail("trailing bytes after the deposition-to-channel errors");
     std::fclose(f);
     f = nullptr;
 
@@ -166,9 +165,8 @@ void calib2root(const std::string& exportFile, const std::string& output) {
                              "c0 c1 c2 c3 b0 b1 b2", paramCov);
 
     TH2D* hResp = new TH2D(
-        "deposition_response_matrix",
-        "KC761 deposition response matrix (energy deposition -> detected"
-        " channel);Channel;Energy deposition (keV)",
+        "deposition_to_channel",
+        "KC761 deposition-to-channel matrix;Channel;Energy deposition (keV)",
         static_cast<int>(nCh), -0.5, static_cast<double>(nCh) - 0.5,
         static_cast<int>(nCh), edges.data());
     // The shared filler stores squared errors in fSumw2; the export
@@ -176,25 +174,26 @@ void calib2root(const std::string& exportFile, const std::string& output) {
     std::vector<double> respSw2(nEntries);
     for (size_t k = 0; k < nEntries; ++k)
         respSw2[k] = matrixErrors[k] * matrixErrors[k];
-    FillResponseMatrix(hResp, matrix, respSw2, nCh,
-                       "deposition_response_matrix");
+    FillMatrix(hResp, matrix, respSw2, nCh,
+               "deposition_to_channel");
 
     hResp->Write();
     fout.Close();
 
     // Verify the ROOT file was written completely before deleting the only
-    // serialized copy of the response: reopen it and require the deposition
-    // response matrix with the expected bin counts and its error array.  On
+    // serialized copy of the matrix: reopen it and require the deposition
+    // deposition-to-channel matrix with the expected bin counts and its error
+    // array.  On
     // any write failure (e.g. a full disk) the export file is kept so the
     // conversion can be re-run.
     TFile fcheck(output.c_str());
-    TH2D* hCheck = dynamic_cast<TH2D*>(fcheck.Get("deposition_response_matrix"));
+    TH2D* hCheck = dynamic_cast<TH2D*>(fcheck.Get("deposition_to_channel"));
     if (fcheck.IsZombie() || !hCheck ||
         hCheck->GetNbinsX() != static_cast<int>(nCh) ||
         hCheck->GetNbinsY() != static_cast<int>(nCh) ||
         hCheck->GetSumw2() == nullptr) {
         std::cerr << "[calib2root] error: output file is missing or incomplete "
-                  << "after writing (response matrix without its error array); "
+                  << "after writing (deposition-to-channel matrix without its error array); "
                   << "keeping the export file: " << exportFile << "\n";
         gSystem->Exit(1);
         return;
@@ -206,7 +205,7 @@ void calib2root(const std::string& exportFile, const std::string& output) {
     }
 
     std::cout << "[calib2root] wrote " << output << " : " << nCh << " x " << nCh
-              << " deposition response matrix with per-bin errors, "
+              << " deposition-to-channel matrix with per-bin errors, "
               << "calibration/resolution formulas, parameters and their "
               << "covariance\n";
 }

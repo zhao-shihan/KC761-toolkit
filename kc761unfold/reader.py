@@ -2,9 +2,9 @@
 kc761unfold.
 
 Delegates the raw reading and geometry validation to
-:func:`kc761util.calibfile.load_calib_file` (which accepts both response
+:func:`kc761util.calibfile.load_calib_file` (which accepts both channel
 matrix object names and treats the energy axis as the axis the matrix maps
-from), then applies the unfold-side policies: the dense response is
+from), then applies the unfold-side policies: the dense matrix is
 thresholded to a CSR matrix (relative 1e-12 per column) and undetermined
 calibration parameters (NaN covariance rows) are treated as fixed.
 :func:`slice_calibration` produces the working subrange view without
@@ -26,7 +26,7 @@ MATRIX_THRESHOLD = 1e-12
 
 
 def _threshold(dense: np.ndarray) -> sparse.csr_matrix:
-    """Threshold a dense response block to CSR, relative per column."""
+    """Threshold a dense matrix block to CSR, relative per column."""
     colmax = np.abs(dense).max(axis=0, keepdims=True)
     mask = np.abs(dense) > MATRIX_THRESHOLD * colmax
     return sparse.csr_matrix(np.where(mask, dense, 0.0))
@@ -59,9 +59,9 @@ def load_calibration(path: str | Path) -> CalibrationFile:
         energy_edges=np.asarray(data.energy_edges, dtype=float),
         centers=0.5 * (data.energy_edges[:-1] + data.energy_edges[1:]),
         widths=np.diff(data.energy_edges),
-        matrix=_threshold(data.matrix),
-        transport=(None if data.transport is None
-                   else _threshold(data.transport)),
+        channel_matrix=_threshold(data.channel_matrix),
+        primary_to_deposition=(None if data.primary_to_deposition is None
+                   else _threshold(data.primary_to_deposition)),
         calib_coeffs=data.calib_coeffs,
         resol_params=data.resol_params,
         param_cov=cov,
@@ -78,12 +78,12 @@ def slice_calibration(calib: CalibrationFile, channel_low: int,
             f"0 <= chlo <= chhi < {n}")
     if channel_low == calib.channel_low and channel_high == calib.channel_high:
         return calib
-    dense = calib.matrix.toarray()
+    dense = calib.channel_matrix.toarray()
     sub = dense[channel_low:channel_high + 1, channel_low:channel_high + 1]
     col_sums = sub.sum(axis=0)
     n_trunc = int((col_sums < 1.0 - 1e-6).sum())
     if n_trunc > 0:
-        print(f"[unfold] warning: {n_trunc} response columns with column "
+        print(f"[unfold] warning: {n_trunc} matrix columns with column "
               f"sums < 1 (absolute detection efficiency, or truncation at "
               f"the detector range edges)")
     return CalibrationFile(
@@ -94,9 +94,9 @@ def slice_calibration(calib: CalibrationFile, channel_low: int,
         energy_edges=calib.energy_edges_full[channel_low:channel_high + 2],
         centers=calib.centers[channel_low:channel_high + 1],
         widths=calib.widths[channel_low:channel_high + 1],
-        matrix=_threshold(sub),
-        transport=(None if calib.transport is None else
-                   _threshold(calib.transport[
+        channel_matrix=_threshold(sub),
+        primary_to_deposition=(None if calib.primary_to_deposition is None
+                   else _threshold(calib.primary_to_deposition[
                        channel_low:channel_high + 1,
                        channel_low:channel_high + 1].toarray())),
         calib_coeffs=calib.calib_coeffs,

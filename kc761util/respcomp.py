@@ -1,8 +1,8 @@
-"""Model-independent response composition and full error propagation.
+"""Model-independent composition of R = C @ G with full error propagation.
 
 Composes R = C @ G for the kc761sim matrix modes, where
 
-* C is the calibration deposition response (n x n), random through the
+* C is the calibration deposition-to-channel matrix (n x n), random through the
   fit parameters with the per-element gradient tensor J (n x n x 7) and
   the 7x7 parameter covariance ``param_cov`` (reported basis; NaN
   rows/columns mark undetermined parameters and are treated as fixed,
@@ -47,19 +47,19 @@ N_PARAMS = 7
 
 
 @dataclass
-class ComposedResponse:
+class ComposedMatrix:
     """R = C @ G with the per-element variances and the detection efficiency."""
 
-    matrix: np.ndarray  # R, (n, n)
+    channel_matrix: np.ndarray  # R, (n, n)
     variance: np.ndarray  # Var_R, (n, n)
     efficiency: np.ndarray  # per-column detection efficiency, (n,)
     efficiency_variance: np.ndarray  # (n,)
 
 
-def compose_response(C, C_jac, param_cov, G_counts, totals) -> ComposedResponse:
+def compose_matrix(C, C_jac, param_cov, G_counts, totals) -> ComposedMatrix:
     """Compose R = C @ (column-normalized G) with full linearized errors.
 
-    ``C`` is the dense deposition response (n x n); ``C_jac`` its
+    ``C`` is the dense deposition-to-channel matrix (n x n); ``C_jac`` its
     gradient tensor J (n x n x 7) in the ``param_cov`` basis; ``G_counts``
     the Monte Carlo counts (n x n); ``totals`` the per-column number of
     primary events (n,), zero-deposition events included.
@@ -80,7 +80,7 @@ def compose_response(C, C_jac, param_cov, G_counts, totals) -> ComposedResponse:
     if totals.shape != (n,):
         raise ValueError(f"totals must have shape ({n},), got {totals.shape}")
     if (C < 0).any():
-        raise ValueError("deposition response C contains negative entries")
+        raise ValueError("deposition-to-channel matrix C contains negative entries")
     if (G < 0).any():
         raise ValueError("G counts contain negative entries")
     if (totals < 0).any():
@@ -133,8 +133,8 @@ def compose_response(C, C_jac, param_cov, G_counts, totals) -> ComposedResponse:
     var_c_eff = np.einsum("bp,pq,bq->b", h_eff, cov_w, h_eff, optimize=True)
     efficiency_variance = np.maximum(var_c_eff + var_g_eff, 0.0)
 
-    return ComposedResponse(
-        matrix=R,
+    return ComposedMatrix(
+        channel_matrix=R,
         variance=variance,
         efficiency=eff,
         efficiency_variance=efficiency_variance,

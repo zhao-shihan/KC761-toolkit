@@ -1,6 +1,6 @@
 // matrix2root.cxx
 // Convert the kc761sim matrix-mode binary export (written by
-// kc761sim/compose.py) into the composite response ROOT file.  Internal
+// kc761sim/compose.py) into the composite ROOT file.  Internal
 // to the kc761sim matrix modes.
 //
 // The export carries three matrices with the toolkit conventions
@@ -10,19 +10,19 @@
 // per-element 1-sigma squared errors for fSumw2.  The x axis of every
 // matrix is its output side and the y axis its input side:
 //
-//   TH2D  "deposition_response_matrix"  C copy: x = detected channel
+//   TH2D  "deposition_to_channel"  C copy: x = detected channel
 //         (uniform bins of width 1), y = energy deposition (variable
 //         bins, the calibration image of the channels).  Inherited
 //         bitwise from the input calibration file.
-//   TH2D  "primary_deposition_matrix"   G: x = energy deposition, y =
+//   TH2D  "primary_to_deposition"   G: x = energy deposition, y =
 //         primary energy (both axes variable, identical edges), MC
 //         counts with statistical errors.
-//   TH2D  "response_matrix"             R = C @ G: x = detected channel
+//   TH2D  "primary_to_channel"             R = C @ G: x = detected channel
 //         (uniform bins of width 1), y = true primary gamma energy
 //         (variable bins), fSumw2 = propagated per-element 1-sigma
 //         variance (calibration fit covariance via the analytic Jacobian
 //         plus the Monte Carlo multinomial covariance).
-//   TH1D  "primary_efficiency"          detection efficiency per
+//   TH1D  "detection_efficiency"          detection efficiency per
 //         primary-energy bin with propagated errors.
 //
 // The zero-deposition counts are NOT stored: they are recovered as
@@ -64,7 +64,7 @@ const int kNCore = 7;                 // stored parameters (c0..c3, b0..b2)
 const int64_t kMaxChannels = 1 << 14; // sanity cap (2 GiB per block)
 
 // Fill a TH1D's content and squared-error arrays (same linearization as
-// FillResponseMatrix, one axis).
+// FillMatrix, one axis).
 void FillH1(TH1D* h, const std::vector<double>& m,
             const std::vector<double>& sw2, int64_t nCh, const char* name) {
     h->Sumw2();
@@ -185,16 +185,16 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
     const size_t nEntries = static_cast<size_t>(nCh) * static_cast<size_t>(nCh);
     std::vector<double> matrix(nEntries);
     std::vector<double> matrixErrors(nEntries);
-    readBlock(matrix, 1, "deposition-response");
-    readBlock(matrixErrors, 2, "deposition-response errors");
+    readBlock(matrix, 1, "deposition-to-channel");
+    readBlock(matrixErrors, 2, "deposition-to-channel errors");
     std::vector<double> gCounts(nEntries);
     std::vector<double> gSumw2(nEntries);
     readBlock(gCounts, 3, "G counts");
     readBlock(gSumw2, 4, "G sumw2");
     std::vector<double> resp(nEntries);
     std::vector<double> respVar(nEntries);
-    readBlock(resp, 5, "response");
-    readBlock(respVar, 6, "response variance");
+    readBlock(resp, 5, "primary-to-channel");
+    readBlock(respVar, 6, "primary-to-channel variance");
     std::vector<double> efficiency(static_cast<size_t>(nCh));
     std::vector<double> efficiencyVar(static_cast<size_t>(nCh));
     readBlock(efficiency, 7, "efficiency");
@@ -227,46 +227,46 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
 
     // C copy: inherited bitwise (content and its own squared errors).
     TH2D* hC = new TH2D(
-        "deposition_response_matrix",
-        "KC761 deposition response matrix (energy deposition -> detected"
+        "deposition_to_channel",
+        "KC761 deposition-to-channel matrix;Channel;Energy deposition (keV)"
         " channel);Channel;Energy deposition (keV)",
         static_cast<int>(nCh), -0.5, static_cast<double>(nCh) - 0.5,
         static_cast<int>(nCh), edges.data());
     std::vector<double> cSw2(nEntries);
     for (size_t k = 0; k < nEntries; ++k)
         cSw2[k] = matrixErrors[k] * matrixErrors[k];
-    FillResponseMatrix(hC, matrix, cSw2, nCh, "deposition_response_matrix");
+    FillMatrix(hC, matrix, cSw2, nCh, "deposition_to_channel");
     hC->Write();
 
     // G: Monte Carlo counts with statistical errors (unit-weight fills:
     // the stored sumw2 buffer equals the counts).  x = energy deposition
     // (output side), y = primary energy (input side).
     TH2D* hG = new TH2D(
-        "primary_deposition_matrix",
-        "KC761 gamma transport matrix (primary energy -> energy"
+        "primary_to_deposition",
+        "KC761 primary-to-deposition matrix;Energy deposition (keV);Primary gamma"
         " deposition);Energy deposition (keV);Primary gamma energy (keV)",
         static_cast<int>(nCh), edges.data(),
         static_cast<int>(nCh), edges.data());
-    FillResponseMatrix(hG, gCounts, gSumw2, nCh, "primary_deposition_matrix");
+    FillMatrix(hG, gCounts, gSumw2, nCh, "primary_to_deposition");
     hG->Write();
 
-    // R = C @ G: the composite response (the only object kc761unfold
+    // R = C @ G: the primary-to-channel matrix (the only object kc761unfold
     // reads), fSumw2 = propagated per-element 1-sigma variance.
     TH2D* hResp = new TH2D(
-        "response_matrix",
-        "KC761 response matrix (primary gamma energy -> detected channel)"
+        "primary_to_channel",
+        "KC761 primary-to-channel matrix;Channel;Primary gamma energy (keV)"
         ";Channel;Primary gamma energy (keV)",
         static_cast<int>(nCh), -0.5, static_cast<double>(nCh) - 0.5,
         static_cast<int>(nCh), edges.data());
-    FillResponseMatrix(hResp, resp, respVar, nCh, "response_matrix");
+    FillMatrix(hResp, resp, respVar, nCh, "primary_to_channel");
     hResp->Write();
 
     TH1D* hEff = new TH1D(
-        "primary_efficiency",
-        "Detection efficiency per primary-energy bin;Primary gamma energy"
+        "detection_efficiency",
+        "Primary detection efficiency;Primary gamma energy (keV)"
         " (keV)",
         static_cast<int>(nCh), edges.data());
-    FillH1(hEff, efficiency, efficiencyVar, nCh, "primary_efficiency");
+    FillH1(hEff, efficiency, efficiencyVar, nCh, "detection_efficiency");
     hEff->Write();
 
     // New mode parameters (Q30 list).
@@ -284,12 +284,12 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
     fout.Close();
 
     // Verify the temporary ROOT file was written completely before it
-    // becomes the production output: require the response matrix with the
+    // becomes the production output: require the primary-to-channel matrix with the
     // expected bin counts and its error array (the kc761calib
     // convention).  Only after this passes is the file renamed onto the
     // target; on failure the partial file is removed and the export kept.
     TFile fcheck(tmpOut.c_str());
-    TH2D* hCheck = dynamic_cast<TH2D*>(fcheck.Get("response_matrix"));
+    TH2D* hCheck = dynamic_cast<TH2D*>(fcheck.Get("primary_to_channel"));
     if (fcheck.IsZombie() || !hCheck ||
         hCheck->GetNbinsX() != static_cast<int>(nCh) ||
         hCheck->GetNbinsY() != static_cast<int>(nCh) ||
@@ -297,7 +297,7 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
         fcheck.Close();
         gSystem->Unlink(tmpOut.c_str());
         std::cerr << "[matrix2root] error: temporary output is missing or "
-                  << "incomplete after writing (response matrix without "
+                  << "incomplete after writing (primary-to-channel matrix without "
                   << "its error array); keeping the export file: "
                   << exportFile << "\n";
         gSystem->Exit(1);
@@ -320,6 +320,6 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
     }
 
     std::cout << "[matrix2root] wrote " << output << " : " << nCh << " x "
-              << nCh << " composite response with per-bin errors, "
-              << "deposition response copy, G counts and parameters\n";
+              << nCh << " primary-to-channel matrix with per-bin errors, "
+              << "deposition-to-channel copy, G counts and parameters\n";
 }

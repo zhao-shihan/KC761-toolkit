@@ -53,7 +53,7 @@ def _run(args) -> int:
     calib_full = load_calibration(str(calib_file))
     if len(data.counts) != calib_full.n_channels:
         print(f"[unfold] error: data spectrum has {len(data.counts)} bins "
-              f"but the calibration response matrix covers "
+              f"but the calibration deposition-to-channel matrix covers "
               f"{calib_full.n_channels}; mismatched binning",
               file=sys.stderr)
         return 1

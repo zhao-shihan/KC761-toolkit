@@ -11,7 +11,7 @@ covariance is ``C_stat = M Sigma_y M^T`` (``M = 2 Ht^-1 R^T W``); the
 systematic covariance propagates the calibration parameters through the
 same implicit differentiation, ``J = dmu/dq = -Ht^-1 G_q`` with ``G_q``
 evaluated by central finite differences of the gradient at the fixed
-optimum (the response and the penalty operators are rebuilt at the
+optimum (the matrix and the penalty operators are rebuilt at the
 perturbed parameters).  Both covariances are computed on the solved
 variable and conjugated to the presented spectrum through the
 resolution-floor smoother.  The calibration-only mode expresses the
@@ -26,7 +26,7 @@ from scipy import sparse
 from kc761calib.response import resol_sigma_model
 
 from .penalty import penalty_operator
-from .response import energy_geometry, rebuild_response
+from .response import energy_geometry, rebuild_deposition_to_channel
 from .solver import (UnfoldProblem, embed_and_factor, objective_gradient,
                      solve_embedded)
 from .types import CalibrationFile
@@ -34,8 +34,8 @@ from .types import CalibrationFile
 FD_REL = 1e-5
 
 
-def _transport_eta(calib: CalibrationFile) -> np.ndarray:
-    """Per-primary-column factor recovering the full transport model.
+def _zero_deposition_eta(calib: CalibrationFile) -> np.ndarray:
+    """Per-primary-column factor recovering the full primary-to-deposition model.
 
     The stored composite response's column sums equal the detection
     efficiency, i.e. ``colsum(R)_b = eta_b * colsum(C(q0) p_tilde)_b``
@@ -44,11 +44,11 @@ def _transport_eta(calib: CalibrationFile) -> np.ndarray:
     stored response exactly at the nominal parameters and carries the
     correct q-derivative without needing the Monte Carlo column totals.
     """
-    c0 = rebuild_response(calib.calib_coeffs, calib.resol_params,
+    c0 = rebuild_deposition_to_channel(calib.calib_coeffs, calib.resol_params,
                           calib.n_channels, calib.channel_low,
                           calib.channel_high)
-    col_model = np.asarray((c0 @ calib.transport).sum(axis=0)).ravel()
-    col_stored = np.asarray(calib.matrix.sum(axis=0)).ravel()
+    col_model = np.asarray((c0 @ calib.primary_to_deposition).sum(axis=0)).ravel()
+    col_stored = np.asarray(calib.channel_matrix.sum(axis=0)).ravel()
     return np.divide(col_stored, col_model,
                      out=np.ones_like(col_stored),
                      where=col_model > 0.0)
@@ -59,7 +59,8 @@ def _response_gradient_fd(prob: UnfoldProblem, mu: np.ndarray,
                           mask: np.ndarray, k: int) -> np.ndarray:
     """FD cross gradients G_q[:, p] = d2L/d mu d q_p at the fixed optimum."""
     q0 = np.concatenate([calib.calib_coeffs, calib.resol_params])
-    eta = _transport_eta(calib) if calib.transport is not None else None
+    eta = (_zero_deposition_eta(calib)
+           if calib.primary_to_deposition is not None else None)
     g_q = np.empty((prob.n, 7))
     for p in range(7):
         step_p = FD_REL * max(abs(q0[p]), 1e-12)
@@ -67,11 +68,12 @@ def _response_gradient_fd(prob: UnfoldProblem, mu: np.ndarray,
         for sgn in (+1.0, -1.0):
             qp = q0.copy()
             qp[p] += sgn * step_p
-            rp = rebuild_response(qp[:4], qp[4:], calib.n_channels,
+            rp = rebuild_deposition_to_channel(qp[:4], qp[4:], calib.n_channels,
                                   calib.channel_low, calib.channel_high)
-            if calib.transport is not None:
-                # composite response: R(q) = C(q) p_tilde diag(eta)
-                rp = (rp @ calib.transport) @ sparse.diags(eta)
+            if calib.primary_to_deposition is not None:
+                # composite primary-to-channel matrix:
+                # R(q) = C(q) p_tilde diag(eta)
+                rp = (rp @ calib.primary_to_deposition) @ sparse.diags(eta)
             _, centers_p, widths_p = energy_geometry(
                 qp[:4], calib.channel_low, calib.channel_high)
             d_p = penalty_operator(widths_p, centers_p, sigma, mask, k)

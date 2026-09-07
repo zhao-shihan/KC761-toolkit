@@ -10,9 +10,9 @@ from kc761util.spectrum import SPECTRUM_HIST_NAME  # noqa: F401 (re-export)
 
 NTUPLE_NAME = "kc761_data"
 
-# Worker/merged histogram name of the matrix modes' gamma transport
+# Worker/merged histogram name of the matrix modes' primary-to-deposition
 # matrix G (x = energy deposition, y = primary energy).
-MATRIX_G_HIST_NAME = "primary_deposition_matrix"
+MATRIX_G_HIST_NAME = "primary_to_deposition"
 
 # Worker/merged histogram name of the matrix modes' per-primary-column
 # zero-deposition counts.

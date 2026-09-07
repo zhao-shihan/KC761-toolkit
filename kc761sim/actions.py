@@ -6,7 +6,7 @@ Two clearly separated scoring paths live here:
   ntuple and the 4096-bin spectrum histogram and merges crystal deposits
   into 10 us pulses;
 * the matrix-mode path (``MatrixRunAction``/``MatrixEventAction``) declares
-  only the gamma-transport histogram G (TH2D, x = energy deposition, y =
+  only the primary-to-deposition histogram G (TH2D, x = energy deposition, y =
   primary energy, variable-width axes taken from the calibration file)
   and the zero-deposition counter (TH1D), accumulates the total per-event
   crystal deposit without pulse merging, and writes no ntuple.
@@ -142,7 +142,7 @@ class MatrixRunAction(_AnalysisRunAction):
         edges = G4doubleVector([float(e) for e in self.edges])
         am.CreateH2(
             MATRIX_G_HIST_NAME,
-            "Gamma transport matrix (primary energy -> energy deposition)",
+            "Primary-to-deposition matrix (counts)",
             edges,
             edges,
         )

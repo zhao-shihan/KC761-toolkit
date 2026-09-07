@@ -4,7 +4,7 @@ Two scoring paths share the run-manager assembly and the multiprocessing
 batch machinery but differ in their outputs:
 
 * the radioactive-source path writes the ntuple + spectrum histogram;
-* the matrix-mode path writes only the gamma-transport histogram G (TH2D)
+* the matrix-mode path writes only the primary-to-deposition histogram G (TH2D)
   and the zero-deposition counter (TH1D), which are merged with hadd and
   then composed into the true response matrix by
   :mod:`kc761sim.compose`.

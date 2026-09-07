@@ -15,8 +15,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Unfold a KC761 channel spectrum into an energy spectrum "
                     "with the hybrid regularized unfolding, "
-                    "using the response matrix of a kc761calib export or a "
-                    "kc761sim composite-response file.  "
+                    "using the to-channel matrix of a kc761calib export "
+                    "(deposition-to-channel) or a kc761sim composite "
+                    "file (primary-to-channel).  "
                     "Alternatively, --calib-only relabels the channel axis "
                     "to energy without unfolding.  The unfolded spectrum "
                     "(TH1D, total errors), the statistical and systematic "
@@ -28,9 +29,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="background-subtracted data ROOT file "
                              "(kc761_spectrum TH1D)")
     parser.add_argument("--calib", type=Path, required=True, metavar="FILE",
-                        help="kc761calib export or kc761sim "
-                             "composite-response ROOT file with the "
-                             "response matrix (required)")
+                        help="kc761calib export or kc761sim composite ROOT file with the "
+                             "to-channel matrix (deposition-to-channel "
+                             "or primary-to-channel, required)")
     parser.add_argument("--calib-only", action="store_true",
                         help="relabel the channel axis to energy without "
                              "unfolding")

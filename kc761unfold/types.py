@@ -45,12 +45,13 @@ class CalibrationFile:
     energy_edges: np.ndarray  # subrange slice, n_bins + 1
     centers: np.ndarray  # subrange, n_bins
     widths: np.ndarray  # subrange, n_bins
-    matrix: sparse.csr_matrix  # subrange n_bins x n_bins
-    # Composite files only: conditional transport p_tilde[dep, primary]
-    # (thresholded CSR); None for calibration files.  Used by the
-    # systematic-error propagation to rebuild the response's parameter
-    # dependence, R(q) = C(q) p_tilde diag(eta).
-    transport: sparse.csr_matrix | None
+    channel_matrix: sparse.csr_matrix  # subrange n_bins x n_bins
+    # Composite files only: conditional primary-to-deposition
+    # distribution p_tilde[dep, primary] (thresholded CSR); None for
+    # calibration files.  Used by the systematic-error propagation to
+    # rebuild the primary-to-channel matrix, R(q) = C(q) p_tilde
+    # diag(eta).
+    primary_to_deposition: sparse.csr_matrix | None
     calib_coeffs: np.ndarray  # (c0, c1, c2, c3)
     resol_params: np.ndarray  # (b0, b1, b2)
     param_cov: np.ndarray  # 7x7 reported basis

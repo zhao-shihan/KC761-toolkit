@@ -89,9 +89,9 @@ inline void WriteCalibrationMetadata(
 // binx + (nbinsx + 2)*biny, so the bin (x = ch + 1, y = e + 1) sits at
 // (e + 1)*(nCh + 2) + (ch + 1); fSumw2 (allocated by Sumw2()) uses the
 // same linearization and holds the squared errors.
-inline void FillResponseMatrix(TH2D* h, const std::vector<double>& m,
-                               const std::vector<double>& sw2, int64_t nCh,
-                               const char* name) {
+inline void FillMatrix(TH2D* h, const std::vector<double>& m,
+                       const std::vector<double>& sw2, int64_t nCh,
+                       const char* name) {
     h->Sumw2();
     Double_t* arr = h->GetArray();
     Double_t* sumw2 = h->GetSumw2()->GetArray();

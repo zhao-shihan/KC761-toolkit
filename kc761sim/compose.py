@@ -1,9 +1,9 @@
-"""Composite-response composition: R = C @ G with full error propagation.
+"""Primary-to-channel composition: R = C @ G with full error propagation.
 
 Pipeline glue for the kc761sim matrix modes: reads the merged G ROOT file
 (the hadd output of the worker histograms) and composes the true response
 R = C @ G from the input calibration file's deposition response C -- via
-:func:`kc761util.respcomp.compose_response` with the analytic Jacobian of
+:func:`kc761util.respcomp.compose_matrix` with the analytic Jacobian of
 :mod:`kc761calib.matrixjac` -- writing the final ROOT file through
 :file:`kc761sim/matrix2root.cxx` (the temporary-binary export convention
 of kc761calib/kc761unfold):
@@ -28,7 +28,7 @@ import uproot
 
 from kc761calib.matrixjac import build_matrix_jacobian
 from kc761util.calibfile import MAX_CHANNELS, load_calib_file
-from kc761util.respcomp import compose_response
+from kc761util.respcomp import compose_matrix
 from kc761util.rootcxxfrontend import format_macro_cmd, run_macro
 
 from .paths import MATRIX_G_HIST_NAME, MATRIX_ZERO_HIST_NAME
@@ -204,7 +204,7 @@ def write_matrix_export(calib, g_counts, composed, source,
             _put_f64(fh, calib.resol_errors)
             _put_f64(fh, calib.resol_e_ref)
             _put_f64(fh, calib.param_cov.ravel())
-            _put_block(fh, 1, calib.matrix.ravel())
+            _put_block(fh, 1, calib.channel_matrix.ravel())
             _put_block(fh, 2, calib.matrix_errors.ravel())
             # G is carried as [deposition, primary]; the macro writes
             # row-major with row = x (deposition), so no transpose is
@@ -212,7 +212,7 @@ def write_matrix_export(calib, g_counts, composed, source,
             # the counts.
             _put_block(fh, 3, g_counts.ravel())
             _put_block(fh, 4, g_counts.ravel())
-            _put_block(fh, 5, composed.matrix.ravel())
+            _put_block(fh, 5, composed.channel_matrix.ravel())
             _put_block(fh, 6, composed.variance.ravel())
             _put_block(fh, 7, composed.efficiency)
             _put_block(fh, 8, composed.efficiency_variance)
@@ -253,11 +253,11 @@ def compose_matrix_output(
           f"response from C (calibration) and G (Monte Carlo)")
     jacobian = build_matrix_jacobian(
         calib.energy_edges, calib.calib_coeffs, calib.resol_params)
-    composed = compose_response(
-        calib.matrix, jacobian, calib.param_cov, g_counts, totals)
+    composed = compose_matrix(
+        calib.channel_matrix, jacobian, calib.param_cov, g_counts, totals)
 
     # Physical sanity of the composed matrix before writing anything.
-    matrix = composed.matrix
+    matrix = composed.channel_matrix
     if (matrix < -1e-12).any():
         raise RuntimeError("composed matrix contains negative entries")
     col_sums = matrix.sum(axis=0)
