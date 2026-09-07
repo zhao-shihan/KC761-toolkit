@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unfold KC761 spectra: SWR unfolding or calibration-only relabeling."""
+"""Unfold KC761 spectra: hybrid regularized unfolding or calibration-only relabeling."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from kc761unfold.plot import plot_result
 from kc761unfold.reader import (energy_to_channels, load_calibration,
                                 slice_calibration)
 from kc761unfold.report import print_summary
-from kc761unfold.types import SWRSettings
+from kc761unfold.types import UnfoldSettings
 from kc761util.rootcxxfrontend import find_root
 from kc761util.spectrum import load_spectrum
 
@@ -66,9 +66,11 @@ def _run(args) -> int:
         return 1
     calib = slice_calibration(calib_full, ch_lo, ch_hi)
 
-    settings = SWRSettings(alpha=args.alpha, delta=args.delta, p0=args.p0,
-                           gmin=args.gmin, k=args.k,
-                           snip_iter=args.snip_iter, syst_frac=args.syst,
+    settings = UnfoldSettings(alpha=args.alpha, mask_p0=args.mask_p0,
+                           mask_floor=args.mask_floor, k=args.k,
+                           snip_iter=args.snip_iter,
+                           resol_frac=args.resol_frac,
+                           syst_frac=args.syst,
                            energy_low=elo, energy_high=ehi,
                            channel_low=ch_lo, channel_high=ch_hi)
     if args.calib_only:

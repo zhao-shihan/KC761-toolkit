@@ -1,42 +1,12 @@
-"""SWR (significance-weighted robust) regularization for unfolding.
+"""Hybrid regularized unfolding: penalty operator for unfolding.
 
-Design and sources
-------------------
-
-The unfolded density rho = mu / w (counts per keV, w the energy bin
-width) is regularized by the penalty
-
-    Omega = sum_j rho_delta( m_j * (L_k rho)_j / sigma_d,j ),
-
-where L_k is the k-th difference operator on the energy grid, sigma_d,j
-is the statistical noise of that difference, m_j a peak mask, and
-rho_delta the Huber loss.  The three ingredients and their origins:
-
-- Significance normalization (sigma_d): penalizing absolute counts
-  under-regularizes low-count continua (where the noise is small) and
-  over-regularizes peaks (where it is large).  Measuring differences in
-  units of their exact local noise makes both alpha and delta
-  dimensionless significance parameters that transfer across spectra
-  and datasets.
-
-- SNIP baseline and peak mask: SNIP (Ryan, Clayton, Griffin, Sie and
-  Cousens, Nucl. Instrum. Methods B 34 (1988) 396-402) extracts a
-  smooth background in log space by iterative peak clipping.  The mask
-  m_j = 1 / (1 + max(0, p_j)^2 / p0^2), p_j = (y_j - b_j) / sigma_j,
-  suppresses the penalty on significant peaks, so the smoothing budget
-  is spent on the continuum instead of rounding peaks; the floor gmin
-  keeps high-SNR peaks from being sharpened below the resolution.
-
-- Huber loss (Huber, Ann. Math. Statist. 35 (1964) 73-101): quadratic
-  for |d| <= delta, linear beyond.  An L2 penalty grows super-linearly
-  with the peak slopes and rounds them; the Huber linear branch caps
-  that cost, so noise-level differences in the continuum are still
-  suppressed quadratically while peak flanks are treated gently.
-
-The three components are not found combined under this name in the
-unfolding literature; the combination and the name are this toolkit's
-design, motivated by the artifacts observed on KC761 spectra (spurious
-peaks in continua under plain L2, peak rounding under strong L2).
+The density ``rho = mu / w`` (w the energy bin width) is regularized by
+the quadratic penalty ``Omega = ||D mu||^2`` with
+``D = diag(m/sigma_d) L_k diag(1/w)``: the k-th difference of rho in
+units of its exact statistical noise ``sigma_d``, weighted by the SNIP
+peak mask ``m`` (see Ryan et al., Nucl. Instrum. Methods B 34 (1988)
+396-402).  The significance normalization makes the strength ``alpha`` a
+dimensionless parameter that transfers across spectra.
 """
 
 from __future__ import annotations
@@ -88,39 +58,42 @@ def snip_baseline(counts: np.ndarray, n_iter: int) -> np.ndarray:
     """
     y = np.maximum(np.asarray(counts, dtype=float), 1.0)
     v = np.log(y)
-    n = v.size
-    for p in range(int(n_iter), 0, -1):
-        lo = np.concatenate([v[:p], v[:n - p]])
-        hi = np.concatenate([v[p:], v[n - p:]])
-        v = np.minimum(v, 0.5 * (lo + hi))
+    n = len(y)
+    for p in range(n_iter, 0, -1):
+        vp = np.empty_like(v)
+        for i in range(n):
+            lo = max(i - p, 0)
+            hi = min(i + p, n - 1)
+            vp[i] = min(v[i], 0.5 * (v[lo] + v[hi]))
+        v = vp
     return np.exp(v)
 
 
 def peak_mask(counts: np.ndarray, sigma: np.ndarray, baseline: np.ndarray,
-              p0: float, gmin: float) -> np.ndarray:
+              mask_p0: float, mask_floor: float) -> np.ndarray:
     """Regularization mask from the local peak significance.
 
-    ``m = 1 / (1 + max(0, p)^2 / p0^2)`` with p = (y - baseline) / sigma,
-    floored at ``gmin`` so high-significance peaks keep a minimum of
-    regularization (prevents sharpening below the detector resolution).
+    ``m = 1 / (1 + max(0, p)^2 / mask_p0^2)`` with ``p = (y - baseline) /
+    sigma``, floored at ``mask_floor`` so high-significance peaks keep a
+    minimum of regularization (prevents sharpening below the detector
+    resolution).
     """
     p = (np.asarray(counts, dtype=float) - np.asarray(baseline, dtype=float)
          ) / np.asarray(sigma, dtype=float)
-    m = 1.0 / (1.0 + np.maximum(p, 0.0) ** 2 / p0 ** 2)
-    return np.maximum(m, gmin)
+    m = 1.0 / (1.0 + np.maximum(p, 0.0) ** 2 / mask_p0 ** 2)
+    return np.maximum(m, mask_floor)
 
 
-def swr_operator(widths: np.ndarray, centers: np.ndarray, sigma: np.ndarray,
-                 mask: np.ndarray, k: int) -> sparse.csr_matrix:
-    """The normalized difference operator D of the SWR penalty.
+def penalty_operator(widths: np.ndarray, centers: np.ndarray, sigma: np.ndarray,
+                     mask: np.ndarray, k: int) -> sparse.csr_matrix:
+    """The normalized masked difference operator D of the penalty.
 
-    (D mu)_r = m_jc * (L_k rho)_r / sigma_d,r, with rho = mu / w and
-    sigma_d,r = sqrt(|L_k row|^2 @ sigma_rho^2) the exact statistical
-    noise of the r-th difference of the density (independent bins,
-    including the 1/h energy-spacing factors of L_k).  D mu is
-    dimensionless and unit-variance under the null, so the SWR strength
-    alpha and the Huber threshold delta are dimensionless, problem-
-    independent parameters.
+    ``(D mu)_r = m_jc * (L_k rho)_r / sigma_d,r`` with ``rho = mu / w``
+    and ``sigma_d,r = sqrt(|L_k row|^2 @ sigma_rho^2)`` the exact
+    statistical noise of the r-th difference of the density (independent
+    bins, including the 1/h energy-spacing factors of L_k).  ``D mu`` is
+    dimensionless and unit-variance under the null, so the regularization strength
+    ``alpha`` is a dimensionless, problem-independent parameter.
     """
     w = np.asarray(widths, dtype=float)
     s = np.asarray(sigma, dtype=float)
@@ -131,20 +104,3 @@ def swr_operator(widths: np.ndarray, centers: np.ndarray, sigma: np.ndarray,
     sd = np.sqrt(l.multiply(l) @ (sigma_rho ** 2))
     row_w = np.asarray(mask, dtype=float)[jc] / sd
     return sparse.diags(row_w) @ l @ sparse.diags(1.0 / w)
-
-
-# --------------------------------------------------------------------------
-# Huber loss and its derivatives (elementwise)
-
-
-def huber_value(d: np.ndarray, delta: float) -> np.ndarray:
-    a = np.abs(d)
-    return np.where(a <= delta, 0.5 * d ** 2, delta * (a - 0.5 * delta))
-
-
-def huber_grad(d: np.ndarray, delta: float) -> np.ndarray:
-    return np.clip(d, -delta, delta)
-
-
-def huber_hess(d: np.ndarray, delta: float) -> np.ndarray:
-    return (np.abs(d) <= delta).astype(float)

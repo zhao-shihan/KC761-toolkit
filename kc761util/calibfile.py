@@ -42,6 +42,9 @@ RESPONSE_HIST_NAME = "response_matrix"
 #: Response-matrix object name of kc761calib exports (channel <-
 #: energy deposition).
 DEPOSITION_RESPONSE_HIST_NAME = "deposition_response_matrix"
+#: Transport-matrix object name of kc761sim composite files (x =
+#: energy deposition, y = primary energy, Monte Carlo counts).
+TRANSPORT_HIST_NAME = "primary_deposition_matrix"
 
 #: Reported-basis parameter order of ``param_cov``.
 PARAM_NAMES = ("c0", "c1", "c2", "c3", "b0", "b1", "b2")
@@ -70,6 +73,13 @@ class CalibFile:
     energy_edges: np.ndarray  # n + 1, strictly increasing
     matrix: np.ndarray  # (n, n) dense, [channel, energy]
     matrix_errors: np.ndarray | None  # (n, n) stored per-element 1-sigma
+    #: Composite files only: the conditional transport matrix
+    #: ``p_tilde[deposition, primary] = G / column_sum(G)`` (columns
+    #: normalized over the deposited events, the zero-deposition category
+    #: excluded).  Combined with the stored response's column sums it
+    #: rebuilds the full transport model (efficiency included) for the
+    #: systematic-error propagation; None for calibration files.
+    transport: np.ndarray | None
     calib_coeffs: np.ndarray  # (c0, c1, c2, c3)
     calib_errors: np.ndarray  # stored 1-sigma of c0..c3
     resol_params: np.ndarray  # (b0, b1, b2)
@@ -140,6 +150,17 @@ def load_calib_file(
             errors = np.asarray(hist.errors(), dtype=float)
         except KeyError:
             errors = None  # no sumw2 buffer stored
+        transport = None
+        if TRANSPORT_HIST_NAME in file:
+            # Conditional transport: normalize each primary column over
+            # the deposited events (zero-deposition excluded).
+            t_hist = file[TRANSPORT_HIST_NAME]
+            t_values = np.asarray(
+                t_hist.values(), dtype=float)  # [dep, primary]
+            t_totals = t_values.sum(axis=0)
+            transport = np.divide(t_values, t_totals,
+                                  out=np.zeros_like(t_values),
+                                  where=t_totals > 0.0)
         try:
             params = np.array(
                 [file[name].member("fVal") for name in PARAM_NAMES],
@@ -192,6 +213,7 @@ def load_calib_file(
         energy_edges=energy_edges,
         matrix=values,
         matrix_errors=errors,
+        transport=transport,
         calib_coeffs=params[:4],
         calib_errors=calib_errors,
         resol_params=params[4:],

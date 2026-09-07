@@ -7,14 +7,15 @@ from pathlib import Path
 
 from kc761util.rootcxxfrontend import add_root_option
 
-from .types import (DEFAULT_ALPHA, DEFAULT_DELTA, DEFAULT_GMIN, DEFAULT_K,
-                    DEFAULT_P0, DEFAULT_SNIP_ITER, DEFAULT_SYST_FRAC)
+from .types import (DEFAULT_ALPHA, DEFAULT_K, DEFAULT_MASK_FLOOR,
+                    DEFAULT_MASK_P0, DEFAULT_RESOL_FRAC, DEFAULT_SNIP_ITER,
+                    DEFAULT_SYST_FRAC)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Unfold a KC761 channel spectrum into an energy spectrum "
-                    "with the SWR (significance-weighted robust) method, "
+                    "with the hybrid regularized unfolding, "
                     "using the response matrix of a kc761calib export or a "
                     "kc761sim composite-response file.  "
                     "Alternatively, --calib-only relabels the channel axis "
@@ -48,20 +49,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              f"(default {DEFAULT_SYST_FRAC:g})")
     parser.add_argument("--alpha", type=float, default=DEFAULT_ALPHA,
                         metavar="ALPHA",
-                        help="SWR regularization strength (dimensionless "
-                             "significance strength, "
+                        help="regularization strength (dimensionless, "
                              f"default {DEFAULT_ALPHA:g})")
-    parser.add_argument("--delta", type=float, default=DEFAULT_DELTA,
-                        metavar="DELTA",
-                        help="Huber threshold in units of the local "
-                             f"difference noise (default {DEFAULT_DELTA:g})")
-    parser.add_argument("--p0", type=float, default=DEFAULT_P0, metavar="P0",
+    parser.add_argument("--resol-frac", type=float, default=DEFAULT_RESOL_FRAC,
+                        metavar="FRAC",
+                        help="resolution-floor fraction of the analytic "
+                             "resolution model: the unfolded spectrum is "
+                             "presented as mu = S nu with a Gaussian "
+                             "smoother of width FRAC x sigma, so features "
+                             f"are at least FRAC x sigma wide (default "
+                             f"{DEFAULT_RESOL_FRAC:g}; 0 disables the "
+                             "floor)")
+    parser.add_argument("--mask-p0", type=float, default=DEFAULT_MASK_P0,
+                        metavar="P0",
                         help="SNIP peak-significance threshold of the peak "
-                             f"mask (default {DEFAULT_P0:g})")
-    parser.add_argument("--gmin", type=float, default=DEFAULT_GMIN,
-                        metavar="GMIN",
+                             f"mask (default {DEFAULT_MASK_P0:g})")
+    parser.add_argument("--mask-floor", type=float,
+                        default=DEFAULT_MASK_FLOOR, metavar="FLOOR",
                         help="peak-mask floor, the minimum regularization "
-                             f"kept on peaks (default {DEFAULT_GMIN:g})")
+                             f"kept on peaks (default {DEFAULT_MASK_FLOOR:g})")
     parser.add_argument("--k", type=int, default=DEFAULT_K, choices=(1, 2),
                         metavar="K",
                         help="difference order of the density penalty "

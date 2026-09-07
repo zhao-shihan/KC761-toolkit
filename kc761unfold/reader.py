@@ -62,6 +62,8 @@ def load_calibration(path: str | Path) -> CalibrationFile:
         centers=0.5 * (data.energy_edges[:-1] + data.energy_edges[1:]),
         widths=np.diff(data.energy_edges),
         matrix=_threshold(data.matrix),
+        transport=(None if data.transport is None
+                   else _threshold(data.transport)),
         calib_coeffs=data.calib_coeffs,
         resol_params=data.resol_params,
         param_cov=cov,
@@ -95,6 +97,10 @@ def slice_calibration(calib: CalibrationFile, channel_low: int,
         centers=calib.centers[channel_low:channel_high + 1],
         widths=calib.widths[channel_low:channel_high + 1],
         matrix=_threshold(sub),
+        transport=(None if calib.transport is None else
+                   _threshold(calib.transport[
+                       channel_low:channel_high + 1,
+                       channel_low:channel_high + 1].toarray())),
         calib_coeffs=calib.calib_coeffs,
         resol_params=calib.resol_params,
         param_cov=calib.param_cov,

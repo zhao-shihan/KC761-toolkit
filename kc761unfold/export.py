@@ -52,8 +52,8 @@ def write_export_file(result: UnfoldResult) -> Path:
         if result.syst_cov is not None:
             _put(fh, np.asarray(result.syst_cov, dtype=float).ravel())
         s = result.settings
-        _put(fh, np.array([s.syst_frac, s.alpha, s.delta, s.p0, s.gmin,
-                           s.energy_low, s.energy_high]))
+        _put(fh, np.array([s.syst_frac, s.alpha, s.mask_p0, s.mask_floor,
+                           s.resol_frac, s.energy_low, s.energy_high]))
         _put_i64(fh, s.k)
         _put_i64(fh, s.snip_iter)
         _put(fh, np.array([result.chi2 if result.chi2 is not None else 0.0,

@@ -1,21 +1,17 @@
-"""SWR unfolding solver: banded linear algebra and optimization.
+"""Hybrid regularized unfolding solver: banded linear algebra and optimization.
 
-The response matrix, the penalty operators and the Hessians are all
-banded (nonzero entries confined to a diagonal band of width ~ 2 x the
-Gaussian kernel support, ~420 channels out of 2048).  The module builds
-the Hessian in LAPACK upper-banded storage and solves with the banded
-Cholesky (O(n b^2) instead of O(n^3)), which makes every Newton step,
-the quadratic warm-start and each covariance solve in kc761unfold.errors
-subsecond.
+The response, the penalty operator and the Hessian are banded (for
+calibration responses the bandwidth is ~ 2 x the Gaussian kernel
+support; composite responses are wider but use the same machinery), so
+the quadratic program
 
-The Huber objective is minimized by a damped Newton method with an
-active-set treatment of the positivity constraint: the Hessian
-2 R^T W R + a D^T diag(rho''(d)) D is positive semi-definite on the
-free set, the embedded banded factorization gives a descent direction,
-and a backtracking line search with clipping handles the bound mu >= 0.
-L-BFGS-B over a softplus parameterization converges far more slowly on
-this problem (the clipped-bin directions are exponentially flat in the
-link-function space).
+    chi2(mu) + alpha ||D mu||^2  subject to  mu >= 0
+
+is solved with banded Cholesky factorizations (O(n b^2)): the quadratic
+warm start drops violated bins until the non-negative optimum is
+reached, and the damped Newton iteration with an active set polishes it
+(converged when the projected gradient on the free set reaches the
+tolerance).
 """
 
 from __future__ import annotations
@@ -23,8 +19,6 @@ from __future__ import annotations
 import numpy as np
 from scipy import sparse
 from scipy.linalg import cholesky_banded, cho_solve_banded
-
-from .penalty import huber_grad, huber_hess, huber_value
 
 JITTER_FRAC = 1e-10  # relative diagonal jitter for the banded Cholesky
 
@@ -89,10 +83,10 @@ def solve_embedded(ab: np.ndarray, u: int, free: np.ndarray, rhs: np.ndarray,
 # problem and optimization
 
 
-def swr_gradient(r: sparse.csr_matrix, y: np.ndarray, w: np.ndarray,
-                 d_op: sparse.csr_matrix, alpha: float, delta: float,
-                 mu: np.ndarray) -> np.ndarray:
-    """dL/dmu at fixed mu for the SWR objective (Huber clip included).
+def objective_gradient(r: sparse.csr_matrix, y: np.ndarray, w: np.ndarray,
+                       d_op: sparse.csr_matrix, alpha: float,
+                       mu: np.ndarray) -> np.ndarray:
+    """dL/dmu at fixed mu for the quadratic unfolding objective.
 
     The single source of the objective gradient: the solver's Newton
     loop evaluates it on the nominal operators, and the systematic-
@@ -100,25 +94,25 @@ def swr_gradient(r: sparse.csr_matrix, y: np.ndarray, w: np.ndarray,
     the perturbed ones.
     """
     r_ = y - r @ mu
-    d = d_op @ mu
     return (-2.0 * (r.T @ (w * r_))
-            + alpha * (d_op.T @ huber_grad(d, delta)))
+            + 2.0 * alpha * (d_op.T @ (d_op @ mu)))
 
 
-class SWRProblem:
-    """One unfolding problem: SWR objective over the channel subrange."""
+class UnfoldProblem:
+    """One unfolding problem: quadratic unfolding objective over the subrange."""
 
     def __init__(self, r: sparse.csr_matrix, y: np.ndarray, w: np.ndarray,
-                 d_op: sparse.csr_matrix, alpha: float, delta: float):
+                 d_op: sparse.csr_matrix, alpha: float):
         self.r = r
         self.y = y
         self.w = w
         self.d_op = d_op
         self.alpha = alpha
-        self.delta = delta
         self.n = len(y)
         # constant data part of the Hessian (does not depend on mu)
         self._rtwr = (2.0 * (r.T @ sparse.diags(w) @ r)).tocsr()
+        # constant penalty part of the Hessian (quadratic objective)
+        self._dtd = (2.0 * (d_op.T @ d_op)).tocsr()
 
     # -- objective --------------------------------------------------------
 
@@ -128,42 +122,28 @@ class SWRProblem:
 
     def grad_mu(self, mu: np.ndarray) -> np.ndarray:
         """dL/dmu at fixed mu on the nominal operators."""
-        return swr_gradient(self.r, self.y, self.w, self.d_op, self.alpha,
-                            self.delta, mu)
+        return objective_gradient(self.r, self.y, self.w, self.d_op, self.alpha, mu)
 
     def _loss(self, mu: np.ndarray) -> float:
-        return self._chi2(mu) + self.alpha * float(
-            huber_value(self.d_op @ mu, self.delta).sum())
-
-    def hessian_banded(self, mu: np.ndarray
-                       ) -> tuple[np.ndarray, int]:
-        """Full Hessian 2 R^T W R + a D^T diag(rho''(d)) D, banded.
-
-        The Huber second derivative is 1 in the quadratic branch and 0
-        in the linear branch, so this is the natural (piecewise)
-        Hessian used by the Newton step and by the implicit-
-        differentiation covariance in kc761unfold.errors.
-        """
         d = self.d_op @ mu
-        hh = huber_hess(d, self.delta)
-        omega = (self.d_op.T @ sparse.diags(hh) @ self.d_op).tocsr()
-        h = self._rtwr + self.alpha * omega
+        return self._chi2(mu) + self.alpha * float(d @ d)
+
+    def hessian_banded(self) -> tuple[np.ndarray, int]:
+        """Full Hessian 2 R^T W R + 2 a D^T D, banded (mu-independent)."""
+        h = self._rtwr + self.alpha * self._dtd
         return csr_to_upper_banded(h, self.n)
 
     # -- quadratic warm start ----------------------------------------------
 
     def warm_start(self) -> np.ndarray:
-        """Approximate non-negative quadratic-branch solution.
+        """Exact non-negative quadratic solution (the objective is quadratic).
 
-        The quadratic branch of the Huber objective (|d| <= delta) is
-        chi2 + (a/2) |D mu|^2, whose normal equations are
-        (2 R^T W R + a D^T D) mu = 2 R^T W y; a few banded
-        factorizations with every negative bin dropped per iteration
-        land close to its non-negative optimum, from which the Newton
-        iterations polish the Huber solution.
+        The normal equations (2 R^T W R + 2 a D^T D) mu = 2 R^T W y are
+        solved with every negative bin dropped per iteration, which
+        lands on the non-negative optimum; the Newton iterations below
+        only polish the active set.
         """
-        q = (self.d_op.T @ self.d_op).tocsr()
-        h2 = self._rtwr + self.alpha * q
+        h2 = self._rtwr + self.alpha * self._dtd
         ab, u = csr_to_upper_banded(h2, self.n)
         b = 2.0 * (self.r.T @ (self.w * self.y))
         free = np.ones(self.n, dtype=bool)
@@ -179,8 +159,8 @@ class SWRProblem:
 
     # -- damped Newton with an active set ------------------------------------
 
-    def solve(self, maxiter: int = 200) -> np.ndarray:
-        """Minimize the SWR objective with banded damped Newton steps.
+    def solve(self, maxiter: int = 400) -> np.ndarray:
+        """Minimize the unfolding objective with banded damped Newton steps.
 
         The active set is the positive bins plus the bins whose gradient
         wants to enter; a backtracking line search with clipping at 0
@@ -193,7 +173,7 @@ class SWRProblem:
             g = self.grad_mu(mu)
             scale = max(1.0, float(np.abs(g).max()))
             free = (mu > 0.0) | (g < -1e-12 * scale)
-            ab, u = self.hessian_banded(mu)
+            ab, u = self.hessian_banded()
             factor = embed_and_factor(ab, u, free)
             step = solve_embedded(ab, u, free, -g, factor=factor)
             dg = float(g @ step)
@@ -213,7 +193,7 @@ class SWRProblem:
         self.mu = np.where(mu < clip_tol, 0.0, mu)
         self.free = self.mu > 0.0
         self.chi2 = self._chi2(self.mu)
-        self.pen_cost = float(huber_value(self.d_op @ self.mu,
-                                          self.delta).sum())
+        d = self.d_op @ self.mu
+        self.pen_cost = float(d @ d)
         self.n_iter = nit
         return self.mu

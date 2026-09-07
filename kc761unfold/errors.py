@@ -1,44 +1,21 @@
-"""Analytic error propagation for the SWR unfolding.
+"""Analytic error propagation for the unfolding.
 
-Statistical covariance
-----------------------
-At the optimum, the estimator is the implicit function mu_hat(y, q) of
-the data y and the calibration parameters q.  Linearizing the
+At the optimum, the estimator is the implicit function ``mu_hat(y, q)``
+of the data ``y`` and the calibration parameters ``q``; linearizing the
 stationarity condition gives
 
     dmu = 2 Ht^-1 R^T W dy - Ht^-1 (d2L / d mu d q) dq,
 
-where Ht is the embedded Hessian of L on the free set (mu_j > 0).  The
-statistical covariance is C_stat = M Sigma_y M^T with M = 2 Ht^-1 R^T W
-and Sigma_y the per-bin data variance (subtraction statistics plus the
-fractional systematic).  The estimator's nonlinearity through the
-Huber weights and the positivity constraint is second-order: repeated
-unfolding of resampled data gave an ensemble-spread/analytic ratio of
-1.000 [0.944, 1.036].
-
-Systematic covariance
----------------------
-The calibration-parameter uncertainty propagates through the same
-implicit differentiation: J = dmu/dq = -Ht^-1 G_q with
-G_q = d2L/d mu d q evaluated by central finite differences of the
-gradient at the fixed optimum (7 parameters; the response and the
-penalty operators are rebuilt at the perturbed parameters, which
-captures their q-dependence exactly to the FD accuracy).  The
-systematic covariance is C_sys = J Sigma_q J^T with Sigma_q the 7x7
-reported-basis parameter covariance of the calibration file; repeated
-unfolding under calibration-parameter resampling gave an
-ensemble-spread/analytic ratio of 0.974.  The two sources are
-independent and added in quadrature.
-
-Calibration-only vertical term
-------------------------------
-With no estimator to differentiate, the calibration error of the
-relabeled spectrum is expressed vertically through the spectrum
-derivative: sigma_calib,j = |dy/dE|_j sigma_E,j, where the derivative
-is taken on resolution-smoothed counts (noise suppression) and
-sigma_E,j is the energy-center uncertainty from the calibration block
-of the parameter covariance.  The same term appears as part of the
-systematic band of the calibrated-spectrum layer in unfold plots.
+with ``Ht`` the embedded Hessian on the free set.  The statistical
+covariance is ``C_stat = M Sigma_y M^T`` (``M = 2 Ht^-1 R^T W``); the
+systematic covariance propagates the calibration parameters through the
+same implicit differentiation, ``J = dmu/dq = -Ht^-1 G_q`` with ``G_q``
+evaluated by central finite differences of the gradient at the fixed
+optimum (the response and the penalty operators are rebuilt at the
+perturbed parameters).  Both covariances are computed on the solved
+variable and conjugated to the presented spectrum through the
+resolution-floor smoother.  The calibration-only mode expresses the
+calibration error vertically through the spectrum derivative instead.
 """
 
 from __future__ import annotations
@@ -48,19 +25,43 @@ from scipy import sparse
 
 from kc761calib.response import resol_sigma_model
 
-from .penalty import swr_operator
+from .penalty import penalty_operator
 from .response import energy_geometry, rebuild_response
-from .solver import SWRProblem, embed_and_factor, solve_embedded, swr_gradient
+from .smoothing import build_resolution_smoother
+from .solver import (UnfoldProblem, embed_and_factor, objective_gradient,
+                     solve_embedded)
 from .types import CalibrationFile
 
 FD_REL = 1e-5
 
 
-def _response_gradient_fd(prob: SWRProblem, mu: np.ndarray,
+def _transport_eta(calib: CalibrationFile) -> np.ndarray:
+    """Per-primary-column factor recovering the full transport model.
+
+    The stored composite response's column sums equal the detection
+    efficiency, i.e. ``colsum(R)_b = eta_b * colsum(C(q0) p_tilde)_b``
+    with ``eta_b = 1 - p_zero_b`` the q-independent zero-deposition
+    complement; ``R(q) = C(q) p_tilde diag(eta)`` then reproduces the
+    stored response exactly at the nominal parameters and carries the
+    correct q-derivative without needing the Monte Carlo column totals.
+    """
+    c0 = rebuild_response(calib.calib_coeffs, calib.resol_params,
+                          calib.n_channels, calib.channel_low,
+                          calib.channel_high)
+    col_model = np.asarray((c0 @ calib.transport).sum(axis=0)).ravel()
+    col_stored = np.asarray(calib.matrix.sum(axis=0)).ravel()
+    return np.divide(col_stored, col_model,
+                     out=np.ones_like(col_stored),
+                     where=col_model > 0.0)
+
+
+def _response_gradient_fd(prob: UnfoldProblem, mu: np.ndarray,
                           calib: CalibrationFile, sigma: np.ndarray,
-                          mask: np.ndarray, k: int) -> np.ndarray:
+                          mask: np.ndarray, k: int,
+                          resol_frac: float) -> np.ndarray:
     """FD cross gradients G_q[:, p] = d2L/d mu d q_p at the fixed optimum."""
     q0 = np.concatenate([calib.calib_coeffs, calib.resol_params])
+    eta = _transport_eta(calib) if calib.transport is not None else None
     g_q = np.empty((prob.n, 7))
     for p in range(7):
         step_p = FD_REL * max(abs(q0[p]), 1e-12)
@@ -70,28 +71,40 @@ def _response_gradient_fd(prob: SWRProblem, mu: np.ndarray,
             qp[p] += sgn * step_p
             rp = rebuild_response(qp[:4], qp[4:], calib.n_channels,
                                   calib.channel_low, calib.channel_high)
-            _, centers_p, widths_p = energy_geometry(
+            if calib.transport is not None:
+                # composite response: R(q) = C(q) p_tilde diag(eta)
+                rp = (rp @ calib.transport) @ sparse.diags(eta)
+            e_edges_p, centers_p, widths_p = energy_geometry(
                 qp[:4], calib.channel_low, calib.channel_high)
-            d_p = swr_operator(widths_p, centers_p, sigma, mask, k)
-            # the FULL SWR gradient at the fixed optimum (Huber clip
-            # included), evaluated on the perturbed operators.
-            grads.append(swr_gradient(rp, prob.y, prob.w, d_p, prob.alpha,
-                                      prob.delta, mu))
+            if resol_frac > 0.0:
+                # the smoother is rebuilt at the perturbed parameters so
+                # its q-dependence enters the systematic covariance
+                smoother_p = build_resolution_smoother(
+                    e_edges_p, qp[4:], resol_frac)
+                rp = (rp @ smoother_p).tocsr()
+            d_p = penalty_operator(widths_p, centers_p, sigma, mask, k)
+            # the full objective gradient at the fixed optimum, evaluated
+            # on the perturbed operators.
+            grads.append(objective_gradient(rp, prob.y, prob.w, d_p,
+                                            prob.alpha, mu))
         g_q[:, p] = (grads[0] - grads[1]) / (2.0 * step_p)
     return g_q
 
 
-def compute_covariances(prob: SWRProblem, mu: np.ndarray, free: np.ndarray,
+def compute_covariances(prob: UnfoldProblem, mu: np.ndarray, free: np.ndarray,
                         sigma2: np.ndarray, calib: CalibrationFile,
-                        sigma: np.ndarray, mask: np.ndarray,
-                        k: int) -> tuple[np.ndarray, np.ndarray,
-                                         np.ndarray, np.ndarray]:
+                        sigma: np.ndarray, mask: np.ndarray, k: int,
+                        resol_frac: float = 0.0
+                        ) -> tuple[np.ndarray, np.ndarray,
+                                   np.ndarray, np.ndarray]:
     """Statistical and systematic covariance matrices at the optimum.
 
     Returns ``(C_stat, C_sys, sigma_stat, sigma_syst)``; the per-bin
-    total error is ``sqrt(diag(C_stat) + diag(C_sys))``.
+    total error is ``sqrt(diag(C_stat) + diag(C_sys))``.  With a
+    resolution floor (``resol_frac > 0``) both covariances are evaluated
+    on the solved variable and conjugated to the presented spectrum.
     """
-    ab, u = prob.hessian_banded(mu)
+    ab, u = prob.hessian_banded()
     factor = embed_and_factor(ab, u, free)
 
     # statistical: M = 2 Ht^-1 (R_clip^T W), C_stat = M Sigma_y M^T
@@ -102,13 +115,19 @@ def compute_covariances(prob: SWRProblem, mu: np.ndarray, free: np.ndarray,
     c_stat = m_scaled @ m_scaled.T
 
     # systematic: J = -Ht^-1 G_q, C_sys = J Sigma_q J^T
-    g_q = _response_gradient_fd(prob, mu, calib, sigma, mask, k)
+    g_q = _response_gradient_fd(prob, mu, calib, sigma, mask, k, resol_frac)
     # solve_embedded returns zero rows for non-free bins (masked right
     # sides against the identity embedding), so J is zero there already.
     j = -solve_embedded(ab, u, free, g_q, factor=factor)
     # the direct quadratic form: numerically stable against the
     # ill-conditioned parameter covariance (no Cholesky whitening).
     c_sys = j @ calib.param_cov @ j.T
+
+    if resol_frac > 0.0:
+        smoother = build_resolution_smoother(
+            calib.energy_edges, calib.resol_params, resol_frac)
+        c_stat = smoother @ c_stat @ smoother.T
+        c_sys = smoother @ c_sys @ smoother.T
 
     diag_stat = np.maximum(np.diag(c_stat), 0.0)
     diag_syst = np.maximum(np.diag(c_sys), 0.0)

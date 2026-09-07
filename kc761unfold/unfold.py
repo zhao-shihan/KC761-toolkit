@@ -1,45 +1,25 @@
-"""Top-level mode orchestration: SWR unfold and calibration-only.
+"""Top-level mode orchestration: Hybrid regularized unfold and calibration-only.
 
-SWR (significance-weighted robust) unfolding removes the detector's
-resolution smearing from background-subtracted KC761 channel spectra
-using the response matrix of a kc761calib export or a kc761sim
-composite-response file.  The unfolded
-spectrum ``mu`` (counts per variable-width energy bin) minimizes
+Hybrid regularized unfolding removes the detector's resolution
+smearing from background-subtracted KC761 channel spectra using the
+response matrix of a kc761calib export or a kc761sim composite-response
+file.  The unfolded spectrum ``mu`` minimizes
 
     chi2 = sum_j (y_j - (R mu)_j)^2 / sigma_j^2,
-    sigma_j^2 = max(stat_j^2, 1) + (f y_j)^2
+    sigma_j^2 = max(stat_j^2, 1) + (syst_frac y_j)^2
 
-under ``mu >= 0``, regularized by the SWR penalty
+under ``mu >= 0`` with the quadratic penalty ``alpha ||D mu||^2``
+(``D`` the significance-normalized, SNIP-masked difference operator of
+:mod:`kc761unfold.penalty`), and is presented as ``mu = S nu`` with
+``S`` the resolution floor of :mod:`kc761unfold.smoothing`
+(``resol_frac`` times the analytic resolution model; 0 disables it).
 
-    Omega = sum_j rho_delta( m_j (L_k rho)_j / sigma_d,j ),  rho = mu / w
-
-with ``L_k`` the k-th difference on the energy grid, ``sigma_d,j`` the
-statistical noise of that difference, ``m_j`` a SNIP peak mask, and
-``rho_delta`` the Huber loss.  See kc761unfold.penalty for the design
-and the literature sources of the three components (SNIP: Ryan et al.,
-Nucl. Instrum. Methods B 34 (1988) 396-402; Huber loss: Huber, Ann.
-Math. Statist. 35 (1964) 73-101; the significance normalization and the
-combination are this toolkit's design).  The unfolded spectrum keeps
-the Compton continuum; sub-resolution peak widths are regularization-
-limited (not identifiable from data) while peak areas are conserved.
-
-Errors are analytic (no Monte Carlo): the statistical covariance
-``M Sigma_y M^T`` with ``M = 2 H^-1 R^T W`` and the systematic
-(calibration-parameter) covariance ``J Sigma_q J^T`` with
-``J = d mu/dq = -H^-1 d^2L/d mu d q``; the total per-bin error is their
-quadrature sum (see kc761unfold.errors).
-
-The calibration-only mode relabels the channel axis to energy without
-unfolding; the calibration-model error is propagated vertically through
-the spectrum derivative, ``|dy/dE| sigma_E``, into the errors.
-
-Both modes produce a :class:`kc761unfold.types.UnfoldResult`, the single
-structure consumed by the ROOT export and the plot paths.  The ROOT
-output (kc761unfold/unfold2root.cxx) contains the spectrum TH1D with
-the total errors, the statistical and systematic covariance TH2Ds and
-the refolded spectrum (unfold mode), and the settings (``syst_frac``,
-``elo``/``ehi``, ``chlo``/``chhi``, ``calib_only``, and the SWR
-parameters in unfold mode).
+Errors are analytic (:mod:`kc761unfold.errors`): statistical and
+systematic (calibration-parameter) covariances on the solved variable,
+conjugated to ``mu`` through ``S``.  The calibration-only mode relabels
+the channel axis to energy without unfolding.  Both modes produce a
+:class:`kc761unfold.types.UnfoldResult` consumed by the ROOT export and
+the plot paths.
 """
 
 from __future__ import annotations
@@ -48,14 +28,15 @@ import numpy as np
 
 from .errors import (calibration_vertical_term, compute_covariances,
                      energy_center_errors)
-from .penalty import peak_mask, snip_baseline, swr_operator
-from .solver import SWRProblem
-from .types import CalibrationFile, SWRSettings, UnfoldResult
+from .penalty import peak_mask, snip_baseline, penalty_operator
+from .smoothing import build_resolution_smoother
+from .solver import UnfoldProblem
+from .types import CalibrationFile, UnfoldSettings, UnfoldResult
 
 
 def _calibrated_layer(counts: np.ndarray, errors: np.ndarray,
                       calib: CalibrationFile,
-                      settings: SWRSettings) -> tuple[np.ndarray, ...]:
+                      settings: UnfoldSettings) -> tuple[np.ndarray, ...]:
     """Per-bin errors of the calibrated-spectrum layer.
 
     Returns ``(sigma_total, sigma_syst, sigma_stat, sigma_calib)`` with
@@ -72,7 +53,7 @@ def _calibrated_layer(counts: np.ndarray, errors: np.ndarray,
             sigma_calib)
 
 
-def _result(calib_only: bool, calib: CalibrationFile, settings: SWRSettings,
+def _result(calib_only: bool, calib: CalibrationFile, settings: UnfoldSettings,
             counts: np.ndarray, data_counts: np.ndarray,
             sigma_stat: np.ndarray, sigma_syst: np.ndarray,
             sigma_total: np.ndarray, sigma_calib: np.ndarray,
@@ -108,9 +89,19 @@ def _result(calib_only: bool, calib: CalibrationFile, settings: SWRSettings,
 
 
 def run_unfold(calib: CalibrationFile, data_counts: np.ndarray,
-               data_errors: np.ndarray, settings: SWRSettings
+               data_errors: np.ndarray, settings: UnfoldSettings
                ) -> UnfoldResult:
-    """Unfold one spectrum with the SWR regularization."""
+    """Unfold one spectrum with the hybrid regularization.
+
+    The unfolded spectrum is ``mu = S nu`` with ``S`` the resolution
+    floor smoother (``settings.resol_frac`` times the analytic
+    resolution model; ``0`` disables the floor and unfolds ``mu``
+    directly).  The solver works on the effective response ``R S``; the
+    penalty acts on the solved variable ``nu`` (the smoother provides
+    the presentation smoothness, the penalty damps nu's sub-resolution
+    oscillations).  The reported covariances are conjugated to ``mu``
+    via ``S``.
+    """
     ch_lo = settings.channel_low
     ch_hi = settings.channel_high
     y = np.asarray(data_counts[ch_lo:ch_hi + 1], dtype=float)
@@ -121,16 +112,30 @@ def run_unfold(calib: CalibrationFile, data_counts: np.ndarray,
     w = 1.0 / sigma2
 
     baseline = snip_baseline(y, settings.snip_iter)
-    mask = peak_mask(y, sigma, baseline, settings.p0, settings.gmin)
-    d_op = swr_operator(calib.widths, calib.centers, sigma, mask, settings.k)
+    mask = peak_mask(y, sigma, baseline, settings.mask_p0,
+                     settings.mask_floor)
+    d_op = penalty_operator(calib.widths, calib.centers,
+                            sigma, mask, settings.k)
 
-    prob = SWRProblem(calib.matrix, y, w, d_op, settings.alpha,
-                      settings.delta)
-    mu = prob.solve()
-    nu = prob.r @ mu
+    # Resolution floor: mu = S nu; the solver sees the effective
+    # response R S, while the penalty acts on the solved variable nu
+    # with its original noise normalization.
+    if settings.resol_frac > 0.0:
+        smoother = build_resolution_smoother(
+            calib.energy_edges, calib.resol_params, settings.resol_frac)
+        r_eff = (calib.matrix @ smoother).tocsr()
+    else:
+        smoother = None
+        r_eff = calib.matrix
+
+    prob = UnfoldProblem(r_eff, y, w, d_op, settings.alpha)
+    nu = prob.solve()
+    mu = smoother @ nu if smoother is not None else nu
+    refolded = prob.r @ nu
 
     c_stat, c_sys, sig_stat, sig_syst = compute_covariances(
-        prob, mu, prob.free, sigma2, calib, sigma, mask, settings.k)
+        prob, nu, prob.free, sigma2, calib, sigma, mask, settings.k,
+        settings.resol_frac)
 
     data_total, data_syst, _, sigma_calib = _calibrated_layer(
         y, err, calib, settings)
@@ -139,13 +144,13 @@ def run_unfold(calib: CalibrationFile, data_counts: np.ndarray,
         False, calib, settings, mu, y, sig_stat, sig_syst,
         np.sqrt(sig_stat ** 2 + sig_syst ** 2), sigma_calib,
         data_total, data_syst,
-        stat_cov=c_stat, syst_cov=c_sys, refolded=nu,
+        stat_cov=c_stat, syst_cov=c_sys, refolded=refolded,
         chi2=prob.chi2, ndof=int(prob.free.sum()), pen_cost=prob.pen_cost,
         n_iter=prob.n_iter)
 
 
 def run_calib_only(calib: CalibrationFile, data_counts: np.ndarray,
-                   data_errors: np.ndarray, settings: SWRSettings
+                   data_errors: np.ndarray, settings: UnfoldSettings
                    ) -> UnfoldResult:
     """Relabel the channel spectrum onto the energy axis (no unfolding)."""
     ch_lo = settings.channel_low

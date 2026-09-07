@@ -1,10 +1,11 @@
 """Typed containers for kc761unfold.
 
-``CalibrationFile`` is the validated snapshot of a kc761calib export;
-``SWRSettings`` the regularization/error-model configuration; and
-``UnfoldResult`` the single result structure consumed by the export and
-plot paths in both the unfold and calibration-only modes, so the two
-modes share one output pipeline.
+``CalibrationFile`` is the validated snapshot of a kc761calib export or
+a kc761sim composite-response file; ``UnfoldSettings`` the
+regularization/error-model configuration; and ``UnfoldResult`` the
+single result structure consumed by the export and plot paths in both
+the unfold and calibration-only modes, so the two modes share one
+output pipeline.
 """
 
 from __future__ import annotations
@@ -15,10 +16,10 @@ import numpy as np
 from scipy import sparse
 
 DEFAULT_SYST_FRAC = 0.10
-DEFAULT_ALPHA = 1.0
-DEFAULT_DELTA = 1.0
-DEFAULT_P0 = 5.0
-DEFAULT_GMIN = 0.05
+DEFAULT_ALPHA = 0.1
+DEFAULT_RESOL_FRAC = 0.5
+DEFAULT_MASK_P0 = 5.0
+DEFAULT_MASK_FLOOR = 0.05
 DEFAULT_K = 1
 DEFAULT_SNIP_ITER = 24
 
@@ -47,6 +48,11 @@ class CalibrationFile:
     centers: np.ndarray  # subrange, n_bins
     widths: np.ndarray  # subrange, n_bins
     matrix: sparse.csr_matrix  # subrange n_bins x n_bins
+    #: Composite files only: conditional transport p_tilde[dep, primary]
+    #: (thresholded CSR); None for calibration files.  Used by the
+    #: systematic-error propagation to rebuild the response's parameter
+    #: dependence, R(q) = C(q) p_tilde diag(eta).
+    transport: sparse.csr_matrix | None
     calib_coeffs: np.ndarray  # (c0, c1, c2, c3)
     resol_params: np.ndarray  # (b0, b1, b2)
     param_cov: np.ndarray  # 7x7 reported basis
@@ -57,19 +63,25 @@ class CalibrationFile:
 
 
 @dataclass
-class SWRSettings:
-    """SWR unfolding configuration; every field is CLI-exposed.
+class UnfoldSettings:
+    """Hybrid regularized unfolding configuration; every field is CLI-exposed.
 
     The working range is given by the energy window ``energy_low`` ..
     ``energy_high`` (keV); ``channel_low``/``channel_high`` are the
     derived channel bins (the bins whose centers fall inside the energy
-    window).
+    window).  ``alpha`` is the dimensionless regularization strength.
+    ``resol_frac`` is the resolution-fraction of the presentation floor:
+    the unfolded spectrum is parameterized as mu = S nu with S a
+    Gaussian smoother of width ``resol_frac`` times the analytic
+    resolution model, so presented features are at least
+    ``resol_frac * sigma`` wide (0 disables the floor and unfolds mu
+    directly).
     """
 
-    alpha: float = DEFAULT_ALPHA  # SWR strength (dimensionless significance)
-    delta: float = DEFAULT_DELTA  # Huber threshold (noise units)
-    p0: float = DEFAULT_P0  # SNIP peak-significance threshold
-    gmin: float = DEFAULT_GMIN  # peak-mask floor (regularization on peaks)
+    alpha: float = DEFAULT_ALPHA  # fixed regularization strength
+    resol_frac: float = DEFAULT_RESOL_FRAC  # 0 = no resolution floor
+    mask_p0: float = DEFAULT_MASK_P0  # SNIP peak-significance threshold
+    mask_floor: float = DEFAULT_MASK_FLOOR  # minimum regularization on peaks
     k: int = DEFAULT_K  # difference order of the density penalty
     snip_iter: int = DEFAULT_SNIP_ITER  # SNIP clipping iterations
     syst_frac: float = DEFAULT_SYST_FRAC  # fractional data-side systematic
@@ -116,4 +128,4 @@ class UnfoldResult:
     data_counts: np.ndarray  # n_bins, the calibrated-spectrum layer
     data_sigma_total: np.ndarray  # n_bins, total-error band of that layer
     data_sigma_syst: np.ndarray  # n_bins, systematic band of that layer
-    settings: SWRSettings
+    settings: UnfoldSettings

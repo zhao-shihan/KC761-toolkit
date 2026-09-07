@@ -16,8 +16,8 @@ def print_summary(result: UnfoldResult, data_path: str,
     if result.calib_only:
         print("[unfold] calibration-only")
     else:
-        print(f"[unfold] SWR: alpha={s.alpha:g}, delta={s.delta:g}, "
-              f"p0={s.p0:g}, gmin={s.gmin:g}, k={s.k}, "
+        print(f"[unfold] hybrid: alpha={s.alpha:g}, resol_frac={s.resol_frac:g}, "
+              f"mask_p0={s.mask_p0:g}, mask_floor={s.mask_floor:g}, k={s.k}, "
               f"snip_iter={s.snip_iter}, syst={s.syst_frac:g}")
     print(f"[unfold] energy {result.energy_edges[0]:.2f} - "
           f"{result.energy_edges[-1]:.2f} keV "
