@@ -26,8 +26,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     "kc761unfold/unfold2root.cxx."
     )
     parser.add_argument("--data", type=Path, required=True, metavar="FILE",
-                        help="background-subtracted data ROOT file "
-                             "(kc761_spectrum TH1D)")
+                        help="data spectrum ROOT file (kc761_spectrum TH1D); "
+                             "background subtraction is optional")
     parser.add_argument("--calib", type=Path, required=True, metavar="FILE",
                         help="kc761calib export or kc761sim composite ROOT file with the "
                              "to-channel matrix (deposition-to-channel "

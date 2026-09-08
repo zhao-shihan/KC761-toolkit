@@ -10,7 +10,7 @@ output pipeline.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from scipy import sparse
@@ -28,14 +28,17 @@ class CalibrationFile:
     """Validated snapshot of a kc761calib export or kc761sim composite file
     on the selected channel subrange.
 
-    ``matrix`` is the thresholded response on ``[channel_low,
-    channel_high]``; the energy axis is the axis the matrix maps from
-    (energy deposition for calibration files, true primary gamma energy
-    for composite files, both read identically -- see
-    :mod:`kc761unfold.reader`).  ``energy_edges``/``centers``/``widths``
-    are the corresponding slice of the full binning; ``param_cov`` is the
-    7x7 covariance of ``(c0, c1, c2, c3, b0, b1, b2)`` in the reported
-    basis.
+    ``to_channel`` is the thresholded to-channel matrix on
+    ``[channel_low, channel_high]``; the energy axis is the axis the
+    matrix maps from (energy deposition for calibration files, true
+    primary gamma energy for composite files, both read identically --
+    see :mod:`kc761unfold.reader`).  ``energy_edges``/``centers``/
+    ``widths`` are the corresponding slice of the full binning;
+    ``param_cov`` is the 7x7 covariance of ``(c0, c1, c2, c3, b0, b1,
+    b2)`` in the reported basis.  The private cache fields are
+    per-snapshot bookkeeping (``init=False``), so
+    :func:`dataclasses.replace` of a snapshot starts with empty caches
+    instead of inheriting results computed for the original parameters.
     """
 
     n_channels: int  # full channel count of the calibration file
@@ -45,7 +48,7 @@ class CalibrationFile:
     energy_edges: np.ndarray  # subrange slice, n_bins + 1
     centers: np.ndarray  # subrange, n_bins
     widths: np.ndarray  # subrange, n_bins
-    channel_matrix: sparse.csr_matrix  # subrange n_bins x n_bins
+    to_channel: sparse.csr_matrix  # subrange n_bins x n_bins
     # Composite files only: conditional primary-to-deposition
     # distribution p_tilde[dep, primary] (thresholded CSR); None for
     # calibration files.  Used by the systematic-error propagation to
@@ -55,6 +58,21 @@ class CalibrationFile:
     calib_coeffs: np.ndarray  # (c0, c1, c2, c3)
     resol_params: np.ndarray  # (b0, b1, b2)
     param_cov: np.ndarray  # 7x7 reported basis
+    # Session-local slice cache (see kc761unfold.reader.slice_calibration),
+    # keyed by (channel_low, channel_high); private bookkeeping only.
+    slice_cache: dict = field(default_factory=dict, repr=False,
+                              compare=False, init=False)
+    # Composite files only: per-primary-column zero-deposition
+    # complement eta = 1 - p_zero, computed lazily by
+    # kc761unfold.response and cached here (it depends only on the
+    # snapshot).  None for calibration files.
+    zero_deposition_eta: np.ndarray | None = field(default=None, repr=False,
+                                                   compare=False, init=False)
+    # Cached (to_channel, [dR/dq_0 .. dR/dq_6]) pair of
+    # kc761unfold.response.to_channel_and_derivatives, computed lazily
+    # for this immutable snapshot; None until first computed.
+    to_channel_cache: tuple | None = field(default=None, repr=False,
+                                           compare=False, init=False)
 
     @property
     def n_bins(self) -> int:

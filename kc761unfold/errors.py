@@ -9,85 +9,77 @@ stationarity condition gives
 with ``Ht`` the embedded Hessian on the free set.  The statistical
 covariance is ``C_stat = M Sigma_y M^T`` (``M = 2 Ht^-1 R^T W``); the
 systematic covariance propagates the calibration parameters through the
-same implicit differentiation, ``J = dmu/dq = -Ht^-1 G_q`` with ``G_q``
-evaluated by central finite differences of the gradient at the fixed
-optimum (the matrix and the penalty operators are rebuilt at the
-perturbed parameters).  Both covariances are computed on the solved
-variable and conjugated to the presented spectrum through the
-resolution-floor smoother.  The calibration-only mode expresses the
+same implicit differentiation, ``J = dmu/dq = -Ht^-1 G_q``.  The cross
+gradient ``G_q = d2L / d mu d q`` is evaluated exactly at the fixed
+optimum: the response derivatives ``dR/dq`` come from the same fused
+kernel that rebuilds the nominal matrix
+(:func:`kc761unfold.response.to_channel_and_derivatives`) and the
+penalty derivatives ``dD/dq`` from
+:func:`kc761unfold.penalty.penalty_operator_grad`, so the propagation
+shares one source of truth with the model and carries no finite
+difference truncation error.  Both covariances are computed directly on
+the solved variable.  The calibration-only mode expresses the
 calibration error vertically through the spectrum derivative instead.
 """
 
 from __future__ import annotations
 
+import numba
 import numpy as np
 from scipy import sparse
 
 from kc761calib.response import resol_sigma_model
 
-from .penalty import penalty_operator
-from .response import energy_geometry, rebuild_deposition_to_channel
-from .solver import (UnfoldProblem, embed_and_factor, objective_gradient,
-                     solve_embedded)
+from .penalty import penalty_operator_grad
+from .response import energy_geometry_derivatives, to_channel_and_derivatives
+from .solver import UnfoldProblem, embed_and_factor, solve_embedded
 from .types import CalibrationFile
 
-FD_REL = 1e-5
 
+def _cross_gradient(prob: UnfoldProblem, mu: np.ndarray, rtw: sparse.csr_matrix,
+                    calib: CalibrationFile, sigma: np.ndarray,
+                    mask: np.ndarray, k: int) -> np.ndarray:
+    """Exact cross gradients G_q[:, p] = d2L/d mu d q_p at the fixed optimum.
 
-def _zero_deposition_eta(calib: CalibrationFile) -> np.ndarray:
-    """Per-primary-column factor recovering the full primary-to-deposition model.
+    The chi2 part follows from the response derivative
+    ``dR_p = dR/dq_p`` (the full composite model, so ``p_tilde`` and the
+    zero-deposition factor ``eta`` are already folded in):
 
-    The stored composite response's column sums equal the detection
-    efficiency, i.e. ``colsum(R)_b = eta_b * colsum(C(q0) p_tilde)_b``
-    with ``eta_b = 1 - p_zero_b`` the q-independent zero-deposition
-    complement; ``R(q) = C(q) p_tilde diag(eta)`` then reproduces the
-    stored response exactly at the nominal parameters and carries the
-    correct q-derivative without needing the Monte Carlo column totals.
+        d/dq_p [-2 R^T W (y - R mu)] =
+            -2 dR_p^T W (y - R mu) + 2 R^T W (dR_p mu),
+
+    with ``rtw = R^T diag(w)`` the weight-conjugated response, shared
+    with the statistical-covariance solves.  The penalty part
+    ``2 a D^T D mu`` moves only with the calibration coefficients (the
+    resolution parameters do not enter the penalty geometry), through
+    ``dD_p`` of :func:`penalty_operator_grad`.
     """
-    c0 = rebuild_deposition_to_channel(calib.calib_coeffs, calib.resol_params,
-                          calib.n_channels, calib.channel_low,
-                          calib.channel_high)
-    col_model = np.asarray((c0 @ calib.primary_to_deposition).sum(axis=0)).ravel()
-    col_stored = np.asarray(calib.channel_matrix.sum(axis=0)).ravel()
-    return np.divide(col_stored, col_model,
-                     out=np.ones_like(col_stored),
-                     where=col_model > 0.0)
-
-
-def _response_gradient_fd(prob: UnfoldProblem, mu: np.ndarray,
-                          calib: CalibrationFile, sigma: np.ndarray,
-                          mask: np.ndarray, k: int) -> np.ndarray:
-    """FD cross gradients G_q[:, p] = d2L/d mu d q_p at the fixed optimum."""
-    q0 = np.concatenate([calib.calib_coeffs, calib.resol_params])
-    eta = (_zero_deposition_eta(calib)
-           if calib.primary_to_deposition is not None else None)
+    _, derivatives = to_channel_and_derivatives(calib)
+    w_resid = prob.w * (prob.y - prob.r @ mu)
     g_q = np.empty((prob.n, 7))
     for p in range(7):
-        step_p = FD_REL * max(abs(q0[p]), 1e-12)
-        grads = []
-        for sgn in (+1.0, -1.0):
-            qp = q0.copy()
-            qp[p] += sgn * step_p
-            rp = rebuild_deposition_to_channel(qp[:4], qp[4:], calib.n_channels,
-                                  calib.channel_low, calib.channel_high)
-            if calib.primary_to_deposition is not None:
-                # composite primary-to-channel matrix:
-                # R(q) = C(q) p_tilde diag(eta)
-                rp = (rp @ calib.primary_to_deposition) @ sparse.diags(eta)
-            _, centers_p, widths_p = energy_geometry(
-                qp[:4], calib.channel_low, calib.channel_high)
-            d_p = penalty_operator(widths_p, centers_p, sigma, mask, k)
-            # the full objective gradient at the fixed optimum, evaluated
-            # on the perturbed operators.
-            grads.append(objective_gradient(rp, prob.y, prob.w, d_p,
-                                            prob.alpha, mu))
-        g_q[:, p] = (grads[0] - grads[1]) / (2.0 * step_p)
+        dr = derivatives[p]
+        g_q[:, p] = (-2.0 * (dr.T @ w_resid)
+                     + 2.0 * (rtw @ (dr @ mu)))
+
+    d_centers, d_widths = energy_geometry_derivatives(calib.channel_low,
+                                                      calib.channel_high)
+    d_mu = prob.d_op @ mu
+    for p in range(4):
+        # p = 0 (c0, a pure energy offset) leaves all bin-center
+        # differences and widths unchanged, so dD/dc0 comes out exactly
+        # zero -- the loop keeps the four coefficients uniform instead of
+        # special-casing the translation invariance.
+        dd = penalty_operator_grad(calib.widths, calib.centers, sigma, mask,
+                                   k, d_centers[p], d_widths[p])
+        g_q[:, p] += 2.0 * prob.alpha * (dd.T @ d_mu
+                                         + prob.d_op.T @ (dd @ mu))
     return g_q
 
 
 def compute_covariances(prob: UnfoldProblem, mu: np.ndarray, free: np.ndarray,
-                        sigma2: np.ndarray, calib: CalibrationFile,
-                        sigma: np.ndarray, mask: np.ndarray, k: int
+                        calib: CalibrationFile, sigma: np.ndarray,
+                        mask: np.ndarray, k: int
                         ) -> tuple[np.ndarray, np.ndarray,
                                    np.ndarray, np.ndarray]:
     """Statistical and systematic covariance matrices at the optimum.
@@ -97,16 +89,16 @@ def compute_covariances(prob: UnfoldProblem, mu: np.ndarray, free: np.ndarray,
     """
     ab, u = prob.hessian_banded()
     factor = embed_and_factor(ab, u, free)
+    rtw = (prob.r.T @ sparse.diags(prob.w)).tocsr()
 
     # statistical: M = 2 Ht^-1 (R_clip^T W), C_stat = M Sigma_y M^T
-    r_clip = prob.r @ sparse.diags(free.astype(float))
-    rt_w = (r_clip.T @ sparse.diags(prob.w)).toarray()
+    rt_w = (sparse.diags(free.astype(float)) @ rtw).toarray()
     m = 2.0 * solve_embedded(ab, u, free, rt_w, factor=factor)
-    m_scaled = m * np.sqrt(sigma2)[None, :]
+    m_scaled = m / np.sqrt(prob.w)[None, :]
     c_stat = m_scaled @ m_scaled.T
 
     # systematic: J = -Ht^-1 G_q, C_sys = J Sigma_q J^T
-    g_q = _response_gradient_fd(prob, mu, calib, sigma, mask, k)
+    g_q = _cross_gradient(prob, mu, rtw, calib, sigma, mask, k)
     # solve_embedded returns zero rows for non-free bins (masked right
     # sides against the identity embedding), so J is zero there already.
     j = -solve_embedded(ab, u, free, g_q, factor=factor)
@@ -117,6 +109,30 @@ def compute_covariances(prob: UnfoldProblem, mu: np.ndarray, free: np.ndarray,
     diag_stat = np.maximum(np.diag(c_stat), 0.0)
     diag_syst = np.maximum(np.diag(c_sys), 0.0)
     return c_stat, c_sys, np.sqrt(diag_stat), np.sqrt(diag_syst)
+
+
+@numba.njit(cache=True)
+def _resolution_smooth(counts: np.ndarray, s_ch: np.ndarray) -> np.ndarray:
+    """Per-bin Gaussian smoothing of ``counts`` with local widths ``s_ch``.
+
+    Each bin is convolved with a Gaussian of width ``s_ch[j]`` (in
+    channels), truncated at +/- 6 sigma, weighted average normalized per
+    bin.  Compiled version of the pure-Python loop; ``n >= 1`` required.
+    """
+    n = counts.shape[0]
+    smooth = np.empty(n, dtype=np.float64)
+    for j in range(n):
+        lo = max(0, int(j - 6.0 * s_ch[j]))
+        hi = min(n, int(j + 6.0 * s_ch[j]) + 1)
+        s_j = max(s_ch[j], 1e-6)
+        num = 0.0
+        den = 0.0
+        for k in range(lo, hi):
+            g = np.exp(-0.5 * ((k - j) / s_j) ** 2)
+            num += g * counts[k]
+            den += g
+        smooth[j] = num / max(den, 1e-30)
+    return smooth
 
 
 def calibration_vertical_term(counts: np.ndarray, sigma_E: np.ndarray,
@@ -135,13 +151,8 @@ def calibration_vertical_term(counts: np.ndarray, sigma_E: np.ndarray,
     s_ch = s_keV / np.maximum(np.concatenate([h, h[-1:]]), 1e-9)
 
     # resolution-smoothed counts (per-bin Gaussian kernel, truncated)
-    smooth = np.empty(n)
-    for j in range(n):
-        lo = max(0, int(j - 6.0 * s_ch[j]))
-        hi = min(n, int(j + 6.0 * s_ch[j]) + 1)
-        kk = np.arange(lo, hi, dtype=float)
-        g = np.exp(-0.5 * ((kk - j) / max(s_ch[j], 1e-6)) ** 2)
-        smooth[j] = float(g @ counts[lo:hi]) / max(float(g.sum()), 1e-30)
+    smooth = _resolution_smooth(np.ascontiguousarray(counts, dtype=float),
+                                np.ascontiguousarray(s_ch))
 
     dydE = np.empty(n)
     denom = centers[2:] - centers[:-2]

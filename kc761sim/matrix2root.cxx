@@ -228,8 +228,7 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
     // C copy: inherited bitwise (content and its own squared errors).
     TH2D* hC = new TH2D(
         "deposition_to_channel",
-        "KC761 deposition-to-channel matrix;Channel;Energy deposition (keV)"
-        " channel);Channel;Energy deposition (keV)",
+        "KC761 deposition-to-channel matrix;Channel;Energy deposition (keV)",
         static_cast<int>(nCh), -0.5, static_cast<double>(nCh) - 0.5,
         static_cast<int>(nCh), edges.data());
     std::vector<double> cSw2(nEntries);
@@ -243,8 +242,7 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
     // (output side), y = primary energy (input side).
     TH2D* hG = new TH2D(
         "primary_to_deposition",
-        "KC761 primary-to-deposition matrix;Energy deposition (keV);Primary gamma"
-        " deposition);Energy deposition (keV);Primary gamma energy (keV)",
+        "KC761 primary-to-deposition matrix;Energy deposition (keV);Primary gamma energy (keV)",
         static_cast<int>(nCh), edges.data(),
         static_cast<int>(nCh), edges.data());
     FillMatrix(hG, gCounts, gSumw2, nCh, "primary_to_deposition");

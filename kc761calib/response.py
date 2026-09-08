@@ -184,6 +184,21 @@ def gaussian_pdf(d, sigma):
     return np.exp(-0.5 * (d / sigma)**2) / (np.sqrt(2.0 * np.pi) * sigma)
 
 
+@numba.njit(inline="always", cache=True)
+def gaussian_pdf_grad(d, sigma):
+    """Normal density at offset ``d`` and its offset/sigma derivatives.
+
+    Returns ``(phi, dphi_dd, dphi_ds)`` with
+    ``dphi_dd = -d phi / sigma^2`` and
+    ``dphi_ds = phi (d^2 - sigma^2) / sigma^3``: the exact derivatives of
+    :func:`gaussian_pdf`, defined together with it so the value and its
+    derivatives can never drift apart.  ``sigma > 0`` required.
+    """
+    phi = gaussian_pdf(d, sigma)
+    s2 = sigma * sigma
+    return phi, -d * phi / s2, phi * (d * d - s2) / (s2 * sigma)
+
+
 @numba.njit(cache=True)
 def _sigma_intermediates(resol_params, energy):
     """Clipped ``t``, the Bernstein basis, ``var`` and ``sigma`` of the model.

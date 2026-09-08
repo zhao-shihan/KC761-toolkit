@@ -50,7 +50,7 @@ N_PARAMS = 7
 class ComposedMatrix:
     """R = C @ G with the per-element variances and the detection efficiency."""
 
-    channel_matrix: np.ndarray  # R, (n, n)
+    to_channel: np.ndarray  # R, (n, n)
     variance: np.ndarray  # Var_R, (n, n)
     efficiency: np.ndarray  # per-column detection efficiency, (n,)
     efficiency_variance: np.ndarray  # (n,)
@@ -134,7 +134,7 @@ def compose_matrix(C, C_jac, param_cov, G_counts, totals) -> ComposedMatrix:
     efficiency_variance = np.maximum(var_c_eff + var_g_eff, 0.0)
 
     return ComposedMatrix(
-        channel_matrix=R,
+        to_channel=R,
         variance=variance,
         efficiency=eff,
         efficiency_variance=efficiency_variance,

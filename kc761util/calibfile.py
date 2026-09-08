@@ -9,7 +9,7 @@ maps from" without further interpretation.
 
 The returned snapshot is dense and keeps the stored NaN semantics:
 ``param_cov`` rows/columns may be NaN (undetermined parameters, as
-kc761calib writes them) and ``matrix_errors`` may contain NaN; callers
+kc761calib writes them) and ``to_channel_errors`` may contain NaN; callers
 apply their own NaN policy (see :mod:`kc761unfold.reader` and
 :mod:`kc761util.respcomp`).
 
@@ -53,7 +53,7 @@ class CalibFile:
     is detected in channel bin ``i``.  Channel bins are the uniform
     width-1 bins with integer centers (edges ``-0.5 .. n-0.5``); the
     energy bins are the variable-width bins of the y axis (strictly
-    increasing).  ``matrix_errors`` are the stored per-element 1-sigma
+    increasing).  ``to_channel_errors`` are the stored per-element 1-sigma
     errors (same layout; may contain NaN, or be None when the file stores
     no sumw2 buffer).  ``param_cov`` is the stored 7x7 covariance in the
     reported basis ``(c0, c1, c2, c3, b0, b1, b2)``; NaN rows/columns mark
@@ -63,8 +63,8 @@ class CalibFile:
     n_channels: int
     channel_edges: np.ndarray  # n + 1, uniform width 1
     energy_edges: np.ndarray  # n + 1, strictly increasing
-    channel_matrix: np.ndarray  # (n, n) dense, [channel, energy]
-    matrix_errors: np.ndarray | None  # (n, n) stored per-element 1-sigma
+    to_channel: np.ndarray  # (n, n) dense, [channel, energy]
+    to_channel_errors: np.ndarray | None  # (n, n) per-element 1-sigma
     # Composite files only: the conditional primary-to-deposition
     # distribution ``p_tilde[deposition, primary] = G / column_sum(G)``
     # (columns normalized over the deposited events, zero-deposition
@@ -203,8 +203,8 @@ def load_calib_file(
         n_channels=n,
         channel_edges=channel_edges,
         energy_edges=energy_edges,
-        channel_matrix=values,
-        matrix_errors=errors,
+        to_channel=values,
+        to_channel_errors=errors,
         primary_to_deposition=primary_to_deposition,
         calib_coeffs=params[:4],
         calib_errors=calib_errors,

@@ -1,6 +1,6 @@
 """Top-level mode orchestration: Hybrid regularized unfold and calibration-only.
 
-Hybrid regularized unfolding deconvolves background-subtracted KC761
+Hybrid regularized unfolding deconvolves the measured KC761
 channel spectra according to the given to-channel matrix. The unfolded
 spectrum ``mu`` minimizes
 
@@ -103,12 +103,12 @@ def run_unfold(calib: CalibrationFile, data_counts: np.ndarray,
     d_op = penalty_operator(calib.widths, calib.centers,
                             sigma, mask, settings.k)
 
-    prob = UnfoldProblem(calib.channel_matrix, y, w, d_op, settings.alpha)
+    prob = UnfoldProblem(calib.to_channel, y, w, d_op, settings.alpha)
     mu = prob.solve()
     refolded = prob.r @ mu
 
     c_stat, c_sys, sig_stat, sig_syst = compute_covariances(
-        prob, mu, prob.free, sigma2, calib, sigma, mask, settings.k)
+        prob, mu, prob.free, calib, sigma, mask, settings.k)
 
     data_total, data_syst, _, sigma_calib = _calibrated_layer(
         y, err, calib, settings)

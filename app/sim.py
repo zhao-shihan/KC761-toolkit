@@ -197,7 +197,7 @@ def batch_matrix_mode(args: argparse.Namespace, mode: str, calib_path: str,
     if not calib_file.is_file():
         raise SystemExit(f"error: calibration file not found: {calib_file}")
     calib = load_calib_file(calib_file)
-    if calib.matrix_errors is None:
+    if calib.to_channel_errors is None:
         raise SystemExit(
             "error: the calibration file stores no per-element errors "
             "(no fSumw2); the composite output needs them for the "
