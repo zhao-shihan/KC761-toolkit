@@ -30,7 +30,7 @@ _STAGE1_OPTIMIZER = dict(
 )
 _STAGE2_OPTIMIZER = dict(
     method="Nelder-Mead",
-    options=dict(fatol=1e-6, adaptive=True),
+    options=dict(fatol=1e-4, adaptive=True),
 )
 
 
