@@ -20,6 +20,11 @@ MATRIX_ZERO_HIST_NAME = "zero_deposition_counts"
 
 # Ntuple column order and dtypes; written by actions.RunAction and
 # re-created by runner.merge_root_files when combining worker files.
+#
+# Rows are per pulse (merging of deposits within one coincidence
+# resolving time); ``event_id`` identifies the simulated decay event, so
+# one decay emitting several pulses repeats its ``event_id`` across those
+# rows -- ``event_id`` is NOT a unique row key.
 NTUPLE_COLUMNS: dict[str, np.dtype] = {
     "event_id": np.dtype(np.int32),
     "edep": np.dtype(np.float32),

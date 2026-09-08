@@ -18,9 +18,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     "using the to-channel matrix of a kc761calib export "
                     "(deposition-to-channel) or a kc761sim composite "
                     "file (primary-to-channel).  "
-                    "Alternatively, --calib-only relabels the channel axis "
+        "Alternatively, --calib-only relabels the channel axis "
                     "to energy without unfolding.  The unfolded spectrum "
-                    "(TH1D, total errors), the statistical and systematic "
+                    "(TH1D, total uncertainties), the statistical and systematic "
                     "covariance matrices (TH2D), the refolded spectrum and "
                     "the fit settings are written to a ROOT file via "
                     "kc761unfold/unfold2root.cxx."
@@ -64,8 +64,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              f"kept on peaks (default {DEFAULT_MASK_FLOOR:g})")
     parser.add_argument("--syst", type=float, default=DEFAULT_SYST_FRAC,
                         metavar="FRAC",
-                        help="per-bin fractional systematic error as a "
-                             "fraction (e.g. 0.05 = 5%%), added in "
+                        help="per-bin fractional systematic uncertainty as "
+                             "a fraction (e.g. 0.05 = 5%%), added in "
                              f"quadrature proportional to the bin counts "
                              f"(default {DEFAULT_SYST_FRAC:g})")
     parser.add_argument("--plot-output", type=Path, default=None,

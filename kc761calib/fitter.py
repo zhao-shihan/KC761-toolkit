@@ -132,7 +132,7 @@ def _fit_once(model, x0, bounds, stage1_maxiter, stage2_maxiter,
 
 
 def _fit_statistics(model, q):
-    """Diagnostics, covariance and per-block errors at the fitted point."""
+    """Diagnostics, covariance and per-block uncertainties at the fitted point."""
     det = model.detail(q)
     reduced = (det.chi2 / det.ndof if det.valid and det.ndof > 0
                and np.isfinite(det.chi2) else None)
@@ -141,9 +141,9 @@ def _fit_statistics(model, q):
 
     calib_cov = np.asarray(cov[CALIB, CALIB], dtype=float)
     resol_cov = np.asarray(cov[RESOL, RESOL], dtype=float)
-    calib_err = np.sqrt(np.maximum(np.diag(calib_cov), 0.0))
-    resol_err = np.sqrt(np.maximum(np.diag(resol_cov), 0.0))
-    return det, cov, perr, calib_cov, calib_err, resol_cov, resol_err
+    calib_unc = np.sqrt(np.maximum(np.diag(calib_cov), 0.0))
+    resol_unc = np.sqrt(np.maximum(np.diag(resol_cov), 0.0))
+    return det, cov, perr, calib_cov, calib_unc, resol_cov, resol_unc
 
 
 def _reconcile_success(det, success: bool, message: str):
@@ -158,7 +158,7 @@ def _reconcile_success(det, success: bool, message: str):
 def _finalize(model, q, success: bool = True, message: str = "",
               nfev: int = 0) -> FitResult:
     q = np.asarray(q, dtype=float)
-    det, cov, perr, calib_cov, calib_err, resol_cov, resol_err = (
+    det, cov, perr, calib_cov, calib_unc, resol_cov, resol_unc = (
         _fit_statistics(model, q))
     success, message = _reconcile_success(det, success, message)
     chi2 = float(det.chi2)
@@ -169,16 +169,16 @@ def _finalize(model, q, success: bool = True, message: str = "",
         message=message,
         nfev=int(nfev),
         params=q,
-        errors=perr,
+        uncertainties=perr,
         names=model.param_space.names,
         chi2=chi2,
         ndof=ndof,
         reduced_chi2=chi2 / ndof if ndof > 0 else np.nan,
         cov=cov,
         calib_params=np.asarray(q[CALIB], dtype=float),
-        calib_errors=calib_err, calib_cov=calib_cov,
+        calib_uncertainties=calib_unc, calib_cov=calib_cov,
         resol_params=np.asarray(q[RESOL], dtype=float),
-        resol_errors=resol_err, resol_cov=resol_cov,
+        resol_uncertainties=resol_unc, resol_cov=resol_cov,
         detail=det,
     )
 

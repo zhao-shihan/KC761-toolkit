@@ -107,7 +107,7 @@ def _run_calib(args) -> int:
     for i, label in enumerate(gmodel.labels):
         lo = i * N_SCALE
         sp = result.scales[lo:lo + N_SCALE]
-        se = result.scale_errors[lo:lo + N_SCALE]
+        se = result.scale_uncertainties[lo:lo + N_SCALE]
         ds = result.detail.datasets[i]
         scale_str = ", ".join(
             f"{name} = {v:.6g} +/- {e_:.3g}"
@@ -129,7 +129,7 @@ def _run_calib(args) -> int:
         return 0
 
     # Export the fitted response to ROOT: serialize the full-range matrix
-    # (with per-element errors and covariance) to a temporary file and
+    # (with per-element uncertainties and covariance) to a temporary file and
     # convert it with the ROOT macro, which deletes the temp file on
     # success.
     if args.root_output is not None:
@@ -145,24 +145,24 @@ def _run_calib(args) -> int:
         return 1
     export_file = write_export_file(response)
     print(f"[calib] full response matrix: {response.n_channels} x "
-          f"{response.n_channels} channel bins "
+          f"{response.n_channels} channels "
           f"({response.n_channels ** 2} entries)")
     col_sums = response.matrix.sum(axis=0)
     n_trunc = int((col_sums < 1.0 - 1e-9).sum())
     print(f"[calib] response column sums: min = {col_sums.min():.6g}, "
           f"max = {col_sums.max():.6g} "
           f"({n_trunc} columns truncated at the detector range edges)")
-    # Relative errors are meaningless on elements that carry no
-    # probability (~0 with huge relative errors), so report them on the
-    # same > 1e-3 subset.
+    # Relative uncertainties are meaningless on elements that carry no
+    # probability (~0 with huge relative uncertainty), so report them on
+    # the same > 1e-3 subset.
     pos = response.matrix > 1e-3
     n_pos = int(pos.sum())
     if n_pos > 0:
-        err_pos = response.matrix_errors[pos]
-        rel_err = err_pos / response.matrix[pos]
-        print(f"[calib] response-matrix 1-sigma errors: "
-              f"max = {np.nanmax(err_pos):.3g}, "
-              f"median relative = {np.nanmedian(rel_err):.3g} "
+        unc_pos = response.matrix_uncertainties[pos]
+        rel_unc = unc_pos / response.matrix[pos]
+        print(f"[calib] response-matrix 1-sigma uncertainties: "
+              f"max = {np.nanmax(unc_pos):.3g}, "
+              f"median relative = {np.nanmedian(rel_unc):.3g} "
               f"(over {n_pos} elements with probability > 1e-3)")
 
     rc = run_macro("kc761calib/calib2root.cxx", [export_file, str(root_out)],

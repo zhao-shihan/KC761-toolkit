@@ -17,19 +17,19 @@ def print_summary(result, dataset_lines: list[str] | None = None) -> None:
             print(line)
 
     channel_max = result.detail.channel_max
-    coeffs, coeff_errors, _ = reported_calib(result.calib_params,
-                                             result.calib_cov, channel_max)
+    coeffs, coeff_uncertainties, _ = reported_calib(
+        result.calib_params, result.calib_cov, channel_max)
     print("[calib] calibration coefficients c0..c3:")
     print(f"[calib]   {CALIB_FORMULA}")
-    for name, v, e in zip(PARAM_NAMES_C, coeffs, coeff_errors):
+    for name, v, e in zip(PARAM_NAMES_C, coeffs, coeff_uncertainties):
         print(f"[calib]     {name:<3s} = {v: .6g} +/- {e:.3g}")
     print("[calib] calibration slope parameters:")
     print("[calib]   k1 = E'(0), k2 = E'(ch_max/2), k3 = E'(ch_max)")
     for name, v, e in zip(PARAM_NAMES_K, result.calib_params[CALIB_K],
-                          result.calib_errors[CALIB_K]):
+                          result.calib_uncertainties[CALIB_K]):
         print(f"[calib]     {name:<3s} = {v: .6g} +/- {e:.3g}")
     print("[calib] resolution parameters b0..b2:")
     print(f"[calib]   {RESOL_FORMULA}")
     for name, v, e in zip(PARAM_NAMES_B, result.resol_params,
-                          result.resol_errors):
+                          result.resol_uncertainties):
         print(f"[calib]     {name:<3s} = {v: .6g} +/- {e:.3g}")

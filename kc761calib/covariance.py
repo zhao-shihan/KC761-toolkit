@@ -5,7 +5,7 @@ Near the least-squares minimum of the weighted residuals of
 the Gauss-Newton formula ``cov = s^2 (J^T J)^-1`` with ``J = dr/dq`` and
 ``s^2 = chi^2 / ndof`` the reduced chi-square -- the same residual-variance
 rescaling as ``scipy.optimize.curve_fit``: ``chi^2/ndof ~ 1`` leaves the
-covariance unchanged, a poor fit inflates the reported errors.
+covariance unchanged, a poor fit inflates the reported uncertainties.
 
 ``J`` is always obtained by finite differences (the model has no analytic
 derivatives).  The step balances the ``O(h^2)`` truncation error against the
@@ -13,8 +13,8 @@ derivatives).  The step balances the ``O(h^2)`` truncation error against the
 for central differences (``eps^(1/2)`` for the one-sided differences used at
 bounds), based on float32 eps (see :func:`numerical_jacobian`).  The
 covariance is assembled by inverting ``J^T J`` on the identifiable subspace
-(SVD rank test); undetermined parameters report NaN errors instead of a
-misleading finite or zero value.
+(SVD rank test); undetermined parameters report NaN uncertainties instead
+of a misleading finite or zero value.
 """
 
 from __future__ import annotations

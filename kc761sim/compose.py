@@ -1,19 +1,21 @@
-"""Primary-to-channel composition: R = C @ G with full error propagation.
+"""Primary-to-channel composition: R = C @ G with full uncertainty propagation.
 
 Pipeline glue for the kc761sim matrix modes: reads the merged G ROOT file
-(the hadd output of the worker histograms) and composes the true response
-R = C @ G from the input calibration file's deposition response C -- via
+(the hadd output of the worker histograms) and composes the
+primary-to-channel response R = C @ G from the input calibration file's
+deposition response C -- via
 :func:`kc761util.respcomp.compose_matrix` with the analytic Jacobian of
 :mod:`kc761calib.matrixjac` -- writing the final ROOT file through
 :file:`kc761sim/matrix2root.cxx` (the temporary-binary export convention
 of kc761calib/kc761unfold):
 
     gamma(E_gamma) -> crystal deposition (physics, G) -> channel
-    (calibration + resolution smearing, C);  R = C @ G.
+    (calibration + resolution folding, C);  R = C @ G.
 
 G is normalized per column with the totals including the zero-deposition
 events, so the R column sum equals the detection efficiency of that
-primary energy (see :mod:`kc761util.respcomp` for the error propagation).
+primary energy (see :mod:`kc761util.respcomp` for the uncertainty
+propagation).
 """
 
 from __future__ import annotations
@@ -36,9 +38,9 @@ from .sources import MatrixSource, mode_metadata
 
 _MAGIC = b"kc761sim-matrix-export-v1\n"
 
-# Column-sum tolerance of the composed matrix (absolute efficiency is
-# always <= 1; C columns may exceed 1 by ~1e-8 rounding, as the
-# calibration export does).
+# Column-sum tolerance of the composed matrix (the total detection
+# efficiency is always <= 1; C columns may exceed 1 by ~1e-8 rounding, as
+# the calibration export does).
 _COL_SUM_TOL = 1e-6
 
 
@@ -68,13 +70,13 @@ def _put_block(fh, block_id: int, values) -> None:
 def _load_g_histograms(path: str) -> tuple[np.ndarray, np.ndarray,
                                            np.ndarray, np.ndarray,
                                            np.ndarray]:
-    """Read the merged G counts, zero counts and the shared edge arrays.
+    """Read the merged G counts, zero counts and the three edge arrays.
 
     uproot returns ``values()[deposition_bin, primary_bin]`` -- exactly the
     layout the composition works on (the G x axis is the matrix output
     side, the y axis the input side).  Returns ``(g_counts, zero_counts,
-    edges, edges)`` where the last two are the G x-axis and y-axis edge
-    arrays (identical by construction).
+    x_edges, y_edges, z_edges)``: the G x-axis and y-axis edge arrays
+    (identical by construction) and the zero-deposition axis edges.
     """
     with uproot.open(path) as f:
         try:
@@ -118,11 +120,11 @@ def _validate_inputs(calib, g_counts, zero_counts, x_edges, y_edges,
     """
     n = calib.n_channels
     edges = calib.energy_edges
-    if calib.to_channel_errors is None:
+    if calib.to_channel_uncertainties is None:
         raise RuntimeError(
-            "the input calibration file stores no per-element errors "
+            "the input calibration file stores no per-element uncertainties "
             "(no fSumw2); the composite output needs them for the "
-            "deposition response copy and the error propagation")
+            "deposition response copy and the uncertainty propagation")
     if not np.array_equal(np.asarray(source.axis.edges), edges):
         raise ValueError(
             "the source primary axis does not match the calibration "
@@ -199,13 +201,13 @@ def write_matrix_export(calib, g_counts, composed, source,
             _put_f64(fh, geometry_param)
             _put_f64(fh, [n_events, seed])
             _put_f64(fh, calib.calib_coeffs)
-            _put_f64(fh, calib.calib_errors)
+            _put_f64(fh, calib.calib_uncertainties)
             _put_f64(fh, calib.resol_params)
-            _put_f64(fh, calib.resol_errors)
+            _put_f64(fh, calib.resol_uncertainties)
             _put_f64(fh, calib.resol_e_ref)
             _put_f64(fh, calib.param_cov.ravel())
             _put_block(fh, 1, calib.to_channel.ravel())
-            _put_block(fh, 2, calib.to_channel_errors.ravel())
+            _put_block(fh, 2, calib.to_channel_uncertainties.ravel())
             # G is carried as [deposition, primary]; the macro writes
             # row-major with row = x (deposition), so no transpose is
             # needed.  Unit-weight fills: the stored sumw2 buffer equals

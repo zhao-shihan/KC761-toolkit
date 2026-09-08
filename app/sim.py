@@ -53,8 +53,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Geant4 gamma-spectrometry Monte Carlo simulation: CsI(Tl) probe "
             "with fixed radioactive sources (per-event energy deposition is "
             "saved to a ROOT ntuple), or matrix modes launching one "
-            "gamma per event from a sampling surface and composing the true "
-            "matrix R = C @ G from a kc761calib export (no ntuple; the "
+            "gamma per event from a sampling surface and composing the "
+            "primary-to-channel matrix R = C @ G from a kc761calib export "
+            "(no ntuple; the "
             "output is directly readable by kc761unfold)."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -197,11 +198,12 @@ def batch_matrix_mode(args: argparse.Namespace, mode: str, calib_path: str,
     if not calib_file.is_file():
         raise SystemExit(f"error: calibration file not found: {calib_file}")
     calib = load_calib_file(calib_file)
-    if calib.to_channel_errors is None:
+    if calib.to_channel_uncertainties is None:
         raise SystemExit(
-            "error: the calibration file stores no per-element errors "
-            "(no fSumw2); the composite output needs them for the "
-            "deposition response copy and the error propagation")
+            "error: the calibration file stores no per-element "
+            "uncertainties (no fSumw2); the composite output needs them "
+            "for the deposition response copy and the uncertainty "
+            "propagation")
     if mode == "plane-front-gamma":
         source = detector.build_plane_gamma_source(calib.energy_edges)
     else:
@@ -234,7 +236,7 @@ def batch_matrix_mode(args: argparse.Namespace, mode: str, calib_path: str,
     if rc != 0:
         retry = ("" if args.compose_from is not None
                  else f"; retry the composition alone with "
-                      f"--compose-from {g_path}")
+                 f"--compose-from {g_path}")
         raise SystemExit(
             f"error: composite export failed (exit code {rc}){retry}")
     # G lives on in the composite output, so drop the intermediate unless

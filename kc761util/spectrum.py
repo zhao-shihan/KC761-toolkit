@@ -1,13 +1,14 @@
-"""Read binned spectra with their per-bin errors from ROOT files (uproot).
+"""Read binned spectra with their per-bin uncertainties from ROOT files (uproot).
 
 :data:`SPECTRUM_HIST_NAME` is the toolkit-wide histogram-name convention:
 the simulation, csv2root and subbkg pipelines all write spectra under this
 name, and the analysis stages read them back through
 :func:`load_spectrum`.  The same reader serves both experimental and
-simulated spectra: the data errors enter the fit's data-side uncertainty,
-the simulated ones are the Monte Carlo statistical errors -- the
-histogram's ``sumw2`` buffer, or the Poisson ``sqrt(counts)`` estimate
-(which equals ``sumw2`` for unit-weight fills) when the file stores none.
+simulated spectra: the data uncertainties enter the fit's data-side
+uncertainty, the simulated ones are the Monte Carlo statistical
+uncertainties -- the histogram's ``sumw2`` buffer, or the Poisson
+``sqrt(counts)`` estimate (which equals ``sumw2`` for unit-weight fills)
+when the file stores none.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ SPECTRUM_HIST_NAME = "kc761_spectrum"
 @dataclass
 class Spectrum:
     counts: np.ndarray
-    errors: np.ndarray | None
+    uncertainties: np.ndarray | None
     edges: np.ndarray
 
     def __post_init__(self):
@@ -41,21 +42,22 @@ class Spectrum:
                 f"entries, got shape {edges.shape}")
         if not np.isfinite(counts).all():
             raise ValueError("histogram counts contain NaN/inf")
-        if self.errors is not None:
-            errors = np.asarray(self.errors, dtype=float)
-            if errors.shape != counts.shape:
+        if self.uncertainties is not None:
+            uncertainties = np.asarray(self.uncertainties, dtype=float)
+            if uncertainties.shape != counts.shape:
                 raise ValueError(
-                    f"per-bin errors shape {errors.shape} does not match "
-                    f"counts shape {counts.shape}")
-            if not np.isfinite(errors).all():
+                    f"per-bin uncertainties shape {uncertainties.shape} does "
+                    f"not match counts shape {counts.shape}")
+            if not np.isfinite(uncertainties).all():
                 raise ValueError(
-                    "per-bin errors contain NaN/inf (the ROOT histogram "
-                    "likely has no stored sumw2 buffer and uproot fell back "
-                    "to sqrt(counts), which is NaN where the "
+                    "per-bin uncertainties contain NaN/inf (the ROOT "
+                    "histogram likely has no stored sumw2 buffer and uproot "
+                    "fell back to sqrt(counts), which is NaN where the "
                     "background-subtracted counts are negative)")
-            if (errors < 0).any():
-                raise ValueError("per-bin errors contain negative values")
-            self.errors = errors
+            if (uncertainties < 0).any():
+                raise ValueError(
+                    "per-bin uncertainties contain negative values")
+            self.uncertainties = uncertainties
         self.counts = counts
         self.edges = edges
 
@@ -65,15 +67,15 @@ class Spectrum:
 
     @property
     def variances(self) -> np.ndarray | None:
-        """Per-bin variance (``sumw2``): ``errors**2`` when errors are stored.
+        """Per-bin variance (``sumw2``): ``uncertainties**2`` when stored.
 
         ``None`` means the spectrum carries no variance information; for a
         Monte Carlo histogram the caller then falls back to the Poisson
         estimate ``max(counts, 0)``.
         """
-        if self.errors is None:
+        if self.uncertainties is None:
             return None
-        return self.errors ** 2
+        return self.uncertainties ** 2
 
 
 def _file_label(source) -> str:
@@ -84,7 +86,7 @@ def _file_label(source) -> str:
 
 def load_spectrum(source: str | os.PathLike | uproot.ReadOnlyDirectory,
                   hist_name: str = SPECTRUM_HIST_NAME) -> Spectrum:
-    """Read a spectrum with its per-bin errors from a ROOT file.
+    """Read a spectrum with its per-bin uncertainties from a ROOT file.
 
     ``source`` is a ROOT file path (opened here) or an already-open uproot
     file/directory object; the arrays are materialized before returning, so
@@ -111,11 +113,11 @@ def load_spectrum(source: str | os.PathLike | uproot.ReadOnlyDirectory,
             f"histogram '{hist_name}' not found in {label}") from exc
     try:
         counts = np.asarray(h.values(), dtype=float)
-        errors = np.asarray(h.errors(), dtype=float)
+        uncertainties = np.asarray(h.errors(), dtype=float)
         edges = np.asarray(h.axis().edges(), dtype=float)
     finally:
         # The arrays are materialized above, so a file this function opened
         # can be closed immediately; callers keep the object they passed.
         if opened:
             file.close()
-    return Spectrum(counts, errors, edges)
+    return Spectrum(counts, uncertainties, edges)

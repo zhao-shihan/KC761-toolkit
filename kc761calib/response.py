@@ -158,7 +158,7 @@ def reported_core_cov(core_cov: np.ndarray, channel_max: float) -> np.ndarray:
 
 def reported_calib(calib_params: np.ndarray | list[float], calib_cov: np.ndarray,
                    channel_max: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Reported (c0, c1, c2, c3) values, errors and covariance.
+    """Reported (c0, c1, c2, c3) values, uncertainties and covariance.
 
     Display-only: the coefficients come from ``c0k1k2k3_to_c0c1c2c3`` and the
     covariance is similarity-transformed by the same map, NaN-aware (a

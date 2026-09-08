@@ -24,7 +24,7 @@ def print_summary(result: UnfoldResult, data_path: str,
           f"(channels {result.channel_low}-{result.channel_high}, "
           f"{result.n_bins} bins)")
     if result.calib_only:
-        print(f"[unfold] errors: stored stat max "
+        print(f"[unfold] uncertainties: stored stat max "
               f"{np.max(result.sigma_stat):.4g}, calibration vertical max "
               f"{np.max(result.sigma_calib):.4g}")
         return
@@ -36,6 +36,7 @@ def print_summary(result: UnfoldResult, data_path: str,
     total_out = float(np.sum(result.counts))
     print(f"[unfold] counts: data {total_in:.1f} -> unfolded "
           f"{total_out:.1f} (ratio {total_out / total_in:.4f})")
-    print(f"[unfold] errors: stat max {np.max(result.sigma_stat):.4g}, "
-          f"syst max {np.max(result.sigma_syst):.4g}, "
-          f"total max {np.max(result.sigma_total):.4g}")
+    print(f"[unfold] uncertainties: stat max "
+          f"{np.max(result.sigma_stat):.4g}, syst max "
+          f"{np.max(result.sigma_syst):.4g}, total max "
+          f"{np.max(result.sigma_total):.4g}")

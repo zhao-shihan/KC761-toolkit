@@ -2,7 +2,7 @@
 
 ``FitDetail`` is the single source of truth for a fitted state; ``FitResult``
 exposes it directly and derives convenience views (per-dataset chi2, scale
-values and errors) as properties instead of storing copies.
+values and uncertainties) as properties instead of storing copies.
 """
 
 from __future__ import annotations
@@ -18,15 +18,15 @@ from .fitparamspace import CORE
 class DatasetArrays:
     """Per-dataset arrays shared by the residual/chi2/detail evaluation paths.
 
-    ``data_*``/``mc_errors``/``model_counts`` cover the usable bins (the
-    frozen ``usable_mask`` or an explicit mask).
+    ``data_*``/``mc_uncertainties``/``model_counts`` cover the usable bins
+    (the frozen ``usable_mask`` or an explicit mask).
     """
 
     data_counts: np.ndarray  # background-subtracted counts on the used bins
-    data_errors: np.ndarray  # data 1-sigma unc (stat + syst)
-    mc_errors: np.ndarray  # MC unc of the unscaled smeared sim (used bins)
-    model_counts: np.ndarray  # smeared sim bin, unscaled (used bins)
-    bin_centers: np.ndarray  # energy positions of the used channel bins (keV)
+    data_uncertainties: np.ndarray  # data-side 1-sigma (stat + syst)
+    mc_uncertainties: np.ndarray  # MC 1-sigma of the unscaled folded sim
+    model_counts: np.ndarray  # folded sim bin, unscaled (used bins)
+    bin_centers: np.ndarray  # energy positions of the used channels (keV)
     channel_centers: np.ndarray  # channel numbers of the used bins
 
 
@@ -34,24 +34,24 @@ class DatasetArrays:
 class DatasetDetail:
     """Diagnostics for one dataset on its channel-range fit binning.
 
-    ``data_*``/``mc_errors``/``model_errors``/``combined_errors`` and
-    ``model_prediction`` cover the usable bins; ``unsmeared_sim`` and
-    ``unsmeared_sim_errors`` cover the full selected channel range
-    (``bin_edges`` binning).
+    ``data_*``/``mc_uncertainties``/``model_uncertainties``/
+    ``combined_uncertainties`` and ``model_prediction`` cover the usable
+    bins; ``raw_sim`` and ``raw_sim_uncertainties`` cover the full selected
+    channel range (``bin_edges`` binning).
     """
 
     label: str
     channel_low: int  # first selected channel (0-based, inclusive)
     channel_high: int  # last selected channel (0-based, inclusive)
-    bin_centers: np.ndarray  # energy positions of the used channel bins (keV)
+    bin_centers: np.ndarray  # energy positions of the used channels (keV)
     data_counts: np.ndarray  # background-subtracted counts per used bin
-    data_errors: np.ndarray  # data-side per-bin uncertainty (stat + syst)
-    mc_errors: np.ndarray  # MC unc of the unscaled model (used bins)
-    model_errors: np.ndarray  # MC unc of the scaled model (used bins)
-    combined_errors: np.ndarray  # stat + syst + model MC unc
-    model_prediction: np.ndarray  # best-fit, scaled smeared sim per channel bin
-    unsmeared_sim: np.ndarray  # sim on the deposition bins, unscaled (full)
-    unsmeared_sim_errors: np.ndarray  # rebinned sim unc, unscaled (full)
+    data_uncertainties: np.ndarray  # data-side 1-sigma (stat + syst)
+    mc_uncertainties: np.ndarray  # MC 1-sigma of the unscaled model
+    model_uncertainties: np.ndarray  # MC 1-sigma of the scaled model
+    combined_uncertainties: np.ndarray  # stat + syst + model MC 1-sigma
+    model_prediction: np.ndarray  # best-fit, scaled folded sim per channel
+    raw_sim: np.ndarray  # sim on the deposition bins, unscaled (full)
+    raw_sim_uncertainties: np.ndarray  # rebinned sim 1-sigma, unscaled
     scale_params: np.ndarray  # (s0, s1, s2, s3) quadratic-Bezier scale
     chi2: float
     n_bins: int
@@ -78,17 +78,17 @@ class FitResult:
     message: str
     nfev: int
     params: np.ndarray
-    errors: np.ndarray
+    uncertainties: np.ndarray
     names: list[str]
     chi2: float
     ndof: int
     reduced_chi2: float
     cov: np.ndarray
     calib_params: np.ndarray
-    calib_errors: np.ndarray
+    calib_uncertainties: np.ndarray
     calib_cov: np.ndarray
     resol_params: np.ndarray
-    resol_errors: np.ndarray
+    resol_uncertainties: np.ndarray
     resol_cov: np.ndarray
     detail: FitDetail | None = None
 
@@ -103,10 +103,10 @@ class FitResult:
         return np.asarray(self.cov[CORE, CORE], dtype=float)
 
     @property
-    def scale_errors(self) -> np.ndarray:
+    def scale_uncertainties(self) -> np.ndarray:
         scale_slice = slice(len(self.params) - len(self.detail.scale_params),
                             len(self.params))
-        return self.errors[scale_slice]
+        return self.uncertainties[scale_slice]
 
     @property
     def chi2_per_dataset(self) -> np.ndarray:

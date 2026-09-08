@@ -2,25 +2,26 @@
 
 After the fit this module builds the complete deposition-to-channel
 response matrix over the full detector channel range -- the
-energy-deposition bins are the calibration image of the channel bins --
+energy-deposition bins are the calibration image of the channels --
 and serializes it with the model formulas
 (:data:`kc761calib.response.CALIB_FORMULA` /
 :data:`kc761calib.response.RESOL_FORMULA`), the fitted parameters, their
-7x7 covariance and the per-element errors into a temporary binary file
-that :file:`kc761calib/calib2root.cxx` reads and turns into the final ROOT
-file.
+7x7 covariance and the per-element uncertainties into a temporary binary
+file that :file:`kc761calib/calib2root.cxx` reads and turns into the final
+ROOT file.
 
 The convention matches :mod:`kc761calib.folding` (``matrix[i, j]`` is the
-probability that a count in energy bin ``j`` is detected in channel bin
+probability that a count in energy bin ``j`` is detected in channel
 ``i``); unlike the fit's sparse matrix, the export is dense over the full
 channel range, keeps the full Gaussian (no kernel-support cutoff) and does
 not renormalize the columns, so the probability beyond the detector range
 is truncated, not redistributed.  The response depends only on the 7 core
 parameters ``(c0, k1, k2, k3, b0, b1, b2)``; the per-element 1-sigma
-errors are the linear propagation ``G^T cov G`` (``G_p = dR/dq_p``) of
-the fit's core covariance, matching the reported parameter errors.
-Undetermined parameters (all-NaN covariance rows/columns) are treated as
-fixed for the matrix errors while the stored covariance keeps their
+uncertainties are the linear propagation ``G^T cov G`` (``G_p =
+dR/dq_p``) of the fit's core covariance, matching the reported parameter
+uncertainties.  Undetermined parameters (all-NaN covariance rows/columns)
+are treated as fixed for the matrix uncertainties while the stored
+covariance keeps their
 rows/columns as NaN; the stored ``param_cov`` is in the reported basis
 ``(c0, c1, c2, c3, b0, b1, b2)``.
 
@@ -39,9 +40,9 @@ binary    int64 n_core; float64 param_cov[n_core * n_core] (row-major,
 binary    int64 n_channels
 binary    float64 energy_edges[n_channels + 1]
 binary    float64 matrix[n_channels * n_channels] (row-major,
-          row = channel bin, column = energy-deposition bin)
-binary    float64 matrix_errors[n_channels * n_channels] (row-major,
-          per-element 1-sigma, same layout as matrix)
+          row = channel, column = energy-deposition bin)
+binary    float64 matrix_uncertainties[n_channels * n_channels]
+          (row-major, per-element 1-sigma, same layout as matrix)
 ========  =====================================================
 """
 
@@ -67,21 +68,21 @@ _MAGIC = b"kc761calib-export-v2\n"
 @dataclass
 class FullResponse:
     """Complete dense response on the full channel range (module docstring
-    for conventions and error/covariance semantics)."""
+    for conventions and uncertainty/covariance semantics)."""
 
     n_channels: int
     energy_edges: np.ndarray  # n_channels + 1; energy-deposition bin edges
     matrix: np.ndarray  # (n_channels, n_channels) float64
-    matrix_errors: np.ndarray  # (n_channels, n_channels) float64
+    matrix_uncertainties: np.ndarray  # (n_channels, n_channels) float64
     calib_coeffs: np.ndarray  # c0..c3 cubic calibration coefficients
     resol_params: np.ndarray  # b0..b2 resolution parameters (keV)
     param_cov: np.ndarray  # (7, 7) covariance of (c0..c3, b0..b2)
 
 
 @numba.njit(parallel=True, cache=True)
-def _matrix_error_variance(centers, widths, sigma, ds_dE, ds_db,
-                           center_grad, width_grad, cov):
-    """Squared 1-sigma error of each response-matrix element.
+def _matrix_uncertainty_variance(centers, widths, sigma, ds_dE, ds_db,
+                                 center_grad, width_grad, cov):
+    """Squared 1-sigma uncertainty of each response-matrix element.
 
     ``err2[i, j] = G[i, j]^T cov G[i, j]`` with ``G_p[i, j] = dR[i, j]/dq_p``
     and ``q = (c0, k1, k2, k3, b0, b1, b2)`` (internal basis; ``cov`` is the
@@ -164,36 +165,37 @@ def build_full_response(result: FitResult, channel_max: float,
     widths = np.diff(energy_edges)
     sigma = resol_sigma_model(resol_params, centers)
 
-    # Midpoint quadrature of the Gaussian integral over each channel bin
+    # Midpoint quadrature of the Gaussian integral over each channel
     # (same kernel as the fit); full Gaussian, no column renormalization.
     matrix = (gaussian_pdf(centers[:, None] - centers[None, :],
                            sigma[None, :]) * widths[:, None])
 
-    # Per-element 1-sigma errors: linear propagation of the core
+    # Per-element 1-sigma uncertainties: linear propagation of the core
     # covariance through the analytic Jacobian of R.
     edge_grad = poly_basis(channel_edges, 3) @ jac_c0k1k2k3(channel_max)
     center_grad = 0.5 * (edge_grad[:-1] + edge_grad[1:])
     width_grad = edge_grad[1:] - edge_grad[:-1]
     ds_dE, ds_db = resol_sigma_model_grad(resol_params, centers)
     if np.all(np.isnan(core_cov)):
-        matrix_errors = np.full((n, n), np.nan)
+        matrix_uncertainties = np.full((n, n), np.nan)
     else:
-        # Undetermined parameters are fixed for the matrix errors (their
-        # gradient contributions are dropped), as in the plot band.
+        # Undetermined parameters are fixed for the matrix uncertainties
+        # (their gradient contributions are dropped), as in the plot band.
         cov_work = np.where(np.isnan(core_cov), 0.0, core_cov)
-        var = _matrix_error_variance(centers, widths, sigma, ds_dE, ds_db,
-                                     center_grad, width_grad, cov_work)
+        var = _matrix_uncertainty_variance(
+            centers, widths, sigma, ds_dE, ds_db,
+            center_grad, width_grad, cov_work)
         # Clamp and sqrt in place (tolerate tiny negative round-off of the
         # quadratic form) to avoid extra full-matrix temporaries.
         np.maximum(var, 0.0, out=var)
         np.sqrt(var, out=var)
-        matrix_errors = var
+        matrix_uncertainties = var
 
     return FullResponse(
         n_channels=n,
         energy_edges=np.asarray(energy_edges, dtype=float),
         matrix=np.asarray(matrix, dtype=float),
-        matrix_errors=np.asarray(matrix_errors, dtype=float),
+        matrix_uncertainties=np.asarray(matrix_uncertainties, dtype=float),
         calib_coeffs=c0k1k2k3_to_c0c1c2c3(calib_params, channel_max),
         resol_params=np.asarray(resol_params, dtype=float),
         param_cov=reported_core_cov(core_cov, channel_max),
@@ -231,7 +233,7 @@ def write_export_file(response: FullResponse) -> str:
             _put_i64(fh, response.n_channels)
             _put_f64(fh, response.energy_edges)
             _put_f64(fh, response.matrix.ravel())
-            _put_f64(fh, response.matrix_errors.ravel())
+            _put_f64(fh, response.matrix_uncertainties.ravel())
     except BaseException:
         os.unlink(path)
         raise

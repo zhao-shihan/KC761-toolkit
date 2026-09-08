@@ -18,9 +18,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     "the --data/--sim/--chlo/--chhi/--label groups once per "
                     "dataset (all required).  Besides the plot report, the "
                     "fitted calibration/resolution formulas, parameters with "
-                    "their 1-sigma errors and 7x7 covariance, and the "
+                    "their 1-sigma uncertainties and 7x7 covariance, and the "
                     "complete deposition-to-channel response matrix with its "
-                    "per-element errors are written to a ROOT file via "
+                    "per-element uncertainties are written to a ROOT file via "
                     "kc761calib/calib2root.cxx."
     )
     parser.add_argument("--data", dest="data_multi", action="append",
@@ -43,10 +43,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "names); required, repeat once per dataset")
     parser.add_argument("--syst", action="append", type=float, default=None,
                         metavar="FRAC",
-                        help="per-bin fractional systematic error, as a "
-                             "fraction (e.g. 0.05 = 5%%), added in quadrature "
-                             "to the statistical errors proportional to the "
-                             "bin counts; single value or one per dataset "
+                        help="per-bin fractional systematic uncertainty, as "
+                             "a fraction (e.g. 0.05 = 5%%), added in "
+                             "quadrature to the statistical uncertainties "
+                             "proportional to the bin counts; single value "
+                             "or one per dataset "
                              f"(default {DEFAULT_SYST_FRAC:g})")
 
     parser.add_argument("--plot-output", type=Path, default=None,

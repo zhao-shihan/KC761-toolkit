@@ -1,4 +1,4 @@
-"""Analytic error propagation for the unfolding.
+"""Analytic uncertainty propagation for the unfolding.
 
 At the optimum, the estimator is the implicit function ``mu_hat(y, q)``
 of the data ``y`` and the calibration parameters ``q``; linearizing the
@@ -19,7 +19,8 @@ penalty derivatives ``dD/dq`` from
 shares one source of truth with the model and carries no finite
 difference truncation error.  Both covariances are computed directly on
 the solved variable.  The calibration-only mode expresses the
-calibration error vertically through the spectrum derivative instead.
+calibration uncertainty vertically through the spectrum derivative
+instead.
 """
 
 from __future__ import annotations
@@ -85,7 +86,7 @@ def compute_covariances(prob: UnfoldProblem, mu: np.ndarray, free: np.ndarray,
     """Statistical and systematic covariance matrices at the optimum.
 
     Returns ``(C_stat, C_sys, sigma_stat, sigma_syst)``; the per-bin
-    total error is ``sqrt(diag(C_stat) + diag(C_sys))``.
+    total uncertainty is ``sqrt(diag(C_stat) + diag(C_sys))``.
     """
     ab, u = prob.hessian_banded()
     factor = embed_and_factor(ab, u, free)
@@ -138,7 +139,7 @@ def _resolution_smooth(counts: np.ndarray, s_ch: np.ndarray) -> np.ndarray:
 def calibration_vertical_term(counts: np.ndarray, sigma_E: np.ndarray,
                               centers: np.ndarray, resol_params: np.ndarray
                               ) -> np.ndarray:
-    """Calibration error expressed vertically: |dy/dE| * sigma_E.
+    """Calibration uncertainty expressed vertically: |dy/dE| * sigma_E.
 
     The counts are smoothed with the local resolution before the central
     difference, so statistical noise does not blow up the derivative.
@@ -162,8 +163,8 @@ def calibration_vertical_term(counts: np.ndarray, sigma_E: np.ndarray,
     return np.abs(dydE) * sigma_E
 
 
-def energy_center_errors(centers_ch: np.ndarray, param_cov: np.ndarray
-                         ) -> np.ndarray:
+def energy_center_uncertainties(centers_ch: np.ndarray, param_cov: np.ndarray
+                                ) -> np.ndarray:
     """1-sigma energy-center uncertainties from the calibration block."""
     g = np.stack([np.ones_like(centers_ch), centers_ch,
                   centers_ch ** 2, centers_ch ** 3], axis=1)

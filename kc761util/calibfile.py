@@ -9,12 +9,12 @@ maps from" without further interpretation.
 
 The returned snapshot is dense and keeps the stored NaN semantics:
 ``param_cov`` rows/columns may be NaN (undetermined parameters, as
-kc761calib writes them) and ``to_channel_errors`` may contain NaN; callers
-apply their own NaN policy (see :mod:`kc761unfold.reader` and
+kc761calib writes them) and ``to_channel_uncertainties`` may contain NaN;
+callers apply their own NaN policy (see :mod:`kc761unfold.reader` and
 :mod:`kc761util.respcomp`).
 
 Validation covers the geometry assumptions the whole toolkit relies on:
-square matrix, uniform channel bins of width 1, a strictly increasing
+square matrix, uniform channels of width 1, a strictly increasing
 energy binning, finite parameters, and the toolkit-wide 2^14 bin-count
 cap.
 """
@@ -28,7 +28,7 @@ import numpy as np
 import uproot
 
 # To-channel matrix object name of kc761sim composite files
-# (channel <- true primary gamma energy) and of legacy kc761calib
+# (channel <- primary gamma energy) and of legacy kc761calib
 # exports written before the deposition naming.
 PRIMARY_TO_CHANNEL_HIST_NAME = "primary_to_channel"
 # To-channel matrix object name of kc761calib exports (channel <-
@@ -50,32 +50,33 @@ class CalibFile:
     """Validated dense snapshot of a calibration or composite ROOT file.
 
     ``matrix[i, j]`` is the probability that a count in energy bin ``j``
-    is detected in channel bin ``i``.  Channel bins are the uniform
+    is detected in channel ``i``.  The channels are the uniform
     width-1 bins with integer centers (edges ``-0.5 .. n-0.5``); the
     energy bins are the variable-width bins of the y axis (strictly
-    increasing).  ``to_channel_errors`` are the stored per-element 1-sigma
-    errors (same layout; may contain NaN, or be None when the file stores
-    no sumw2 buffer).  ``param_cov`` is the stored 7x7 covariance in the
-    reported basis ``(c0, c1, c2, c3, b0, b1, b2)``; NaN rows/columns mark
-    undetermined parameters, exactly as written by kc761calib.
+    increasing).  ``to_channel_uncertainties`` are the stored per-element
+    1-sigma uncertainties (same layout; may contain NaN, or be None when
+    the file stores no sumw2 buffer).  ``param_cov`` is the stored 7x7
+    covariance in the reported basis ``(c0, c1, c2, c3, b0, b1, b2)``;
+    NaN rows/columns mark undetermined parameters, exactly as written by
+    kc761calib.
     """
 
     n_channels: int
     channel_edges: np.ndarray  # n + 1, uniform width 1
     energy_edges: np.ndarray  # n + 1, strictly increasing
     to_channel: np.ndarray  # (n, n) dense, [channel, energy]
-    to_channel_errors: np.ndarray | None  # (n, n) per-element 1-sigma
+    to_channel_uncertainties: np.ndarray | None  # (n, n) per-element 1-sigma
     # Composite files only: the conditional primary-to-deposition
     # distribution ``p_tilde[deposition, primary] = G / column_sum(G)``
     # (columns normalized over the deposited events, zero-deposition
     # excluded); combined with the stored matrix's column sums it
     # rebuilds the full primary-to-deposition matrix for the
-    # systematic-error propagation.  None for calibration files.
+    # systematic-uncertainty propagation.  None for calibration files.
     primary_to_deposition: np.ndarray | None
     calib_coeffs: np.ndarray  # (c0, c1, c2, c3)
-    calib_errors: np.ndarray  # stored 1-sigma of c0..c3
+    calib_uncertainties: np.ndarray  # stored 1-sigma of c0..c3
     resol_params: np.ndarray  # (b0, b1, b2)
-    resol_errors: np.ndarray  # stored 1-sigma of b0..b2
+    resol_uncertainties: np.ndarray  # stored 1-sigma of b0..b2
     resol_e_ref: float
     param_cov: np.ndarray  # (7, 7) reported basis, NaN preserved
     calib_formula: str
@@ -139,9 +140,9 @@ def load_calib_file(
         values = np.asarray(hist.values(), dtype=float)  # [channel, energy]
         try:
             hist.member("fSumw2")
-            errors = np.asarray(hist.errors(), dtype=float)
+            uncertainties = np.asarray(hist.errors(), dtype=float)
         except KeyError:
-            errors = None  # no sumw2 buffer stored
+            uncertainties = None  # no sumw2 buffer stored
         primary_to_deposition = None
         if PRIMARY_TO_DEPOSITION_HIST_NAME in file:
             # Conditional primary-to-deposition: normalize each primary column over
@@ -151,18 +152,18 @@ def load_calib_file(
                 t_hist.values(), dtype=float)  # [dep, primary]
             t_totals = t_values.sum(axis=0)
             primary_to_deposition = np.divide(t_values, t_totals,
-                                  out=np.zeros_like(t_values),
-                                  where=t_totals > 0.0)
+                                              out=np.zeros_like(t_values),
+                                              where=t_totals > 0.0)
         try:
             params = np.array(
                 [file[name].member("fVal") for name in PARAM_NAMES],
                 dtype=float)
             cov_up = np.array(file["param_cov"].member("fElements")[:28],
                               dtype=float)
-            calib_errors = np.array(
+            calib_uncertainties = np.array(
                 [file[f"{name}_err"].member("fVal")
                  for name in PARAM_NAMES[:4]], dtype=float)
-            resol_errors = np.array(
+            resol_uncertainties = np.array(
                 [file[f"{name}_err"].member("fVal")
                  for name in PARAM_NAMES[4:]], dtype=float)
             resol_e_ref = float(file["resol_e_ref"].member("fVal"))
@@ -185,7 +186,7 @@ def load_calib_file(
         raise ValueError("response matrix axis lengths inconsistent with the "
                          "matrix dimensions")
     if not np.allclose(np.diff(channel_edges), 1.0, atol=1e-9):
-        raise ValueError("channel bins of the response matrix must be "
+        raise ValueError("channels of the response matrix must be "
                          "uniform with width 1")
     if np.any(np.diff(energy_edges) <= 0.0):
         raise ValueError("energy binning of the response matrix is not "
@@ -204,12 +205,12 @@ def load_calib_file(
         channel_edges=channel_edges,
         energy_edges=energy_edges,
         to_channel=values,
-        to_channel_errors=errors,
+        to_channel_uncertainties=uncertainties,
         primary_to_deposition=primary_to_deposition,
         calib_coeffs=params[:4],
-        calib_errors=calib_errors,
+        calib_uncertainties=calib_uncertainties,
         resol_params=params[4:],
-        resol_errors=resol_errors,
+        resol_uncertainties=resol_uncertainties,
         resol_e_ref=resol_e_ref,
         param_cov=cov,
         calib_formula=calib_formula,

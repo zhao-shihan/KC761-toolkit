@@ -11,10 +11,10 @@ under ``mu >= 0`` with the quadratic penalty ``alpha ||D mu||^2``
 (``D`` the significance-normalized, SNIP-masked difference operator of
 :mod:`kc761unfold.penalty`).
 
-Errors are analytic (:mod:`kc761unfold.errors`): statistical and
-systematic (calibration-parameter) covariances of the estimator.  The
-calibration-only mode relabels the channel axis to energy without
-unfolding.  Both modes produce a
+Uncertainties are analytic (:mod:`kc761unfold.uncertainties`):
+statistical and systematic (calibration-parameter) covariances of the
+estimator.  The calibration-only mode relabels the channel axis to energy
+without unfolding.  Both modes produce a
 :class:`kc761unfold.types.UnfoldResult` consumed by the ROOT export and
 the plot paths.
 """
@@ -23,27 +23,27 @@ from __future__ import annotations
 
 import numpy as np
 
-from .errors import (calibration_vertical_term, compute_covariances,
-                     energy_center_errors)
+from .uncertainties import (calibration_vertical_term, compute_covariances,
+                            energy_center_uncertainties)
 from .penalty import peak_mask, snip_baseline, penalty_operator
 from .solver import UnfoldProblem
 from .types import CalibrationFile, UnfoldSettings, UnfoldResult
 
 
-def _calibrated_layer(counts: np.ndarray, errors: np.ndarray,
+def _calibrated_layer(counts: np.ndarray, uncertainties: np.ndarray,
                       calib: CalibrationFile,
                       settings: UnfoldSettings) -> tuple[np.ndarray, ...]:
-    """Per-bin errors of the calibrated-spectrum layer.
+    """Per-bin uncertainties of the calibrated-spectrum layer.
 
     Returns ``(sigma_total, sigma_syst, sigma_stat, sigma_calib)`` with
     the fractional systematic and the calibration-model vertical term
     combined into the systematic part.
     """
     ch = np.arange(calib.channel_low, calib.channel_high + 1, dtype=float)
-    sigma_e = energy_center_errors(ch, calib.param_cov)
+    sigma_e = energy_center_uncertainties(ch, calib.param_cov)
     sigma_calib = calibration_vertical_term(counts, sigma_e, calib.centers,
                                             calib.resol_params)
-    stat2 = np.asarray(errors, dtype=float) ** 2
+    stat2 = np.asarray(uncertainties, dtype=float) ** 2
     syst2 = (settings.syst_frac * counts) ** 2 + sigma_calib ** 2
     return (np.sqrt(stat2 + syst2), np.sqrt(syst2), np.sqrt(stat2),
             sigma_calib)
@@ -85,15 +85,15 @@ def _result(calib_only: bool, calib: CalibrationFile, settings: UnfoldSettings,
 
 
 def run_unfold(calib: CalibrationFile, data_counts: np.ndarray,
-               data_errors: np.ndarray, settings: UnfoldSettings
+               data_uncertainties: np.ndarray, settings: UnfoldSettings
                ) -> UnfoldResult:
     """Unfold one spectrum with the hybrid regularization."""
     ch_lo = settings.channel_low
     ch_hi = settings.channel_high
     y = np.asarray(data_counts[ch_lo:ch_hi + 1], dtype=float)
-    err = np.asarray(data_errors[ch_lo:ch_hi + 1], dtype=float)
+    unc = np.asarray(data_uncertainties[ch_lo:ch_hi + 1], dtype=float)
 
-    sigma2 = np.maximum(err ** 2, 1.0) + (settings.syst_frac * y) ** 2
+    sigma2 = np.maximum(unc ** 2, 1.0) + (settings.syst_frac * y) ** 2
     sigma = np.sqrt(sigma2)
     w = 1.0 / sigma2
 
@@ -111,7 +111,7 @@ def run_unfold(calib: CalibrationFile, data_counts: np.ndarray,
         prob, mu, prob.free, calib, sigma, mask, settings.k)
 
     data_total, data_syst, _, sigma_calib = _calibrated_layer(
-        y, err, calib, settings)
+        y, unc, calib, settings)
 
     return _result(
         False, calib, settings, mu, y, sig_stat, sig_syst,
@@ -123,15 +123,15 @@ def run_unfold(calib: CalibrationFile, data_counts: np.ndarray,
 
 
 def run_calib_only(calib: CalibrationFile, data_counts: np.ndarray,
-                   data_errors: np.ndarray, settings: UnfoldSettings
+                   data_uncertainties: np.ndarray, settings: UnfoldSettings
                    ) -> UnfoldResult:
     """Relabel the channel spectrum onto the energy axis (no unfolding)."""
     ch_lo = settings.channel_low
     ch_hi = settings.channel_high
     y = np.asarray(data_counts[ch_lo:ch_hi + 1], dtype=float)
-    err = np.asarray(data_errors[ch_lo:ch_hi + 1], dtype=float)
+    unc = np.asarray(data_uncertainties[ch_lo:ch_hi + 1], dtype=float)
 
-    total, syst, stat, sigma_calib = _calibrated_layer(y, err, calib,
+    total, syst, stat, sigma_calib = _calibrated_layer(y, unc, calib,
                                                        settings)
 
     return _result(True, calib, settings, y, y, stat, syst, total,

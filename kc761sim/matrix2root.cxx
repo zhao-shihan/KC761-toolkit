@@ -7,7 +7,8 @@
 // (matrix[i, j] = probability that a count in the input-side bin j is
 // detected in the output-side bin i; columns are NOT renormalized, so
 // column sums below 1 are the physical detection efficiency) and their
-// per-element 1-sigma squared errors for fSumw2.  The x axis of every
+// per-element 1-sigma uncertainties (squared) for fSumw2.  The x axis of
+// every
 // matrix is its output side and the y axis its input side:
 //
 //   TH2D  "deposition_to_channel"  C copy: x = detected channel
@@ -16,24 +17,25 @@
 //         bitwise from the input calibration file.
 //   TH2D  "primary_to_deposition"   G: x = energy deposition, y =
 //         primary energy (both axes variable, identical edges), MC
-//         counts with statistical errors.
+//         counts with statistical uncertainties.
 //   TH2D  "primary_to_channel"             R = C @ G: x = detected channel
-//         (uniform bins of width 1), y = true primary gamma energy
+//         (uniform bins of width 1), y = primary gamma energy
 //         (variable bins), fSumw2 = propagated per-element 1-sigma
 //         variance (calibration fit covariance via the analytic Jacobian
 //         plus the Monte Carlo multinomial covariance).
 //   TH1D  "detection_efficiency"          detection efficiency per
-//         primary-energy bin with propagated errors.
+//         primary-energy bin with propagated uncertainties.
 //
 // The zero-deposition counts are NOT stored: they are recovered as
 // n_b - sum_dep G[dep, b] with the per-column primary totals n_b fixed by
 // the simulation scheme (see compose.py); they enter the composition
-// through the normalization totals and the R errors.
+// through the normalization totals and the R uncertainties.
 //
 // Inherited calibration parameters are written first, exactly as
-// kc761calib/calib2root.cxx writes them (formulas, c0..c3 +/- errors,
-// resol_e_ref, b0..b2 +/- errors, param_order, the 7x7 param_cov), so the
-// file is a drop-in replacement for kc761unfold.  The new mode parameters
+// kc761calib/calib2root.cxx writes them (formulas, c0..c3 +/-
+// uncertainties, resol_e_ref, b0..b2 +/- uncertainties, param_order, the
+// 7x7 param_cov), so the file is a drop-in replacement for kc761unfold.
+// The new mode parameters
 // (simulation_mode, simulation_mode_name, geometry, angular distribution,
 // n_events, seed, input path and checksum) follow the matrices.
 //
@@ -42,7 +44,6 @@
 //
 // Usage:  root -l -b -q 'matrix2root.cxx("export.tmp","out.root")'
 #include "../kc761util/rootmacros.h"
-
 #include "TFile.h"
 #include "TH1D.h"
 #include "TH2D.h"
@@ -63,8 +64,8 @@ const int kNB = 3;                    // resolution parameters b0..b2
 const int kNCore = 7;                 // stored parameters (c0..c3, b0..b2)
 const int64_t kMaxChannels = 1 << 14; // sanity cap (2 GiB per block)
 
-// Fill a TH1D's content and squared-error arrays (same linearization as
-// FillMatrix, one axis).
+// Fill a TH1D's content and squared-uncertainty arrays (same
+// linearization as FillMatrix, one axis).
 void FillH1(TH1D* h, const std::vector<double>& m,
             const std::vector<double>& sw2, int64_t nCh, const char* name) {
     h->Sumw2();
@@ -184,9 +185,9 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
 
     const size_t nEntries = static_cast<size_t>(nCh) * static_cast<size_t>(nCh);
     std::vector<double> matrix(nEntries);
-    std::vector<double> matrixErrors(nEntries);
+    std::vector<double> matrixUncertainties(nEntries);
     readBlock(matrix, 1, "deposition-to-channel");
-    readBlock(matrixErrors, 2, "deposition-to-channel errors");
+    readBlock(matrixUncertainties, 2, "deposition-to-channel uncertainties");
     std::vector<double> gCounts(nEntries);
     std::vector<double> gSumw2(nEntries);
     readBlock(gCounts, 3, "G counts");
@@ -225,7 +226,8 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
                              resolERef, resol, resolErr, paramOrder,
                              paramCov);
 
-    // C copy: inherited bitwise (content and its own squared errors).
+    // C copy: inherited bitwise (content and its own squared
+    // uncertainties).
     TH2D* hC = new TH2D(
         "deposition_to_channel",
         "KC761 deposition-to-channel matrix;Channel;Energy deposition (keV)",
@@ -233,11 +235,11 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
         static_cast<int>(nCh), edges.data());
     std::vector<double> cSw2(nEntries);
     for (size_t k = 0; k < nEntries; ++k)
-        cSw2[k] = matrixErrors[k] * matrixErrors[k];
+        cSw2[k] = matrixUncertainties[k] * matrixUncertainties[k];
     FillMatrix(hC, matrix, cSw2, nCh, "deposition_to_channel");
     hC->Write();
 
-    // G: Monte Carlo counts with statistical errors (unit-weight fills:
+    // G: Monte Carlo counts with statistical uncertainties (unit-weight fills:
     // the stored sumw2 buffer equals the counts).  x = energy deposition
     // (output side), y = primary energy (input side).
     TH2D* hG = new TH2D(
@@ -252,8 +254,7 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
     // reads), fSumw2 = propagated per-element 1-sigma variance.
     TH2D* hResp = new TH2D(
         "primary_to_channel",
-        "KC761 primary-to-channel matrix;Channel;Primary gamma energy (keV)"
-        ";Channel;Primary gamma energy (keV)",
+        "KC761 primary-to-channel matrix;Channel;Primary gamma energy (keV)",
         static_cast<int>(nCh), -0.5, static_cast<double>(nCh) - 0.5,
         static_cast<int>(nCh), edges.data());
     FillMatrix(hResp, resp, respVar, nCh, "primary_to_channel");
@@ -261,8 +262,7 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
 
     TH1D* hEff = new TH1D(
         "detection_efficiency",
-        "Primary detection efficiency;Primary gamma energy (keV)"
-        " (keV)",
+        "Primary detection efficiency;Primary gamma energy (keV)",
         static_cast<int>(nCh), edges.data());
     FillH1(hEff, efficiency, efficiencyVar, nCh, "detection_efficiency");
     hEff->Write();
@@ -282,9 +282,10 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
     fout.Close();
 
     // Verify the temporary ROOT file was written completely before it
-    // becomes the production output: require the primary-to-channel matrix with the
-    // expected bin counts and its error array (the kc761calib
-    // convention).  Only after this passes is the file renamed onto the
+    // becomes the production output: require the primary-to-channel matrix
+    // with the expected bin counts and its uncertainty array (the
+    // kc761calib convention).  Only after this passes is the file renamed
+    // onto the
     // target; on failure the partial file is removed and the export kept.
     TFile fcheck(tmpOut.c_str());
     TH2D* hCheck = dynamic_cast<TH2D*>(fcheck.Get("primary_to_channel"));
@@ -295,9 +296,9 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
         fcheck.Close();
         gSystem->Unlink(tmpOut.c_str());
         std::cerr << "[matrix2root] error: temporary output is missing or "
-                  << "incomplete after writing (primary-to-channel matrix without "
-                  << "its error array); keeping the export file: "
-                  << exportFile << "\n";
+                  << "incomplete after writing (primary-to-channel matrix "
+                  << "without its uncertainty array); keeping the export "
+                  << "file: " << exportFile << "\n";
         gSystem->Exit(1);
         return;
     }
@@ -318,6 +319,7 @@ void matrix2root(const std::string& exportFile, const std::string& output) {
     }
 
     std::cout << "[matrix2root] wrote " << output << " : " << nCh << " x "
-              << nCh << " primary-to-channel matrix with per-bin errors, "
-              << "deposition-to-channel copy, G counts and parameters\n";
+              << nCh << " primary-to-channel matrix with per-bin "
+              << "uncertainties, deposition-to-channel copy, G counts and "
+              << "parameters\n";
 }

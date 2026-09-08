@@ -14,8 +14,8 @@ reduced gradient enter the free set, and the unrestricted optimum of
 the free set is approached along a feasible segment that stops at the
 first bin hitting zero (which is dropped), terminating at the exact KKT
 point ``mu >= 0, g >= 0, mu * g = 0``.  The same banded machinery serves
-the analytic error propagation (:mod:`kc761unfold.errors`), keeping the
-solver and the covariance computation on one source of truth.
+the analytic uncertainty propagation (:mod:`kc761unfold.uncertainties`),
+keeping the solver and the covariance computation on one source of truth.
 """
 
 from __future__ import annotations
@@ -25,7 +25,8 @@ import numpy as np
 from scipy import sparse
 from scipy.linalg import cholesky_banded, cho_solve_banded
 
-JITTER_FRAC = 1e-10  # per-entry relative jitter, fallback only (non-PD Hessian)
+# per-entry relative jitter, fallback only (non-PD Hessian)
+JITTER_FRAC = 1e-10
 
 
 # --- banded storage helpers ---
@@ -225,7 +226,7 @@ class UnfoldProblem:
         self.n_iter = nit
         clip_tol = max(1e-6, 1e-9 * float(np.max(mu)))
         self.mu = np.where(mu < clip_tol, 0.0, mu)
-        # the covariance machinery (kc761unfold.errors) treats bins at the
+        # the covariance machinery (kc761unfold.uncertainties) treats bins at the
         # bound as fixed directions, exactly like the stored solution.
         self.free = self.mu > 0.0
         self.chi2 = self._chi2(self.mu)

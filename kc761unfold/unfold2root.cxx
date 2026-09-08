@@ -3,7 +3,7 @@
 // ROOT file:
 //   1. kc761_spectrum_unfolded  TH1D   unfolded mu (or raw counts in
 //         calibration-only mode) on the variable-width energy axis;
-//         fSumw2 = per-bin total error.
+//         fSumw2 = per-bin total uncertainty.
 //   2. stat_covariance          TH2D   statistical covariance, energy x energy
 //   3. syst_covariance          TH2D   systematic (response-parameter)
 //         covariance, energy x energy
@@ -11,10 +11,11 @@
 //   5. chi2 / pen_cost          TParameter<double>;
 //      ndof / n_iter            TParameter<int>    (unfold mode only)
 //   6. settings:
-//      syst_frac / elo / ehi  TParameter<double>
+//      alpha / elo / ehi / mask_z0 / mask_floor / syst_frac
+//        TParameter<double>   (mask_z0 / mask_floor / syst_frac in unfold
+//        mode only)
 //      chlo / chhi / calib_only / k / snip_iter  TParameter<int>
-//      alpha / mask_z0 / mask_floor / syst_frac  TParameter<double>
-//      (unfold mode only)
+//        (k / snip_iter in unfold mode only)
 // Usage:  root -l -b -q 'unfold2root.cxx("export.kc761unfold","out.root")'
 
 #include "TFile.h"

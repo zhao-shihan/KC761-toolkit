@@ -3,8 +3,8 @@
 The merge is delegated to ROOT's ``hadd`` rather than rewritten with
 uproot: ``hadd`` merges TTrees entry-by-entry and sums TH* histograms
 together with their ``sumw2`` buffers, so the merged file keeps exactly the
-per-bin weight-squared sums that carry the Monte Carlo statistical errors
-of simulated spectra.  The interface mirrors
+per-bin weight-squared sums that carry the Monte Carlo statistical
+uncertainties of simulated spectra.  The interface mirrors
 :mod:`kc761util.rootcxxfrontend`: an explicit executable path wins,
 otherwise ``hadd`` is looked up next to the ROOT executable (they ship in
 the same ``bin/`` directory) and on PATH.

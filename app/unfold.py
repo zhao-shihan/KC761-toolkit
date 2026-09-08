@@ -45,8 +45,8 @@ def _run(args) -> int:
             return 1
 
     data = load_spectrum(str(data_file))
-    if data.errors is None:
-        print("[unfold] error: data spectrum must carry per-bin errors",
+    if data.uncertainties is None:
+        print("[unfold] error: data spectrum must carry per-bin uncertainties",
               file=sys.stderr)
         return 1
 
@@ -73,10 +73,10 @@ def _run(args) -> int:
                               energy_low=elo, energy_high=ehi,
                               channel_low=ch_lo, channel_high=ch_hi)
     if args.calib_only:
-        result = unfold_mod.run_calib_only(calib, data.counts, data.errors,
-                                           settings)
+        result = unfold_mod.run_calib_only(calib, data.counts,
+                                           data.uncertainties, settings)
     else:
-        result = unfold_mod.run_unfold(calib, data.counts, data.errors,
+        result = unfold_mod.run_unfold(calib, data.counts, data.uncertainties,
                                        settings)
     print_summary(result, str(data_file), str(calib_file))
 

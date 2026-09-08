@@ -43,8 +43,8 @@ inline void StripNewline(std::string& s) {
     if (!s.empty() && s.back() == '\n') s.pop_back();
 }
 
-// NaN-tolerant equality: inherited error arrays may carry NaN entries when
-// a parameter is undetermined.
+// NaN-tolerant equality: inherited uncertainty arrays may carry NaN
+// entries when a parameter is undetermined.
 inline bool SameValue(double a, double b) {
     if (std::isnan(a) && std::isnan(b)) return true;
     return a == b;
@@ -83,12 +83,12 @@ inline void WriteCalibrationMetadata(
     cov->Write("param_cov");
 }
 
-// Fill a TH2D's content and error arrays from row-major (nCh x nCh)
+// Fill a TH2D's content and uncertainty arrays from row-major (nCh x nCh)
 // vectors (row = x bin, column = y bin) and guard the array-layout
 // assumption.  TH2 linearizes the content array as
 // binx + (nbinsx + 2)*biny, so the bin (x = ch + 1, y = e + 1) sits at
 // (e + 1)*(nCh + 2) + (ch + 1); fSumw2 (allocated by Sumw2()) uses the
-// same linearization and holds the squared errors.
+// same linearization and holds the squared uncertainties.
 inline void FillMatrix(TH2D* h, const std::vector<double>& m,
                        const std::vector<double>& sw2, int64_t nCh,
                        const char* name) {

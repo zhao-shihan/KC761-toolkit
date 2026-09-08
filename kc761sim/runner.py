@@ -6,7 +6,7 @@ batch machinery but differ in their outputs:
 * the radioactive-source path writes the ntuple + spectrum histogram;
 * the matrix-mode path writes only the primary-to-deposition histogram G (TH2D)
   and the zero-deposition counter (TH1D), which are merged with hadd and
-  then composed into the true response matrix by
+  then composed into the primary-to-channel response matrix by
   :mod:`kc761sim.compose`.
 
 The merge validation is driven by a :class:`MergeExpectation` descriptor,
@@ -419,7 +419,8 @@ def run_batch_matrix(
     """Run a matrix-mode simulation on ``threads`` workers.
 
     The merged output contains only the G histogram and the zero-deposition
-    counter; the true response matrix is composed from it afterwards by
+    counter; the primary-to-channel response matrix is composed from it
+    afterwards by
     :mod:`kc761sim.compose`.
     """
     _run_batch(

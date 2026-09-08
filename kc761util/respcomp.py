@@ -1,4 +1,4 @@
-"""Model-independent composition of R = C @ G with full error propagation.
+"""Model-independent composition of R = C @ G with full uncertainty propagation.
 
 Composes R = C @ G for the kc761sim matrix modes, where
 
@@ -14,7 +14,7 @@ Composes R = C @ G for the kc761sim matrix modes, where
   covariance through the total-probability constraint (its score is 0 in
   every observable, so it needs no explicit term).
 
-Linearized error propagation (C and G are independent):
+Linearized uncertainty propagation (C and G are independent):
 
     R[a,b]     = sum_j C[a,j] p_jb,         p_jb = G[j,b] / totals_b,
     Var_G[a,b] = ( sum_j C[a,j]^2 p_jb - ( sum_j C[a,j] p_jb )^2 ) / totals_b,
@@ -31,7 +31,7 @@ and the per-column detection efficiency
 
 All outputs are per-element variances -- the diagonal of the full
 linearized covariance -- matching the kc761calib convention of storing
-1-sigma squared errors in fSumw2.  Columns with ``totals_b == 0``
+squared 1-sigma uncertainties in fSumw2.  Columns with ``totals_b == 0``
 (skipped negative-energy primary columns) yield an all-zero R column and
 efficiency 0.  This module is model-independent: the Jacobian J is
 supplied by the caller (:mod:`kc761calib.matrixjac`).
@@ -57,7 +57,7 @@ class ComposedMatrix:
 
 
 def compose_matrix(C, C_jac, param_cov, G_counts, totals) -> ComposedMatrix:
-    """Compose R = C @ (column-normalized G) with full linearized errors.
+    """Compose R = C @ (column-normalized G) with full linearized uncertainties.
 
     ``C`` is the dense deposition-to-channel matrix (n x n); ``C_jac`` its
     gradient tensor J (n x n x 7) in the ``param_cov`` basis; ``G_counts``
@@ -80,7 +80,8 @@ def compose_matrix(C, C_jac, param_cov, G_counts, totals) -> ComposedMatrix:
     if totals.shape != (n,):
         raise ValueError(f"totals must have shape ({n},), got {totals.shape}")
     if (C < 0).any():
-        raise ValueError("deposition-to-channel matrix C contains negative entries")
+        raise ValueError(
+            "deposition-to-channel matrix C contains negative entries")
     if (G < 0).any():
         raise ValueError("G counts contain negative entries")
     if (totals < 0).any():

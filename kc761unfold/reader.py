@@ -99,7 +99,7 @@ def _load_calibration_uncached(path: str) -> CalibrationFile:
         widths=np.diff(data.energy_edges),
         to_channel=threshold_matrix(data.to_channel),
         primary_to_deposition=(None if data.primary_to_deposition is None
-                   else threshold_matrix(data.primary_to_deposition)),
+                               else threshold_matrix(data.primary_to_deposition)),
         calib_coeffs=data.calib_coeffs,
         resol_params=data.resol_params,
         param_cov=cov,
@@ -151,12 +151,12 @@ def slice_calibration(calib: CalibrationFile, channel_low: int,
     if cached is not None:
         return cached
     sub = calib.to_channel[channel_low:channel_high + 1,
-                               channel_low:channel_high + 1].toarray()
+                           channel_low:channel_high + 1].toarray()
     col_sums = sub.sum(axis=0)
     n_trunc = int((col_sums < 1.0 - 1e-6).sum())
     if n_trunc > 0:
         print(f"[unfold] warning: {n_trunc} matrix columns with column "
-              f"sums < 1 (absolute detection efficiency, or truncation at "
+              f"sums < 1 (total detection efficiency, or truncation at "
               f"the detector range edges)")
     if calib.primary_to_deposition is not None:
         p_sub = calib.primary_to_deposition[
@@ -173,7 +173,8 @@ def slice_calibration(calib: CalibrationFile, channel_low: int,
         centers=calib.centers[channel_low:channel_high + 1],
         widths=calib.widths[channel_low:channel_high + 1],
         to_channel=threshold_matrix(sub),
-        primary_to_deposition=(None if p_sub is None else threshold_matrix(p_sub)),
+        primary_to_deposition=(
+            None if p_sub is None else threshold_matrix(p_sub)),
         calib_coeffs=calib.calib_coeffs,
         resol_params=calib.resol_params,
         param_cov=calib.param_cov,
@@ -184,7 +185,7 @@ def slice_calibration(calib: CalibrationFile, channel_low: int,
 
 def energy_to_channels(calib: CalibrationFile, energy_low: float,
                        energy_high: float) -> tuple[int, int]:
-    """Map an energy window to the channel bins whose centers fall inside.
+    """Map an energy window to the channels whose centers fall inside.
 
     Returns ``(channel_low, channel_high)`` (0-based, inclusive).  The
     bins are selected by their center energy: the first bin with center

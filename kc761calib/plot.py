@@ -27,8 +27,8 @@ matplotlib.use("Agg")
 
 
 # Palette: colors of the plotted artists, grouped per panel.
-_COLOR_DATA = "blue"  # experimental counts (errorbars)
-_COLOR_FIT = "red"  # best-fit smeared simulation
+_COLOR_DATA = "blue"  # experimental counts (uncertainty bars)
+_COLOR_FIT = "red"  # best-fit folded simulation
 _COLOR_SIM_RAW = "dimgray"  # scaled raw simulation (stairs)
 _COLOR_SCALE = "seagreen"  # scale curve (twin axis)
 _COLOR_RESIDUAL_POINTS = "darkgoldenrod"  # residual pull points
@@ -115,22 +115,22 @@ def _title_panel(ax, txt: str) -> None:
 
 
 def _parameter_text(result) -> str:
-    def rows(names, vals, errs): return "\n".join(
-        f"{n} = {v: .6g} $\\pm$ {e_: .3g}"
-        for n, v, e_ in zip(names, vals, errs))
+    def rows(names, vals, uncs): return "\n".join(
+        f"{n} = {v: .6g} $\\pm$ {u_: .3g}"
+        for n, v, u_ in zip(names, vals, uncs))
     calib = result.calib_params
-    calib_err = result.calib_errors
-    coeffs, coeff_errors, _ = reported_calib(
+    calib_unc = result.calib_uncertainties
+    coeffs, coeff_uncertainties, _ = reported_calib(
         calib, result.calib_cov, result.detail.channel_max)
     resol = result.resol_params
-    resol_err = result.resol_errors
+    resol_unc = result.resol_uncertainties
     return ("\n".join([
         "=== Calibration coefficients ===",
-        rows(PARAM_NAMES_C, coeffs, coeff_errors),
+        rows(PARAM_NAMES_C, coeffs, coeff_uncertainties),
         "==== Calibration slopes ====",
-        rows(PARAM_NAMES_K, calib[CALIB_K], calib_err[CALIB_K]),
+        rows(PARAM_NAMES_K, calib[CALIB_K], calib_unc[CALIB_K]),
         "=== Resolution parameters ===",
-        rows(PARAM_NAMES_B, resol, resol_err),
+        rows(PARAM_NAMES_B, resol, resol_unc),
     ]))
 
 
@@ -142,12 +142,24 @@ def _parameter_panel(ax, txt: str) -> None:
                       alpha=0.9))
 
 
+def _positive_start(edges: np.ndarray) -> int:
+    """First bin index whose lower edge is positive (log-x truncation).
+
+    The calibration maps the lowest channels to energies <= 0 (c0 < 0
+    by construction): bins at or below zero cannot be drawn on a
+    logarithmic axis, so the spectrum panel and its residual panel are
+    truncated at the first bin fully above zero.
+    """
+    return int(np.searchsorted(np.asarray(edges, dtype=float), 0.0,
+                               side="right"))
+
+
 def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
     ax2 = ax.twinx()
     # Draw the scale curve behind the spectrum artists (and the legend): the
     # twin axis sits below the primary axis, whose background is transparent so
     # the curve stays visible.  Layer order (bottom->top): Scale, Raw sim,
-    # Raw sim. error, Data, Best-fit band, Best-fit, Legend.
+    # Raw sim. uncertainty bars, Data, Best-fit band, Best-fit, Legend.
     ax2.set_zorder(ax.get_zorder() - 1)
     ax.patch.set_visible(False)
     # The scale is a function of channel: evaluate it over the channel window
@@ -157,51 +169,70 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
     scale_curve = scale_model(ds.scale_params, ch_curve,
                               ds.channel_low, ds.channel_high)
     e_curve = calib_model(calib, ch_curve, channel_max)
-    line_scale, = ax2.plot(e_curve, scale_curve, "--",
+    # The twin energy axis is logarithmic like the primary axis; the parts of
+    # the curve at non-positive energies (the low channels) are dropped here
+    # and by the bin truncation below.
+    pos = e_curve > 0.0
+    line_scale, = ax2.plot(e_curve[pos], scale_curve[pos], "--",
                            color=_COLOR_SCALE, lw=0.5, zorder=1,
                            label="Scale s(ch)")
     ax2.set_ylabel("Scale s(ch)")
 
+    # Truncate at the first bin fully above zero: the calibration maps the
+    # lowest channels to energies <= 0, which a log x-axis cannot show.
+    lo = _positive_start(ds.bin_edges)
+    e_lo = float(ds.bin_edges[lo])
     ch_full = np.arange(ds.channel_low, ds.channel_high + 1, dtype=float)
     sb_full = scale_model(ds.scale_params, ch_full,
                           ds.channel_low, ds.channel_high)
-    stairs_handle = ax.stairs(sb_full * ds.unsmeared_sim, ds.bin_edges,
+    stairs_handle = ax.stairs(sb_full[lo:] * ds.raw_sim[lo:],
+                              ds.bin_edges[lo:],
                               lw=0.8, color=_COLOR_SIM_RAW, zorder=2)
-    # MC statistical error bars of the raw (pre-folding) rebinned sim,
-    # scaled by the same scale curve as the stairs, at the midpoints of the
-    # energy-deposition bin edges.  No own legend entry: the legend reuses
-    # the "Raw sim." handle, overlaid with the error-bar artist.
-    sim_centers = 0.5 * (ds.bin_edges[:-1] + ds.bin_edges[1:])
-    sim_err_handle = ax.errorbar(
-        sim_centers, sb_full * ds.unsmeared_sim,
-        yerr=sb_full * ds.unsmeared_sim_errors,
+    # MC statistical uncertainty bars of the raw (pre-folding) rebinned
+    # sim, scaled by the same scale curve as the stairs, at the midpoints
+    # of the energy-deposition bin edges.  No own legend entry: the legend
+    # reuses the "Raw sim." handle, overlaid with the uncertainty-bar
+    # artist.
+    sim_centers = 0.5 * (ds.bin_edges[lo:-1] + ds.bin_edges[lo + 1:])
+    sim_unc_handle = ax.errorbar(
+        sim_centers, sb_full[lo:] * ds.raw_sim[lo:],
+        yerr=sb_full[lo:] * ds.raw_sim_uncertainties[lo:],
         fmt="none", ecolor=_COLOR_SIM_RAW, elinewidth=0.8, capsize=0,
         zorder=2.5)
-    data_handle = ax.errorbar(ds.bin_centers, ds.data_counts, yerr=ds.data_errors,
+    # The data-side artists cover the usable bins: keep only the bins at or
+    # above the truncation floor (their centers are >= e_lo exactly for the
+    # bins fully above zero).
+    m = ds.bin_centers >= e_lo
+    data_handle = ax.errorbar(ds.bin_centers[m], ds.data_counts[m],
+                              yerr=ds.data_uncertainties[m],
                               fmt="o", ms=1.5, lw=0.8, color=_COLOR_DATA,
                               zorder=3, label="Data (bkg-subtracted)")
-    # Error band around the best-fit curve: the Monte Carlo statistical
-    # error of the scaled smeared-sim prediction, +/- model_errors.  No own
-    # legend entry: the legend reuses the "Best fit" handle, overlaid with
-    # the band patch.
-    band_handle = ax.fill_between(ds.bin_centers,
-                                  ds.model_prediction - ds.model_errors,
-                                  ds.model_prediction + ds.model_errors,
+    # Uncertainty band around the best-fit curve: the Monte Carlo
+    # statistical uncertainty of the scaled folded-sim prediction, +/-
+    # model_uncertainties.  No own legend entry: the legend reuses the
+    # "Best fit" handle, overlaid with the band patch.
+    band_handle = ax.fill_between(ds.bin_centers[m],
+                                  (ds.model_prediction
+                                   - ds.model_uncertainties)[m],
+                                  (ds.model_prediction
+                                   + ds.model_uncertainties)[m],
                                   color=_COLOR_FIT, alpha=0.18, linewidth=0,
                                   zorder=3.5)
-    line_fit, = ax.plot(ds.bin_centers, ds.model_prediction, "-",
+    line_fit, = ax.plot(ds.bin_centers[m], ds.model_prediction[m], "-",
                         lw=1.5, color=_COLOR_FIT, alpha=0.8, zorder=4)
     ax.set_yscale("log")
-    ax.set_xlim(ds.bin_edges[0], ds.bin_edges[-1])
+    ax.set_xscale("log")
+    ax2.set_xscale("log")
+    ax.set_xlim(e_lo, ds.bin_edges[-1])
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Counts")
 
     # Legend order (top->bottom): Data, Best-fit (line + MC stat. band),
-    # Raw sim. (line + MC stat. error bars), Scale.
+    # Raw sim. (line + MC stat. uncertainty bars), Scale.
     ax.legend([data_handle, (line_fit, band_handle),
-               (stairs_handle, sim_err_handle), line_scale],
+               (stairs_handle, sim_unc_handle), line_scale],
               ["Data (bkg-subtracted)",
-               "Best fit (smeared sim.)",
+               "Best fit (folded sim.)",
                "Raw sim. (scaled)",
                "Scale s(ch)"],
               fontsize=8, loc="lower left")
@@ -209,23 +240,34 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
         ax.set_title(title, fontsize=9)
 
 
-def _residual_panel(ax, bin_centers, data_counts, combined_errors, model_prediction,
-                    energy_low, energy_high, title: str) -> None:
+def _residual_panel(ax, bin_centers, data_counts, combined_uncertainties,
+                    model_prediction, energy_low, energy_high,
+                    title: str) -> None:
+    # Same positive-energy truncation as the spectrum panel so both panels
+    # cover the same logarithmic x range (energy_low is the first bin edge
+    # above zero).
+    m = bin_centers >= energy_low
+    bin_centers = bin_centers[m]
+    data_counts = data_counts[m]
+    combined_uncertainties = combined_uncertainties[m]
+    model_prediction = model_prediction[m]
     ok = model_prediction > 0
     rel = (data_counts[ok] - model_prediction[ok]) / model_prediction[ok]
-    # The error bars on the ratio carry the full per-bin sigma of the
-    # numerator (data - model): the data's statistical + systematic error
-    # plus the Monte Carlo statistical error of the scaled smeared-sim
-    # prediction, divided by the model prediction -- i.e. combined_errors
-    # includes the simulated spectrum's finite-statistics error.
+    # The uncertainty bars on the ratio carry the full per-bin sigma of the
+    # numerator (data - model): the data's statistical + systematic
+    # uncertainty plus the Monte Carlo statistical uncertainty of the
+    # scaled folded-sim prediction, divided by the model prediction -- i.e.
+    # combined_uncertainties includes the simulated spectrum's
+    # finite-statistics uncertainty.
     ax.errorbar(bin_centers[ok], rel,
-                yerr=combined_errors[ok] / model_prediction[ok],
+                yerr=combined_uncertainties[ok] / model_prediction[ok],
                 fmt="o", ms=1.5, lw=0.8, color=_COLOR_RESIDUAL_POINTS, alpha=0.8)
     ax.axhline(0, color=_COLOR_RESIDUAL_ZERO, lw=0.8)
     for level in (-0.3, 0.3):
         ax.axhline(level, color=_COLOR_RESIDUAL_LEVEL, lw=0.6, ls=":")
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Residual")
+    ax.set_xscale("log")
     ax.set_xlim(energy_low, energy_high)
     ax.set_ylim(-_RESIDUAL_MAX, _RESIDUAL_MAX)  # fixed, for comparability
     ax.set_title(title, fontsize=9)
@@ -384,8 +426,9 @@ def plot_fit(result, out_plot: str) -> Path:
         res_title = f"{label} residual"
         _spectrum_panel(ax_spec, ds, calib, det.channel_max, spec_title)
         _residual_panel(ax_pull, ds.bin_centers, ds.data_counts,
-                        ds.combined_errors, ds.model_prediction,
-                        ds.bin_edges[0], ds.bin_edges[-1], res_title)
+                        ds.combined_uncertainties, ds.model_prediction,
+                        float(ds.bin_edges[_positive_start(ds.bin_edges)]),
+                        ds.bin_edges[-1], res_title)
 
     cal_title = "Energy calibration" + (" (global)" if n > 1 else "")
     res_title = "Energy resolution" + (" (global)" if n > 1 else "")

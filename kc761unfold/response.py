@@ -1,7 +1,7 @@
 """Deposition-to-channel response and its calibration-parameter derivatives.
 
 The stored response matrix comes from the calibration file; the
-systematic-error propagation needs the matrix rebuilt at the nominal
+systematic-uncertainty propagation needs the matrix rebuilt at the nominal
 parameters *and* differentiated with respect to the calibration
 parameters ``(c0..c3, b0..b2)``.  One fused numba kernel
 (:func:`_deposition_to_channel_kernel`) produces the nominal dense matrix and
@@ -18,7 +18,8 @@ deposition distribution ``p_tilde`` and the zero-deposition complement
 ``eta`` (:func:`zero_deposition_eta`); the derivatives become
 ``dR/dq = (dC/dq) p_tilde diag(eta)``.  :func:`energy_geometry` is the
 single source of the channel-to-energy binning (also used by the penalty
-geometry in kc761unfold.penalty and the errors in kc761unfold.errors).
+geometry in kc761unfold.penalty and the uncertainties in
+kc761unfold.uncertainties).
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ def energy_geometry(calib_coeffs: np.ndarray, channel_low: int,
                                                 np.ndarray]:
     """Energy edges/centers/widths of a channel subrange (reported cubic).
 
-    The channel bin edges are the half-integer positions ch - 0.5,
+    The channel edges are the half-integer positions ch - 0.5,
     matching the calibration export's binning; returns
     ``(energy_edges, centers, widths)`` with ``n_bins + 1`` / ``n_bins``
     entries.

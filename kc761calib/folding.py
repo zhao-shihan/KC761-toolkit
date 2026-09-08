@@ -3,16 +3,17 @@ deposition to channel).
 
 The channel axis is the detected (output) axis: uniform bins of width 1,
 edges ``-0.5 .. channel_max + 0.5``, centers equal to the channel indices;
-the data counts/errors live on it and never move.  The simulation is an
+the data counts/uncertainties live on it and never move.  The simulation
+is an
 energy-deposition histogram, mapped into channel space by ``R[i, j]`` --
-the probability that a count in energy bin ``j`` is detected in channel bin
+the probability that a count in energy bin ``j`` is detected in channel
 ``i``:
 
     R[i, j] = gaussian_density(c_i - c_j; sigma_j) * dE_i,
 
 with ``c_k`` the energy-bin centers (midpoints of ``E(ch +- 0.5)``),
 ``sigma_j`` the resolution at ``c_j`` and ``dE_i`` the energy width of
-channel bin ``i`` (the midpoint-quadrature weight of the Gaussian integral
+channel ``i`` (the midpoint-quadrature weight of the Gaussian integral
 over that bin).  The matrix is kept nonzero only inside the kernel support
 ``[c_j - n_sigma sigma_j, c_j + n_sigma sigma_j]`` (``n_sigma = 5``: the
 cutoff ``exp(-12.5) ~ 3.7e-6`` makes the truncation negligible and keeps the
@@ -37,7 +38,7 @@ fancy-indexing and COO/CSR conversion overhead; :class:`Response` converts
 to CSR because rows drive both the sparse @ dense folding and the variance
 kernel.
 
-Each projection carries the Monte Carlo statistical variance of the smeared
+Each projection carries the Monte Carlo statistical variance of the folded
 counts: with independent source bins, the exact diagonal of the propagated
 covariance is ``Var(m) = (R W)^2 v``, where ``W`` is the exact-rebin map
 (overlap fractions of source bins on target bins) and ``v`` the source-bin
@@ -45,10 +46,10 @@ variances (the file's ``sumw2``, or the Poisson estimate without one).  The
 rebinned counts and the banded rebinned covariance ``B = W diag(v) W^T``
 (banded because a source bin overlaps few consecutive target bins) are
 accumulated by a fused kernel over the source-major rebin triples, and the
-smeared variances ``diag(R B R^T)`` by a row-parallel kernel over the
+folded variances ``diag(R B R^T)`` by a row-parallel kernel over the
 matrix's CSR triples -- ``W`` and ``R W`` are never materialized.  The
-per-bin MC error enters the chi-square denominator in quadrature with the
-data-side errors (:mod:`kc761calib.fitmodel`).
+per-bin MC uncertainty enters the chi-square denominator in quadrature
+with the data-side uncertainties (:mod:`kc761calib.fitmodel`).
 """
 
 from __future__ import annotations
@@ -69,39 +70,39 @@ class ExtendedBinning:
     """Extended detected-channel binning and its energy-deposition relabeling
     (module docstring for the axis conventions)."""
 
-    channel_lo: int  # first extended channel (inclusive)
-    channel_hi: int  # last extended channel (inclusive)
-    fit_channel_lo: int  # union lower fit channel
-    fit_channel_hi: int  # union upper fit channel
+    channel_low: int  # first extended channel (inclusive)
+    channel_high: int  # last extended channel (inclusive)
+    fit_channel_low: int  # union lower fit channel
+    fit_channel_high: int  # union upper fit channel
     channel_edges: np.ndarray  # n_ext + 1, uniform width 1 (detected)
     energy_edges: np.ndarray  # n_ext + 1, energy-deposition binning (input)
     energy_centers: np.ndarray  # n_ext, energy-deposition bin centers
-    energy_widths: np.ndarray  # n_ext, energy width dE_i of each channel bin
+    energy_widths: np.ndarray  # n_ext, energy width dE_i of each channel
 
     def channel_slice(self, channel_low: int, channel_high: int) -> slice:
         """Bin slice into the binning arrays for [channel_low, channel_high]."""
-        if not (self.channel_lo <= channel_low <= channel_high <= self.channel_hi):
+        if not (self.channel_low <= channel_low <= channel_high <= self.channel_high):
             raise ValueError(
                 f"channel range [{channel_low}, {channel_high}] is outside the "
-                f"binning [{self.channel_lo}, {self.channel_hi}]")
-        return slice(channel_low - self.channel_lo,
-                     channel_high - self.channel_lo + 1)
+                f"binning [{self.channel_low}, {self.channel_high}]")
+        return slice(channel_low - self.channel_low,
+                     channel_high - self.channel_low + 1)
 
     def channel_edge_slice(self, channel_low: int, channel_high: int) -> slice:
         """Edge slice (one longer than the bin slice) for the channel range."""
-        if not (self.channel_lo <= channel_low <= channel_high <= self.channel_hi):
+        if not (self.channel_low <= channel_low <= channel_high <= self.channel_high):
             raise ValueError(
                 f"channel range [{channel_low}, {channel_high}] is outside the "
-                f"binning [{self.channel_lo}, {self.channel_hi}]")
-        return slice(channel_low - self.channel_lo,
-                     channel_high - self.channel_lo + 2)
+                f"binning [{self.channel_low}, {self.channel_high}]")
+        return slice(channel_low - self.channel_low,
+                     channel_high - self.channel_low + 2)
 
 
 def _bin_center_energies(calib_params, channels, channel_max):
-    """Energy-bin centers of the channel bins (midpoints of the bin edges).
+    """Energy-bin centers of the channels (midpoints of the bin edges).
 
     ``channels`` is a float64 scalar or array of channel indices; the center
-    of channel bin ``k`` is ``(E(k - 0.5) + E(k + 0.5)) / 2``, the midpoint
+    of channel ``k`` is ``(E(k - 0.5) + E(k + 0.5)) / 2``, the midpoint
     of its energy edges.  These are the quadrature nodes the response matrix
     evaluates the Gaussian kernel at, so the kernel-support conditions of
     :func:`build_extended_binning` use the same positions and the two stay
@@ -114,15 +115,15 @@ def _bin_center_energies(calib_params, channels, channel_max):
 
 
 def build_extended_binning(calib_params: np.ndarray, resol_params: np.ndarray,
-                           channel_max: float, fit_channel_lo: int,
-                           fit_channel_hi: int, last_channel: int,
+                           channel_max: float, fit_channel_low: int,
+                           fit_channel_high: int, last_channel: int,
                            n_sigma: float = N_SIGMA) -> ExtendedBinning:
     """Extended channel binning covering the fit range plus the kernel support.
 
-    ``fit_channel_lo..fit_channel_hi`` (inclusive channel indices) is the
+    ``fit_channel_low..fit_channel_high`` (inclusive channel indices) is the
     union of the datasets' fit ranges.  The extension scans outward one
-    channel bin at a time and includes a bin while its kernel -- evaluated at
-    the energy-bin center (the midpoint of the channel bin's energy edges),
+    channel at a time and includes a bin while its kernel -- evaluated at
+    the energy-bin center (the midpoint of the channel's energy edges),
     exactly as in the matrix -- still reaches the fit-range energy edges:
 
     * lower side: ``c_k + n_sigma sigma(c_k) >= E(fit_lo - 0.5)``
@@ -134,11 +135,11 @@ def build_extended_binning(calib_params: np.ndarray, resol_params: np.ndarray,
     clamped to the detector range ``[0, last_channel]``.
 
     The returned binning carries both axes of the response matrix: the
-    uniform channel bins (detected axis) and their calibration image
+    uniform channels (detected axis) and their calibration image
     ``E(channel_edges)`` (energy-deposition input axis).
     """
-    fit_lo = int(fit_channel_lo)
-    fit_hi = int(fit_channel_hi)
+    fit_lo = int(fit_channel_low)
+    fit_hi = int(fit_channel_high)
     last = int(last_channel)
     if not (0 <= fit_lo <= fit_hi <= last):
         raise ValueError(
@@ -175,10 +176,10 @@ def build_extended_binning(calib_params: np.ndarray, resol_params: np.ndarray,
             f"binning [{binning_lo}, {binning_hi}]; the response binning "
             "requires a monotone calibration")
     return ExtendedBinning(
-        channel_lo=binning_lo,
-        channel_hi=binning_hi,
-        fit_channel_lo=fit_lo,
-        fit_channel_hi=fit_hi,
+        channel_low=binning_lo,
+        channel_high=binning_hi,
+        fit_channel_low=fit_lo,
+        fit_channel_high=fit_hi,
         channel_edges=channel_edges,
         energy_edges=energy_edges,
         energy_centers=_bin_center_energies(
@@ -193,7 +194,7 @@ def _assemble_matrix(centers, widths, sigma, lo, hi):
     """Fused column-major assembly of the response-matrix nonzero triple.
 
     Column ``j`` (energy-deposition bin) contributes the output rows
-    ``lo[j] .. hi[j]-1`` (detected channel bins).  Returns ``(indptr,
+    ``lo[j] .. hi[j]-1`` (detected channels).  Returns ``(indptr,
     indices, data)`` in CSC layout (``indptr`` indexes columns, ``indices``
     holds the row of each entry).  A single pass over the nonzeros computes
     the row indices and the Gaussian density values, reusing the per-column
@@ -343,7 +344,7 @@ def _rebin_accumulate(rows, weights, offsets, counts, variances, n_target,
 
 
 @numba.njit(parallel=True, cache=True)
-def _smeared_variances_csr(indptr, indices, data, bands_all, band_dims):
+def _folded_variances_csr(indptr, indices, data, bands_all, band_dims):
     """Exact ``Var(R W n)`` for several sims from the response's CSR triples.
 
     ``Var = diag(R B R^T)`` with ``B`` the banded rebinned covariance of
@@ -383,10 +384,10 @@ def _smeared_variances_csr(indptr, indices, data, bands_all, band_dims):
 
 @dataclass
 class SimProjection:
-    """One simulation projected through the response onto channel bins.
+    """One simulation projected through the response onto channels.
 
-    ``counts``/``variances`` are the smeared counts and their exact MC
-    variance per channel bin (module docstring); ``rebinned`` /
+    ``counts``/``variances`` are the folded counts and their exact MC
+    variance per channel (module docstring); ``rebinned`` /
     ``rebinned_variances`` carry the pre-folding ``W n`` and ``W^2 v`` on
     the energy-deposition bins, so consumers needing the raw-sim spectrum do
     not recompute the rebin.
@@ -402,7 +403,7 @@ class Response:
     """Extended binning + response matrix shared by all datasets, built once
     per chi-square evaluation.  Each dataset rebins its simulation onto the
     binning, folds it through the matrix into channel space, and slices its
-    own channel range; projections carry the smeared counts with their MC
+    own channel range; projections carry the folded counts with their MC
     variances (:class:`SimProjection`).
     """
 
@@ -415,12 +416,12 @@ class Response:
     @classmethod
     def build(cls, calib_params: np.ndarray,
               resol_params: np.ndarray, channel_max: float,
-              fit_channel_lo: int, fit_channel_hi: int, last_channel: int,
+              fit_channel_low: int, fit_channel_high: int, last_channel: int,
               n_sigma: float = N_SIGMA) -> Response:
         """Construct the binning and response matrix for one evaluation."""
         binning = build_extended_binning(
-            calib_params, resol_params, channel_max, fit_channel_lo,
-            fit_channel_hi, last_channel, n_sigma)
+            calib_params, resol_params, channel_max, fit_channel_low,
+            fit_channel_high, last_channel, n_sigma)
         matrix = build_response_matrix(binning, resol_params, n_sigma)
         return cls(binning, matrix)
 
@@ -449,7 +450,7 @@ class Response:
                                  dtype=np.int64)
 
     def project(self, sim) -> SimProjection:
-        """Rebinned, smeared sim counts per channel bin with their MC variance."""
+        """Rebinned, folded sim counts per channel with their MC variance."""
         return self.project_many([sim])[0]
 
     def project_many(self, sims) -> list[SimProjection]:
@@ -478,14 +479,14 @@ class Response:
                 self._source_variances(sim), n_target, max_band)
             rebinned_list.append(rebinned)
             bands_list.append(bands)
-        smeared = self.matrix @ np.column_stack(rebinned_list)
+        folded = self.matrix @ np.column_stack(rebinned_list)
         bands_all, band_dims = self._variance_stack(bands_list)
-        variances_all = _smeared_variances_csr(
+        variances_all = _folded_variances_csr(
             self.matrix.indptr, self.matrix.indices, self.matrix.data,
             bands_all, band_dims)
         return [
             SimProjection(
-                counts=smeared[:, j],
+                counts=folded[:, j],
                 variances=variances_all[j * n_target:(j + 1) * n_target],
                 rebinned=rebinned_list[j],
                 rebinned_variances=bands_list[j][0])

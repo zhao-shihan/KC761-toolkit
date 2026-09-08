@@ -2,7 +2,7 @@
 
 ``CalibrationFile`` is the validated snapshot of a kc761calib export or
 a kc761sim composite-response file; ``UnfoldSettings`` the
-regularization/error-model configuration; and ``UnfoldResult`` the
+regularization/uncertainty-model configuration; and ``UnfoldResult`` the
 single result structure consumed by the export and plot paths in both
 the unfold and calibration-only modes, so the two modes share one
 output pipeline.
@@ -51,7 +51,7 @@ class CalibrationFile:
     to_channel: sparse.csr_matrix  # subrange n_bins x n_bins
     # Composite files only: conditional primary-to-deposition
     # distribution p_tilde[dep, primary] (thresholded CSR); None for
-    # calibration files.  Used by the systematic-error propagation to
+    # calibration files.  Used by the systematic-uncertainty propagation to
     # rebuild the primary-to-channel matrix, R(q) = C(q) p_tilde
     # diag(eta).
     primary_to_deposition: sparse.csr_matrix | None
@@ -84,17 +84,18 @@ class UnfoldSettings:
     """Hybrid regularized unfolding configuration; every field is CLI-exposed.
 
     The working range is the energy window ``energy_low`` .. ``energy_high``
-    (keV); ``channel_low``/``channel_high`` are the derived channel bins
+    (keV); ``channel_low``/``channel_high`` are the derived channels
     (their centers fall inside the window).  Fields are grouped by role:
     the penalty (``alpha``, ``k``), the SNIP peak mask (``snip_iter``,
-    ``mask_z0``, ``mask_floor``) and the error model (``syst_frac``).
+    ``mask_z0``, ``mask_floor``) and the uncertainty model
+    (``syst_frac``).
     """
 
     # working range
     energy_low: float = 0.0  # requested lower energy bound (keV)
     energy_high: float = 0.0  # requested upper energy bound (keV)
-    channel_low: int = 0  # derived lower channel bin
-    channel_high: int = 0  # derived upper channel bin
+    channel_low: int = 0  # derived lower channel
+    channel_high: int = 0  # derived upper channel
     # penalty
     alpha: float = DEFAULT_ALPHA  # regularization strength
     k: int = DEFAULT_K  # difference order of the density penalty
@@ -102,7 +103,7 @@ class UnfoldSettings:
     snip_iter: int = DEFAULT_SNIP_ITER  # SNIP clipping iterations
     mask_z0: float = DEFAULT_MASK_Z0  # peak-significance scale (z-score)
     mask_floor: float = DEFAULT_MASK_FLOOR  # minimum regularization on peaks
-    # error model
+    # uncertainty model
     syst_frac: float = DEFAULT_SYST_FRAC  # fractional data-side systematic
 
 
@@ -111,13 +112,13 @@ class UnfoldResult:
     """One output spectrum: the single structure behind ROOT export/plot.
 
     Unfold mode (``calib_only=False``): ``counts`` is the unfolded mu_hat
-    with the analytic per-bin total/statistical/systematic errors and the
-    full covariance pair; ``refolded`` carries the refolded prediction for
-    the residual panel.  Calibration-only mode (``calib_only=True``):
-    ``counts`` are the raw counts relabeled onto the energy axis,
-    ``sigma_calib`` is the calibration-model error propagated vertically
-    through the spectrum derivative, and the covariance matrices and
-    diagnostics are None.
+    with the analytic per-bin total/statistical/systematic uncertainties
+    and the full covariance pair; ``refolded`` carries the refolded
+    prediction for the residual panel.  Calibration-only mode
+    (``calib_only=True``): ``counts`` are the raw counts relabeled onto
+    the energy axis, ``sigma_calib`` is the calibration-model uncertainty
+    propagated vertically through the spectrum derivative, and the
+    covariance matrices and diagnostics are None.
     """
 
     calib_only: bool
@@ -127,7 +128,7 @@ class UnfoldResult:
     energy_edges: np.ndarray  # n_bins + 1
     centers: np.ndarray  # n_bins
     counts: np.ndarray  # n_bins
-    sigma_total: np.ndarray  # n_bins, total-error band
+    sigma_total: np.ndarray  # n_bins, total-uncertainty band
     sigma_stat: np.ndarray  # n_bins, statistical part
     sigma_syst: np.ndarray  # n_bins, systematic band
     sigma_calib: np.ndarray  # n_bins, calibration-model vertical term
@@ -139,6 +140,6 @@ class UnfoldResult:
     pen_cost: float | None
     n_iter: int | None
     data_counts: np.ndarray  # n_bins, the calibrated-spectrum layer
-    data_sigma_total: np.ndarray  # n_bins, total-error band of that layer
+    data_sigma_total: np.ndarray  # n_bins, total-uncertainty band of layer
     data_sigma_syst: np.ndarray  # n_bins, systematic band of that layer
     settings: UnfoldSettings

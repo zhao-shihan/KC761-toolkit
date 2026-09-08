@@ -5,12 +5,12 @@
 // Objects are written in this order:
 //   TNamed              "calib_formula"   calibration formula text
 //   TParameter<double>  "c0".."c3"        cubic calibration coefficients,
-//                       each immediately followed by its 1-sigma error
-//                       "c0_err".."c3_err"
+//                       each immediately followed by its 1-sigma
+//                       uncertainty "c0_err".."c3_err"
 //   TNamed              "resol_formula"   resolution formula text
 //   TParameter<double>  "resol_e_ref"     resolution reference energy (keV)
 //   TParameter<double>  "b0".."b2"        resolution parameters (keV), each
-//                       immediately followed by its 1-sigma error
+//                       immediately followed by its 1-sigma uncertainty
 //                       "b0_err".."b2_err"
 //   TNamed              "param_order"     parameter order of param_cov:
 //                                          "c0 c1 c2 c3 b0 b1 b2"
@@ -23,14 +23,14 @@
 //                       x = detected channel (uniform bins of width 1,
 //                       integer bin centers), y = energy deposition
 //                       (variable-width bins from the calibration image of
-//                       the channel bins); content R[ch, Edep] =
+//                       the channels); content R[ch, Edep] =
 //                       probability that a count in the energy-deposition
-//                       bin Edep is detected in channel bin ch.  The
+//                       bin Edep is detected in channel ch.  The
 //                       columns are NOT renormalized: the Gaussian
 //                       probability beyond the detector channel range is
 //                       truncated, i.e. physically lost.  The per-bin
-//                       errors (fSumw2) hold the per-element 1-sigma
-//                       uncertainty propagated linearly from param_cov.
+//                       uncertainties (fSumw2) hold the per-element 1-sigma
+//                       uncertainties propagated linearly from param_cov.
 //
 // The temporary export file is deleted after a successful write; on error
 // it is left in place so the caller can inspect or re-run it.
@@ -117,7 +117,7 @@ void calib2root(const std::string& exportFile, const std::string& output) {
     const long fileSize = std::ftell(f);
     std::fseek(f, payloadStart, SEEK_SET);
     const long expected = static_cast<long>(
-        8 * (nCh + 1 + 2 * nCh * nCh)); // edges + matrix + matrix_errors
+        8 * (nCh + 1 + 2 * nCh * nCh)); // edges + matrix + matrix_uncertainties
     if (fileSize - payloadStart != expected)
         bail("export size mismatch (truncated or corrupt file)");
 
@@ -132,11 +132,12 @@ void calib2root(const std::string& exportFile, const std::string& output) {
     std::vector<double> matrix(nEntries);
     if (!ReadRaw(f, matrix.data(), matrix.size() * sizeof(double)))
         bail("malformed deposition-to-channel block");
-    std::vector<double> matrixErrors(nEntries);
-    if (!ReadRaw(f, matrixErrors.data(), matrixErrors.size() * sizeof(double)))
-        bail("malformed deposition-to-channel-errors block");
+    std::vector<double> matrixUncertainties(nEntries);
+    if (!ReadRaw(f, matrixUncertainties.data(),
+                 matrixUncertainties.size() * sizeof(double)))
+        bail("malformed deposition-to-channel-uncertainties block");
     if (std::fgetc(f) != EOF)
-        bail("trailing bytes after the deposition-to-channel errors");
+        bail("trailing bytes after the deposition-to-channel uncertainties");
     std::fclose(f);
     f = nullptr;
 
@@ -151,7 +152,8 @@ void calib2root(const std::string& exportFile, const std::string& output) {
 
     // The metadata block is the contract read by name in
     // kc761util/calibfile.py (see the header comment for the object
-    // order); the per-parameter errors are the covariance diagonals.
+    // order); the per-parameter uncertainties are the covariance
+    // diagonals.
     double calibErr[kNC];
     for (int i = 0; i < kNC; ++i)
         calibErr[i] = std::sqrt(std::max(paramCov[i * kNCore + i], 0.0));
@@ -169,11 +171,11 @@ void calib2root(const std::string& exportFile, const std::string& output) {
         "KC761 deposition-to-channel matrix;Channel;Energy deposition (keV)",
         static_cast<int>(nCh), -0.5, static_cast<double>(nCh) - 0.5,
         static_cast<int>(nCh), edges.data());
-    // The shared filler stores squared errors in fSumw2; the export
-    // carries the 1-sigma values.
+    // The shared filler stores squared uncertainties in fSumw2; the
+    // export carries the 1-sigma values.
     std::vector<double> respSw2(nEntries);
     for (size_t k = 0; k < nEntries; ++k)
-        respSw2[k] = matrixErrors[k] * matrixErrors[k];
+        respSw2[k] = matrixUncertainties[k] * matrixUncertainties[k];
     FillMatrix(hResp, matrix, respSw2, nCh,
                "deposition_to_channel");
 
@@ -181,9 +183,9 @@ void calib2root(const std::string& exportFile, const std::string& output) {
     fout.Close();
 
     // Verify the ROOT file was written completely before deleting the only
-    // serialized copy of the matrix: reopen it and require the deposition
-    // deposition-to-channel matrix with the expected bin counts and its error
-    // array.  On
+    // serialized copy of the matrix: reopen it and require the
+    // deposition-to-channel matrix with the expected bin counts and its
+    // uncertainty array.  On
     // any write failure (e.g. a full disk) the export file is kept so the
     // conversion can be re-run.
     TFile fcheck(output.c_str());
@@ -193,8 +195,9 @@ void calib2root(const std::string& exportFile, const std::string& output) {
         hCheck->GetNbinsY() != static_cast<int>(nCh) ||
         hCheck->GetSumw2() == nullptr) {
         std::cerr << "[calib2root] error: output file is missing or incomplete "
-                  << "after writing (deposition-to-channel matrix without its error array); "
-                  << "keeping the export file: " << exportFile << "\n";
+                  << "after writing (deposition-to-channel matrix without its "
+                  << "uncertainty array); keeping the export file: "
+                  << exportFile << "\n";
         gSystem->Exit(1);
         return;
     }
@@ -205,7 +208,7 @@ void calib2root(const std::string& exportFile, const std::string& output) {
     }
 
     std::cout << "[calib2root] wrote " << output << " : " << nCh << " x " << nCh
-              << " deposition-to-channel matrix with per-bin errors, "
+              << " deposition-to-channel matrix with per-bin uncertainties, "
               << "calibration/resolution formulas, parameters and their "
               << "covariance\n";
 }

@@ -1,6 +1,7 @@
 // subbkg.cxx
 // Background-subtract a signal spectrum by the ratio of DAQ times,
-// propagating Poisson errors: net_i = S_i - r*B_i, err_i = sqrt(S_i + r^2*B_i).
+// propagating Poisson uncertainties: net_i = S_i - r*B_i,
+// unc_i = sqrt(S_i + r^2*B_i).
 // Usage:  root -l -b -q 'subbkg.cxx("sig.root","bkg.root","out.root")'
 
 #include "TFile.h"

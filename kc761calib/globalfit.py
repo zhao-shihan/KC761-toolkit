@@ -52,14 +52,14 @@ class GlobalFitModel:
         # Shared channel geometry for the response built once per evaluation.
         self.channel_max = float(max(s.data.edges[-1] for s in self.specs))
         self.last_channel = int(min(n_bins)) - 1
-        self.fit_channel_lo = min(s.channel_low for s in self.specs)
-        self.fit_channel_hi = max(s.channel_high for s in self.specs)
+        self.fit_channel_low = min(s.channel_low for s in self.specs)
+        self.fit_channel_high = max(s.channel_high for s in self.specs)
 
         init_calib_params = (INIT_CALIB if init_calib_params is None
                              else np.asarray(init_calib_params, dtype=float))
         self.init_response = Response.build(
-            init_calib_params, INIT_RESOL, self.channel_max, self.fit_channel_lo,
-            self.fit_channel_hi, self.last_channel)
+            init_calib_params, INIT_RESOL, self.channel_max,
+            self.fit_channel_low, self.fit_channel_high, self.last_channel)
 
         self.models = [
             FitModel(s.data, s.sim, s.channel_low, s.channel_high,
@@ -108,8 +108,8 @@ class GlobalFitModel:
                         resol_params: np.ndarray) -> Response:
         """One shared binning + deposition-to-channel response matrix per evaluation."""
         return Response.build(
-            calib_params, resol_params, self.channel_max, self.fit_channel_lo,
-            self.fit_channel_hi, self.last_channel)
+            calib_params, resol_params, self.channel_max, self.fit_channel_low,
+            self.fit_channel_high, self.last_channel)
 
     def _cached_projection(self, calib_params: np.ndarray,
                            resol_params: np.ndarray,

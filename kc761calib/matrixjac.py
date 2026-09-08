@@ -32,12 +32,13 @@ dg_ds = (d^2/sigma_j^2 - 1)/sigma_j * pdf, and the sigma derivatives from
 (both clamps of sigma(E) carry exact one-sided derivatives through
 :func:`kc761calib.response.resol_sigma_model_grad`).
 
-Note on the stored per-element errors: kc761calib computes them in its
-internal basis; the reported-basis quadratic form here is the same value
-up to floating-point rounding (a constant, invertible change of basis), so
-Var_C agrees with the file's ``C_err^2`` to ~1e-16 relative.  The C copy in
-the composite output inherits the file's errors bitwise; only the
-propagated R errors use this recomputed Jacobian.
+Note on the stored per-element uncertainties: kc761calib computes them in
+its internal basis; the reported-basis quadratic form here is the same
+value up to floating-point rounding (a constant, invertible change of
+basis), so Var_C agrees with the file's ``C_unc^2`` to ~1e-16 relative.
+The C copy in the composite output inherits the file's uncertainties
+bitwise; only the propagated R uncertainties use this recomputed
+Jacobian.
 
 Memory: the returned tensor has shape (n, n, 7); for the 2048-bin
 calibration that is ~235 MB of float64, acceptable for a one-shot

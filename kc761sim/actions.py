@@ -4,7 +4,7 @@ Two clearly separated scoring paths live here:
 
 * the radioactive-source path (``RunAction``/``EventAction``) declares the
   ntuple and the 4096-bin spectrum histogram and merges crystal deposits
-  into 10 us pulses;
+  into 10 µs pulses;
 * the matrix-mode path (``MatrixRunAction``/``MatrixEventAction``) declares
   only the primary-to-deposition histogram G (TH2D, x = energy deposition, y =
   primary energy, variable-width axes taken from the calibration file)
@@ -52,7 +52,7 @@ _NTUPLE_COLUMN_CREATORS = {
 
 _EDEP_HISTOGRAM_BINS = 4096
 _EDEP_HISTOGRAM_MAX_KEV = 4096.0
-RESOLUTION_TIME = 10 * us
+COINCIDENCE_RESOLVING_TIME = 10 * us
 
 
 class PrimaryGeneratorAction(G4VUserPrimaryGeneratorAction):
@@ -168,13 +168,13 @@ class EventAction(G4UserEventAction):
         self.deposits.append((global_time, edep))
 
     def _merge_pulses(self) -> list[tuple[float, float]]:
-        """Merge deposits within one scintillator resolution time."""
+        """Merge deposits within one coincidence resolving time."""
         deposits = sorted(self.deposits, key=lambda d: d[0])
         pulses: list[tuple[float, float]] = []
         i, n = 0, len(deposits)
         while i < n:
             t0 = deposits[i][0]
-            t_cut = t0 + RESOLUTION_TIME
+            t_cut = t0 + COINCIDENCE_RESOLVING_TIME
             edep = 0.0
             while i < n and deposits[i][0] <= t_cut:
                 edep += deposits[i][1]
