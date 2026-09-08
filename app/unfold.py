@@ -57,8 +57,8 @@ def _run(args) -> int:
               f"{calib_full.n_channels}; mismatched binning",
               file=sys.stderr)
         return 1
-    elo = calib_full.centers[0] if args.elo is None else args.elo
-    ehi = calib_full.centers[-1] if args.ehi is None else args.ehi
+    elo = args.elo
+    ehi = args.ehi
     try:
         ch_lo, ch_hi = energy_to_channels(calib_full, elo, ehi)
     except ValueError as exc:

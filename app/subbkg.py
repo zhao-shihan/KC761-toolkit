@@ -18,12 +18,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     "spectrum (scaled by DAQ time) via subbkg.cxx."
     )
     parser.add_argument(
-        "signal", type=Path,
+        "--sig", type=Path, required=True,
         help=f"signal (data) ROOT file containing TH1D '{SPECTRUM_HIST_NAME}' "
         "and TParameter<double> 'daq_time'",
     )
     parser.add_argument(
-        "background", type=Path,
+        "--bkg", type=Path, required=True,
         help="background ROOT file with the same structure",
     )
     parser.add_argument(

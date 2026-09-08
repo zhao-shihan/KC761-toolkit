@@ -35,12 +35,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--calib-only", action="store_true",
                         help="relabel the channel axis to energy without "
                              "unfolding")
-    parser.add_argument("--elo", type=float, default=None, metavar="ENERGY",
+    parser.add_argument("--elo", type=float, required=True, metavar="ENERGY",
                         help="lower energy bound of the working range in "
-                             "keV (default: the first bin)")
-    parser.add_argument("--ehi", type=float, default=None, metavar="ENERGY",
+                             "keV (required)")
+    parser.add_argument("--ehi", type=float, required=True, metavar="ENERGY",
                         help="upper energy bound of the working range in "
-                             "keV (default: the last bin)")
+                             "keV (required)")
     parser.add_argument("--alpha", type=float, default=DEFAULT_ALPHA,
                         metavar="ALPHA",
                         help="regularization strength (dimensionless, "

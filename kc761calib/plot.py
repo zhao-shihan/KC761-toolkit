@@ -83,11 +83,11 @@ def _cap(s: str) -> str:
 
 def _figure_grid(n_datasets: int):
     n_rows = n_datasets + 2
-    fig = plt.figure(figsize=(15.0, 3.5 * n_datasets + 5.0))
+    fig = plt.figure(figsize=(15.0, 3.5 * n_datasets + 6.5))
     gs = fig.add_gridspec(
         n_rows, 1,
-        height_ratios=[0.5] + [3.0] * n_datasets + [5.0],
-        hspace=0.5,
+        height_ratios=[0.0] + [3.5] * n_datasets + [6.5],
+        hspace=0.7,
     )
     return fig, gs
 
@@ -111,7 +111,7 @@ def _footer_row(fig, gs, row: int):
 def _title_panel(ax, txt: str) -> None:
     ax.axis("off")
     ax.text(0.5, 0.5, txt, transform=ax.transAxes, ha="center", va="center",
-            fontsize=11)
+            fontsize=16)
 
 
 def _parameter_text(result) -> str:
@@ -142,6 +142,23 @@ def _parameter_panel(ax, txt: str) -> None:
                       alpha=0.9))
 
 
+# Log x-axis tick labels: on the narrow panels (a few times ten keV wide)
+# the automatic per-mantissa labels are dense enough to overlap, so the
+# labels are rotated; the tick positions themselves stay the default.
+# The labeled ticks of narrow log ranges come from the MINOR locator, so
+# the rotation must be set for both tick groups.
+_LOG_X_LABELROTATION = 45.0
+
+
+def _log_x_axis(ax) -> None:
+    """Cut over an energy axis to the logarithmic x scale with the tick
+    labels rotated (so the narrow panels' per-mantissa labels don't
+    overlap)."""
+    ax.set_xscale("log")
+    ax.tick_params(axis="x", which="both",
+                   labelrotation=_LOG_X_LABELROTATION, labelsize=9)
+
+
 def _positive_start(edges: np.ndarray) -> int:
     """First bin index whose lower edge is positive (log-x truncation).
 
@@ -165,15 +182,19 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
     # The scale is a function of channel: evaluate it over the channel window
     # and map the channel axis to energy with the calibration for the twin
     # (energy) axis.
-    ch_curve = np.linspace(ds.channel_low, ds.channel_high, 300)
+    # The twin energy axis is logarithmic like the primary axis: sample the
+    # scale curve at log-uniform energies (via the strictly increasing
+    # E(ch), inverted by interpolation) rather than uniform channels, so the
+    # curve is smooth across decades.  The non-positive-energy tail (the low
+    # channels) is dropped here and by the bin truncation below.
+    ch_ref = np.linspace(ds.channel_low, ds.channel_high, 400)
+    e_ref = calib_model(calib, ch_ref, channel_max)
+    pos = e_ref > 0.0
+    e_curve = np.geomspace(e_ref[pos][0], e_ref[pos][-1], 300)
+    ch_curve = np.interp(e_curve, e_ref[pos], ch_ref[pos])
     scale_curve = scale_model(ds.scale_params, ch_curve,
                               ds.channel_low, ds.channel_high)
-    e_curve = calib_model(calib, ch_curve, channel_max)
-    # The twin energy axis is logarithmic like the primary axis; the parts of
-    # the curve at non-positive energies (the low channels) are dropped here
-    # and by the bin truncation below.
-    pos = e_curve > 0.0
-    line_scale, = ax2.plot(e_curve[pos], scale_curve[pos], "--",
+    line_scale, = ax2.plot(e_curve, scale_curve, "--",
                            color=_COLOR_SCALE, lw=0.5, zorder=1,
                            label="Scale s(ch)")
     ax2.set_ylabel("Scale s(ch)")
@@ -221,8 +242,11 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
     line_fit, = ax.plot(ds.bin_centers[m], ds.model_prediction[m], "-",
                         lw=1.5, color=_COLOR_FIT, alpha=0.8, zorder=4)
     ax.set_yscale("log")
-    ax.set_xscale("log")
+    # The twin axis's x scale is shared with the primary axis; setting it
+    # here first keep the shared x axis's tick policy from being reset by
+    # `ax2.set_xscale` below (scale changes reinitialize the tickers).
     ax2.set_xscale("log")
+    _log_x_axis(ax)
     ax.set_xlim(e_lo, ds.bin_edges[-1])
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Counts")
@@ -267,7 +291,7 @@ def _residual_panel(ax, bin_centers, data_counts, combined_uncertainties,
         ax.axhline(level, color=_COLOR_RESIDUAL_LEVEL, lw=0.6, ls=":")
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Residual")
-    ax.set_xscale("log")
+    _log_x_axis(ax)
     ax.set_xlim(energy_low, energy_high)
     ax.set_ylim(-_RESIDUAL_MAX, _RESIDUAL_MAX)  # fixed, for comparability
     ax.set_title(title, fontsize=9)

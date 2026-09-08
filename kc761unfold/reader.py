@@ -152,12 +152,6 @@ def slice_calibration(calib: CalibrationFile, channel_low: int,
         return cached
     sub = calib.to_channel[channel_low:channel_high + 1,
                            channel_low:channel_high + 1].toarray()
-    col_sums = sub.sum(axis=0)
-    n_trunc = int((col_sums < 1.0 - 1e-6).sum())
-    if n_trunc > 0:
-        print(f"[unfold] warning: {n_trunc} matrix columns with column "
-              f"sums < 1 (total detection efficiency, or truncation at "
-              f"the detector range edges)")
     if calib.primary_to_deposition is not None:
         p_sub = calib.primary_to_deposition[
             channel_low:channel_high + 1,

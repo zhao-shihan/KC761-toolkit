@@ -52,6 +52,23 @@ def _save_fig(fig, out_plot: str) -> Path:
     return out
 
 
+# Log x-axis tick labels: on the narrow panels (a few times ten keV wide)
+# the automatic per-mantissa labels are dense enough to overlap, so the
+# labels are rotated; the tick positions themselves stay the default.
+# The labeled ticks of narrow log ranges come from the MINOR locator, so
+# the rotation must be set for both tick groups.
+_LOG_X_LABELROTATION = 45.0
+
+
+def _log_x_axis(ax) -> None:
+    """Cut over an energy axis to the logarithmic x scale with the tick
+    labels rotated (so the narrow panels' per-mantissa labels don't
+    overlap)."""
+    ax.set_xscale("log")
+    ax.tick_params(axis="x", which="both",
+                   labelrotation=_LOG_X_LABELROTATION, labelsize=9)
+
+
 def _positive_start(edges: np.ndarray) -> int:
     """First bin index whose lower edge is positive (log-x truncation).
 
@@ -114,7 +131,7 @@ def _spectrum_panel(ax, result: UnfoldResult, title: str, *, log: bool):
                                _COLOR_FIT, "Unfolded spectrum")
     if log:
         ax.set_yscale("log")
-    ax.set_xscale("log")
+    _log_x_axis(ax)
     ax.set_xlim(edges[0], edges[-1])
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Counts")
@@ -156,7 +173,7 @@ def _residual_panel(ax, result: UnfoldResult, title: str):
         ax.axhline(level, color=_COLOR_RESIDUAL_LEVEL, lw=0.6, ls=":")
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Residual")
-    ax.set_xscale("log")
+    _log_x_axis(ax)
     ax.set_xlim(result.energy_edges[lo], result.energy_edges[-1])
     ax.set_ylim(-_RESIDUAL_MAX, _RESIDUAL_MAX)
     ax.set_title(title, fontsize=10)
@@ -169,11 +186,11 @@ def plot_result(result: UnfoldResult, out_path: str | Path) -> Path:
     fig = plt.figure(figsize=(9.5, 10.5))
     gs = fig.add_gridspec(n_panels, 1, height_ratios=[2.0, 2.0, 1.0]
                           if n_panels == 3 else [1.0, 1.0],
-                          hspace=0.35)
+                          hspace=0.5)
     _spectrum_panel(fig.add_subplot(gs[0]), result,
-                    "Spectrum (log x)", log=False)
+                    "Spectrum", log=False)
     _spectrum_panel(fig.add_subplot(gs[1]), result,
-                    "Spectrum (log x, log y)", log=True)
+                    "Spectrum (log y-axis)", log=True)
     if n_panels == 3:
         _residual_panel(fig.add_subplot(gs[2]), result, "Relative residuals")
     return _save_fig(fig, out_path)
