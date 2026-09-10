@@ -174,3 +174,63 @@ Constraints respected in W2: `meta` fields all have length 1; variable length
 data uses separate histogram objects; the atomic-write protocol reopens with
 uproot before renaming; the object set on disk must equal `OBJECT_NAMES` for
 the product kind exactly; duplicate on-disk object versions are rejected.
+
+## 7. CLI outputs, CSV import and background subtraction (W6)
+
+### 7.1 Command surface and exit codes
+
+`kc761` has six subcommands (`calib`, `unfold`, `sim`, `compose`, `csv2root`,
+`subbkg`; D-66). Exit codes are 0 success, 1 runtime failure, 2 usage error
+(D-68); every failure is logged as `[kc761.<command>] error: ...` (D-67).
+`sim`, `calib`, `compose` and `unfold` additionally accept `-c/--config FILE`
+and `--dry-run`; `csv2root` and `subbkg` take no config file (D-129).
+
+### 7.2 Default outputs (D-19/D-138)
+
+When `-o/--output` is omitted the product is written under `out/<command>/`:
+
+| Command | Default file name |
+|---------|-------------------|
+| `sim` source | `<source>-n<N>-s<SEED>.root` |
+| `sim` matrix | `<calib-stem>-<mode>-n<N>-s<SEED>.root` (`mode` is `plane-front-gamma` or `sphere-gamma`) |
+| `calib` | `calib-<label>[-<label>...].root` |
+| `compose` | `compose-<calib-stem>-<sim-stem>.root` |
+| `unfold` | `unfold-<data-stem>-<sim-stem>-a<alpha>.root` |
+| `unfold --calib-only` | `unfold-<data-stem>-calibonly.root` |
+| `csv2root` | `<input-stem>.root` |
+| `subbkg` | `<signal-stem>-subbkg.root` |
+
+An existing target is refused unless `--force` is given (D-17).
+
+### 7.3 `csv2root` strict grammar
+
+The parser is strict (D-72; resolves Appendix A item 8). The input is UTF-8
+(an optional BOM is accepted).
+
+* The first non-empty line is the header. It must match
+  `Channel,Count #<D>d<H>h<M>m<S>s` (for example
+  `Channel,Count #0d0h2m35s`).
+* `D`, `H` and `M` are non-negative integers and `S` is a non-negative decimal
+  number; `H <= 23`, `M <= 59`, `S < 60`, and the total acquisition time must
+  be positive. It is stored as `daq_time_s = D*86400 + H*3600 + M*60 + S`.
+* Each data line has exactly three comma-separated fields, `channel,count,`,
+  where the third field is empty. `channel` and `count` are non-negative
+  integers; channels start at 0 and increase by exactly 1; blank lines are
+  skipped; at least one data row is required.
+* Malformed/empty input, an invalid header or time, a wrong column count, a
+  negative or non-integer value, and a duplicated/non-monotonic/non-contiguous
+  channel are errors (exit code 1).
+
+The output is a `spectrum` product: a uniform `channel` axis (`-0.5 ..
+n - 0.5`), `values = counts`, `fSumw2 = counts` (Poisson), `daq_time_s` from
+the header and `source_file` set to the input path.
+
+### 7.4 `subbkg` semantics
+
+The net spectrum is `S - r B` with `r = t_sig / t_bkg` (both `daq_time_s`
+must be positive). Each input bin error is floored at one count before the
+combination, and the net `fSumw2` is `sig_err**2 + r**2 * bkg_err**2`. The
+signal and background channel axes must match bitwise (unit and edges). The
+output is a `spectrum` product that inherits the signal `daq_time_s` and names
+the signal as `source_file`; provenance lists both inputs.
+

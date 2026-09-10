@@ -38,8 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI and return the process exit code."""
+    raw_argv = list(sys.argv[1:]) if argv is None else list(argv)
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
+    args.argv = raw_argv
     try:
         strict = strict_enabled(args.strict)
         logger = configure_logging(args.command, args.log_level)
@@ -48,12 +50,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         return int(args.handler(args, strict=strict))
-    except NotImplementedError as exc:
-        logger.error("not implemented yet: %s", exc)
-        return 1
     except UsageError as exc:
         logger.error("%s", exc)
         return 2
+    except OSError as exc:
+        # atomic_write and friends raise OSError for filesystem failures; map
+        # them to a runtime failure with an actionable message.
+        logger.error("filesystem error: %s", exc)
+        return 1
     except Kc761Error as exc:
         logger.error("%s", exc)
         return 1

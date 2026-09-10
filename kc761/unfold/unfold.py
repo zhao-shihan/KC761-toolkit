@@ -102,12 +102,13 @@ def _provenance(
     command: str,
     arguments: Sequence[tuple[str, str]],
     paths: Sequence[Path | None],
+    extra_inputs: Sequence[str | Path] = (),
 ):
     return build_provenance(
         producer=producer,
         command=command,
         arguments=tuple(arguments),
-        inputs=[path for path in paths if path is not None],
+        inputs=[path for path in paths if path is not None] + list(extra_inputs),
     )
 
 
@@ -126,6 +127,7 @@ def _run_calib_only(
     plot: bool,
     plot_path: str | Path | None,
     plot_force: bool,
+    extra_inputs: Sequence[str | Path] = (),
 ) -> UnfoldResult:
     """Relabel the channel axis to ``C.y = E(i +- 1/2)`` without unfolding."""
     edges = np.asarray(calib.deposition_to_channel.y.edges, dtype=np.float64)
@@ -147,6 +149,7 @@ def _run_calib_only(
             command=command,
             arguments=arguments,
             paths=(data_path, calib_path),
+            extra_inputs=extra_inputs,
         )
         product = UnfoldProduct(
             format_version=SCHEMA_VERSION,
@@ -215,6 +218,7 @@ def run_unfold(
     plot: bool = True,
     plot_path: str | Path | None = None,
     plot_force: bool = False,
+    extra_inputs: Sequence[str | Path] = (),
 ) -> UnfoldResult:
     """Unfold a measured channel spectrum (F-SOLVE/F-UNC/F-UNF)."""
     data_product, data_path = coerce_spectrum(data, strict=strict)
@@ -236,6 +240,7 @@ def run_unfold(
             plot=plot,
             plot_path=plot_path,
             plot_force=plot_force,
+            extra_inputs=extra_inputs,
         )
 
     if sim is None:
@@ -348,6 +353,7 @@ def run_unfold(
             command=command,
             arguments=arguments,
             paths=(data_path, calib_path, sim_path),
+            extra_inputs=extra_inputs,
         )
         product = UnfoldProduct(
             format_version=SCHEMA_VERSION,

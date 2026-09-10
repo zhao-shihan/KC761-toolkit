@@ -129,7 +129,7 @@ def test_cli_help_via_module() -> None:
     assert "unfold" in result.stdout
 
 
-def test_cli_subcommand_parses_and_reports_not_implemented() -> None:
+def test_cli_compose_missing_inputs_is_a_prefixed_runtime_failure() -> None:
     result = _run_cli(
         "kc761.py",
         "compose",
@@ -139,7 +139,6 @@ def test_cli_subcommand_parses_and_reports_not_implemented() -> None:
         "sim.root",
     )
     assert result.returncode == 1
-    assert "not implemented" in result.stderr
     assert "[kc761.compose] error:" in result.stderr
 
 
@@ -151,6 +150,8 @@ def test_cli_unfold_alpha_is_mandatory() -> None:
         "data.root",
         "--calib",
         "calib.root",
+        "--sim",
+        "sim.root",
         "--energy-low",
         "100",
         "--energy-high",
@@ -171,4 +172,4 @@ def test_cli_strict_env_and_flag_are_accepted() -> None:
         check=False,
     )
     assert result.returncode == 1
-    assert "not implemented" in result.stderr
+    assert "[kc761.subbkg] error:" in result.stderr

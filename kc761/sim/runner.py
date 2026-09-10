@@ -379,6 +379,7 @@ def _write_matrix_product(
     strict: bool,
     command: str,
     arguments: Sequence[tuple[str, str]],
+    extra_inputs: Sequence[str | Path] = (),
 ) -> Path:
     totals = counts.sum(axis=0) + zero_counts
     certificates.verify_event_accounting(counts, totals, zero_counts, n_events)
@@ -394,7 +395,7 @@ def _write_matrix_product(
         producer="kc761-sim",
         command=command,
         arguments=tuple(arguments),
-        inputs=[calib_path],
+        inputs=[calib_path, *extra_inputs],
         extra_dependencies=[_GEANT4_DEPENDENCY],
     )
     product = SimProduct(
@@ -435,6 +436,7 @@ def run_matrix(
     verbose: int = 0,
     command: str = "kc761 sim",
     arguments: Sequence[tuple[str, str]] = (),
+    extra_inputs: Sequence[str | Path] = (),
 ) -> Path:
     """Run a matrix-mode simulation and write a ``SimProduct`` (D-121).
 
@@ -494,6 +496,7 @@ def run_matrix(
             strict=strict,
             command=command,
             arguments=arguments,
+            extra_inputs=extra_inputs,
         )
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
@@ -522,6 +525,7 @@ def _write_mc_spectrum(
     strict: bool,
     command: str,
     arguments: Sequence[tuple[str, str]],
+    extra_inputs: Sequence[str | Path] = (),
 ) -> Path:
     expected = source_mode_deposition_edges_kev()
     if not np.array_equal(energy_edges_kev, expected):
@@ -535,7 +539,7 @@ def _write_mc_spectrum(
         producer="kc761-sim",
         command=command,
         arguments=tuple(arguments),
-        inputs=[],
+        inputs=list(extra_inputs),
         extra_dependencies=[_GEANT4_DEPENDENCY],
     )
     product = McSpectrumProduct(
@@ -569,6 +573,7 @@ def run_source(
     verbose: int = 0,
     command: str = "kc761 sim",
     arguments: Sequence[tuple[str, str]] = (),
+    extra_inputs: Sequence[str | Path] = (),
 ) -> Path:
     """Run the radioactive-source mode and write an ``mc_spectrum`` (D-120)."""
     if n_events <= 0:
@@ -610,6 +615,7 @@ def run_source(
             strict=strict,
             command=command,
             arguments=arguments,
+            extra_inputs=extra_inputs,
         )
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

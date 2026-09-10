@@ -94,6 +94,7 @@ def run_fit(
     plot: bool = True,
     plot_path: str | Path | None = None,
     plot_force: bool = False,
+    extra_inputs: Sequence[str | Path] = (),
 ) -> FitResult:
     """Fit a shared calibration over one or more datasets (W3).
 
@@ -101,6 +102,9 @@ def run_fit(
     a figure next to ``output`` (or to ``plot_path``). Non-convergence is
     recorded in ``fit_status`` and, outside strict mode, still writes the
     product; strict mode raises. Degenerate fits raise in every mode.
+    ``extra_inputs`` are hashed into the product provenance in addition to the
+    dataset paths; the W6 config mode passes the configuration file here
+    (D-133).
     """
     specs = tuple(datasets)
     resolved_settings = settings if settings is not None else FitSettings()
@@ -212,7 +216,7 @@ def run_fit(
             producer=producer,
             command=command,
             arguments=tuple(arguments),
-            inputs=_unique_inputs(specs),
+            inputs=[*_unique_inputs(specs), *extra_inputs],
         )
         product = build_calib_product(
             core_internal=core_calib,

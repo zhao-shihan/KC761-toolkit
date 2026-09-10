@@ -1,6 +1,6 @@
 # Architecture
 
-Status: W0-W5 implemented. The authoritative specification is
+Status: W0-W6 implemented (W7 pending). The authoritative specification is
 [docs/plan.md](plan.md); this document explains the layering rules that the
 code must keep.
 
@@ -75,7 +75,32 @@ Rules:
 | `sim/actions.py` | run/event/stepping actions for both scoring paths, pulse merging | F-SIM-5 |
 | `sim/certificates.py` | physical-layer certificates: accounting, variance, efficiency, boundary | F-SIM-1/F-SIM-2/F-SIM-3/F-SIM-6 |
 | `sim/runner.py` | memory-budgeted workers, uproot merge, product output, interactive entry | F-SIM-7/D-120/D-121/D-124/D-125 |
-| `cli/` | argument parsing, logging, strict mode, exit codes | - |
+| `cli/` | one command with six subcommand modules, output/provenance plumbing and the `sim` batch driver | D-66/D-67/D-68/D-134 |
+| `cli/config.py` | strict TOML parsing (stdlib `tomllib` only; no Geant4, no numerics) for `sim`/`calib`/`compose`/`unfold` | D-129..D-141 |
+
+## CLI orchestration (W6)
+
+* `kc761/cli/_common.py` owns the cross-command plumbing: the `out/<command>/`
+  default-name convention (D-19), full-argv provenance pairs (D-18), the
+  config/run-option mutual-exclusion check (D-130) and the shared option
+  groups. Handlers import their workstream entry point lazily, so `--help`
+  does not import Geant4 or the numerics stack.
+* The library entry points (`run_fit`, `run_compose`, `run_unfold`,
+  `run_source`, `run_matrix`) take an optional `extra_inputs` sequence that is
+  hashed into the product provenance. Config mode passes the configuration
+  file there, satisfying D-133 without duplicating provenance assembly.
+* `kc761/cli/sim.py` config mode expands each `[[sim.runs]]` entry into
+  `sys.executable -m kc761 sim ...` and runs the children serially from the
+  repository root. The parent validates the config, manages resume
+  (`verify_product`), aggregates failures (return 1 if any run failed) and
+  never imports Geant4; the child receives the config path through the hidden
+  `--provenance-input` option.
+* `kc761/cli/config.py` is a leaf: standard library only, frozen dataclasses,
+  unknown keys and missing sections are errors, relative paths resolve against
+  the config file directory.
+* `run_fit`/`run_compose`/`run_unfold` are called in-process by `calib`,
+  `compose` and `unfold`; the CLI only builds products (`DatasetSpec`,
+  `SpectrumProduct`), resolves names, and prints the library report.
 
 ## Contract surfaces
 
@@ -116,7 +141,11 @@ Rules:
 
 ## Open points
 
-See `docs/plan.md` Appendix A (items 3, 4, 5 and 8 remain open; item 6 was
-resolved by D-122) and the W1 interface repairs recorded in `docs/plan.md`
-section 1.7. The non-strict resolution clamp (D-73) and the removal of the SNIP
-peak mask (D-74) are decided and implemented in `kc761/core/`.
+See `docs/plan.md` Appendix A. Items 4 (plot CLI surface) and 8 (csv2root
+strict grammar) are resolved by W6 (D-142; `docs/formats.md` section 7). Item 5
+(optimizer controls) is addressed by the W6 `calib --max-iter/--tolerance`
+flags, which map onto `FitSettings` and keep the D-107 defaults when omitted.
+Item 3 (`calib --sim` naming) remains open: the W6 surface keeps `--sim`,
+which reads an `mc_spectrum` product. The non-strict resolution clamp (D-73)
+and the removal of the SNIP peak mask (D-74) are decided and implemented in
+`kc761/core/`.

@@ -40,3 +40,8 @@ venv/
 *.swp
 *.tar
 G4History.macro
+
+# Small committed test fixtures (W6): re-include under the otherwise ignored
+# data/ directory and csv extension.
+!tests/fixtures/data/
+!tests/fixtures/data/kc761_small.csv

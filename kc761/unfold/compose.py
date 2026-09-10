@@ -89,6 +89,7 @@ def run_compose(
     command: str = "kc761 compose",
     arguments: Sequence[tuple[str, str]] = (),
     producer: str = "kc761-compose",
+    extra_inputs: Sequence[str | Path] = (),
 ) -> ComposeResult:
     """Compose full-primary ``R`` and optionally write the compose artifact."""
     calib_product, calib_path = coerce_calib(calib, strict=strict)
@@ -106,7 +107,8 @@ def run_compose(
             producer=producer,
             command=command,
             arguments=tuple(arguments),
-            inputs=[path for path in (calib_path, sim_path) if path is not None],
+            inputs=[path for path in (calib_path, sim_path) if path is not None]
+            + list(extra_inputs),
         )
         product = ComposeProduct(
             format_version=SCHEMA_VERSION,

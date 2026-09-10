@@ -1,0 +1,34 @@
+# kc761 sim batch example (D-134..D-137).
+#
+# Each [[sim.runs]] entry executes serially in a fresh child process
+# (`python -m kc761 sim ...`), because a G4RunManager can be initialized only
+# once per process. Relative paths resolve against this file's directory and
+# `output` defaults to out/sim/<source>-n<N>-s<SEED>.root for source runs and
+# out/sim/<calib-stem>-<mode>-n<N>-s<SEED>.root for matrix runs.
+config_version = 1
+
+[sim]
+# resume = true skips a run whose output exists and validates.
+resume = true
+force = false
+dry_run = false
+
+# A radioactive-source run: exactly one source key, no calib.
+[[sim.runs]]
+source = "am241"
+events = 1000000
+
+# Another source run with an explicit seed and output path.
+[[sim.runs]]
+source = "lu176"
+events = 2000000
+seed = 12345
+output = "out/sim/lu176-custom.root"
+
+# A matrix-mode run: mode plus the calibration product that supplies the axes.
+[[sim.runs]]
+mode = "plane_front_gamma"
+calib = "out/calib/calib-am241.root"
+events = 10000000
+threads = 4
+verbose = 1

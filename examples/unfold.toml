@@ -1,0 +1,19 @@
+# kc761 unfold example (D-139): one unfold operation.
+#
+# Full mode requires data, calib, sim, the energy window and alpha. Set
+# calib_only = true to relabel the channel axis to energy instead: then sim,
+# alpha, energy_low and energy_high must be omitted. When `output` is omitted
+# the default is out/unfold/unfold-<data-stem>-<sim-stem>-a<alpha>.root.
+config_version = 1
+
+[unfold]
+data = "out/csv2root/am241.root"
+calib = "out/calib/calib-am241.root"
+sim = "out/sim/calib-am241-plane-front-gamma-n10000000-s908136382.root"
+energy_low = 30.0
+energy_high = 1500.0
+alpha = 0.01
+difference_order = 2
+pad_nsigma = 5.0
+syst_frac = 0.10
+no_plot = false
