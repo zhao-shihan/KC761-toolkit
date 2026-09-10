@@ -110,7 +110,7 @@ def test_parameter_jacobian_column_sums_vanish() -> None:
         channel_max=11.0,
         n_sigma=3.0,
     )
-    assert len(jacobians) == response.N_REPORTED_PARAMS
+    assert len(jacobians) == model.N_REPORTED_PARAMS
     for jacobian in jacobians:
         column_sums = np.asarray(jacobian.sum(axis=0)).ravel()
         assert np.max(np.abs(column_sums)) < 1e-10

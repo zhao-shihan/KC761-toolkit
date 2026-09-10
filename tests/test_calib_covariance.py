@@ -53,6 +53,7 @@ def test_f_cal_5_transform_matches_the_manual_block() -> None:
     assert np.allclose(estimate.matrix, expected, rtol=1e-6, atol=1e-6)
 
 
+@pytest.mark.slow
 def test_parameter_pull_distribution_is_covered() -> None:
     pulls: list[np.ndarray] = []
     for seed in range(N_SEEDS):

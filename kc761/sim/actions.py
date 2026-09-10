@@ -6,7 +6,8 @@
 * Matrix mode declares the primary-to-deposition histogram ``G`` and the
   zero-deposition counter, accumulates the per-event crystal deposit and fills
   ``G`` at ``(deposition, primary)`` in keV (no pulse merging: each event is one
-  gamma).
+  gamma). Depositions outside the channel-derived range are undetected and go to
+  the zero counter, keeping ``sum(counts) + zero = N_j`` exact (F-SIM-1).
 
 All Geant4 classes are defined inside the builder functions so importing this
 module without Geant4 stays possible.
@@ -122,10 +123,14 @@ def build_source_event_action(event_offset: int, base_seed: int):  # noqa: ANN20
         def __init__(self) -> None:
             super().__init__()
             self._deposits: list[tuple[float, float]] = []
+            self._event_index = -1
 
         def BeginOfEventAction(self, event) -> None:  # noqa: ANN001, N802
             self._deposits = []
-            global_start = event_offset + int(event.GetEventID())
+            # ``G4Event.GetEventID`` is 1-based, so count events locally to keep
+            # the F-SIM-7 block boundaries at fixed global indices.
+            self._event_index += 1
+            global_start = event_offset + self._event_index
             if global_start % SOURCE_MODE_EVENT_BLOCK == 0:
                 set_the_seed(block_seed(base_seed, global_start // SOURCE_MODE_EVENT_BLOCK))
 
@@ -156,9 +161,17 @@ def build_source_event_action(event_offset: int, base_seed: int):  # noqa: ANN20
     return _EventAction()
 
 
-def build_matrix_event_action(state: GammaEventState):  # noqa: ANN201
-    """Matrix event action: total per-event deposit, no pulse merging."""
+def build_matrix_event_action(state: GammaEventState, deposition_bounds_kev):  # noqa: ANN001, ANN201
+    """Matrix event action: total per-event deposit, no pulse merging.
+
+    Depositions outside ``[low, high)`` (below the lowest channel energy or
+    above the highest) are undetected and are counted in the zero-deposition
+    histogram, so ``sum(counts) + zero = N_j`` (F-SIM-1) holds exactly. A zero
+    deposition is undetected by definition.
+    """
     from geant4_pybind import G4UserEventAction, keV
+
+    low, high = (float(deposition_bounds_kev[0]), float(deposition_bounds_kev[1]))
 
     class _EventAction(G4UserEventAction):
         def __init__(self) -> None:
@@ -173,8 +186,9 @@ def build_matrix_event_action(state: GammaEventState):  # noqa: ANN201
 
         def EndOfEventAction(self, event) -> None:  # noqa: ANN001, N802
             manager = _analysis_manager()
-            if self._total > 0.0:
-                manager.FillH2(0, self._total / keV, state.e_gamma / keV)
+            total_kev = self._total / keV
+            if 0.0 < total_kev < high and total_kev >= low:
+                manager.FillH2(0, total_kev, state.e_gamma / keV)
             else:
                 manager.FillH1(0, state.e_gamma / keV)
 
@@ -182,15 +196,24 @@ def build_matrix_event_action(state: GammaEventState):  # noqa: ANN201
 
 
 def build_stepping_action(detector, event_action):  # noqa: ANN001, ANN201
-    """Collect crystal deposits and hand them to the event action."""
+    """Collect crystal deposits and hand them to the event action.
+
+    ``detector.crystal_lv`` is resolved lazily on the first step: Geant4 calls
+    ``G4VUserActionInitialization.Build`` before the detector's ``Construct``
+    runs, so reading it eagerly would capture ``None`` and silently drop every
+    deposit (the legacy ``kc761sim`` action resolved it lazily as well).
+    """
     from geant4_pybind import G4UserSteppingAction
 
     class _SteppingAction(G4UserSteppingAction):
         def __init__(self) -> None:
             super().__init__()
-            self._crystal_lv = detector.crystal_lv
+            self._detector = detector
+            self._crystal_lv = None
 
         def UserSteppingAction(self, step) -> None:  # noqa: ANN001, N802
+            if self._crystal_lv is None:
+                self._crystal_lv = self._detector.crystal_lv
             volume = step.GetPreStepPoint().GetTouchable().GetVolume()
             if volume is None:
                 return
@@ -276,7 +299,9 @@ def build_matrix_action_initialization(  # noqa: ANN201
 
         def Build(self) -> None:  # noqa: N802
             state = GammaEventState()
-            event_action = build_matrix_event_action(state)
+            event_action = build_matrix_event_action(
+                state, (deposition_edges_kev[0], deposition_edges_kev[-1])
+            )
             self.SetUserAction(
                 make_gamma_generator(column_slice, axis, source, base_seed, state)
             )

@@ -16,7 +16,12 @@ import numpy as np
 
 from kc761.core.binning import ChannelGrid
 from kc761.errors import ValidationError
-from kc761.schema.axes import channel_axis, energy_axis
+from kc761.schema.axes import (
+    ENERGY_AXIS_NAME,
+    PRIMARY_AXIS_NAME,
+    channel_axis,
+    energy_axis,
+)
 from kc761.schema.io import build_provenance, write_product
 from kc761.schema.products import (
     META_ALPHA,
@@ -61,8 +66,8 @@ from kc761.unfold.types import (
     UnfoldSettings,
 )
 
-_CALIB_ONLY_AXIS_NAME = "energy_kev"
-_UNFOLDED_AXIS_NAME = "primary_energy_kev"
+_CALIB_ONLY_AXIS_NAME = ENERGY_AXIS_NAME
+_UNFOLDED_AXIS_NAME = PRIMARY_AXIS_NAME
 _COVARIANCE_SCALE = 1.0
 
 

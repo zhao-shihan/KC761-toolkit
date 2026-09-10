@@ -1,8 +1,8 @@
 # Derivations and formula registry
 
-Status: W1 filled the numeric core; W2 implements F-IO-1 (section 4). IDs are
-append-only; derivations may gain detail but must never contradict
-`docs/plan.md`.
+Status: W1-W5 are implemented; W6 wires the CLI surface. F-IO-1 is in
+section 4. IDs are append-only; derivations may gain detail but must never
+contradict `docs/plan.md`.
 
 ## 1. Formula IDs
 
@@ -16,7 +16,7 @@ append-only; derivations may gain detail but must never contradict
 | F-BIN-1 | channel axis `-0.5 .. n-0.5`; variable energy axis in keV | `core/binning.py` | implemented (W1) |
 | F-BIN-2 | parameter-independent evaluation geometry: full deposition axis x requested channel rows, no bin selection (D-79) | `core/binning.py` | implemented (W1, D-79) |
 | F-BIN-3 | working window and pad from the local resolution width | `core/binning.py` | implemented (W1) |
-| F-BIN-4 | fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins`, shared by the source spectrum and the matrix primary grid (D-33/D-101/D-121) | `core/binning.py` | implemented (W5) |
+| F-BIN-4 | fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins` (source-mode spectrum and fit-time `C_fit` only; the matrix primary axis is `C.y`, D-121 revised) | `core/binning.py` | implemented (W5) |
 | F-KERN-1 | exact Gaussian bin integral `Phi((e_{i+1}-c_j)/s_j) - Phi((e_i-c_j)/s_j)` | `core/kernel.py` | implemented (W1) |
 | F-KERN-2 | smoothstep support taper (D-76) and exact column renormalization; empty columns are zero | `core/kernel.py` | implemented (W1) |
 | F-KERN-3 | sparse triple assembly of C from the kernel | `core/kernel.py` | implemented (W1) |
@@ -37,7 +37,7 @@ append-only; derivations may gain detail but must never contradict
 | F-UNC-2 | systematic propagation (calibration covariance, simulation MC, data-side term) | `core/uncertainty.py` | implemented (W1) |
 | F-UNC-3 | strict band decomposition `total**2 = stat**2 + syst**2` | `core/uncertainty.py` | implemented (W1) |
 | F-CAL-1 | fit weights `var = max(stat, 1) + (syst_frac * data)**2 + MC` and the folded-prediction MC term (D-102) | `calib/model.py` | implemented (W3) |
-| F-CAL-2 | per-dataset quadratic Bezier scale model (fixed middle control channel `s0`), value and derivatives | `calib/scaling.py` | implemented (W3) |
+| F-CAL-2 | per-dataset quadratic Bezier scale model (free middle control abscissa `s0`, D-103), value and derivatives | `calib/scaling.py` | implemented (W3) |
 | F-CAL-3 | fit parameter start values and bounds (specification reference, D-103) | `calib/model.py` | implemented (W3) |
 | F-CAL-4 | calibration prediction Jacobian and exact chi-square gradient (chain through F-RESP-4) | `calib/model.py` | implemented (W3) |
 | F-CAL-5 | calibration covariance: Fisher inverse, scale marginalization, reported-basis transform, `s**2` scaling (D-105) | `calib/covariance.py` | implemented (W3) |
@@ -47,7 +47,7 @@ append-only; derivations may gain detail but must never contradict
 | F-SIM-4 | plane and circumscribed-sphere source sampling (Lambertian) | `sim/generator.py` | implemented (W5) |
 | F-SIM-5 | 10 us pulse merging for the source mode | `sim/actions.py` | implemented (W5) |
 | F-SIM-6 | physical boundary certificate: deposition-bin lower edge above a primary-column upper edge is exactly zero | `sim/certificates.py` | implemented (W5) |
-| F-SIM-7 | worker-count-independent seed derivation: `column_seed(seed, column)` and `block_seed(seed, block)` | `sim/generator.py` | implemented (W5) |
+| F-SIM-7 | deterministic seed derivation: `column_seed(seed, column)` and `block_seed(seed, block)`; same seed + worker partition is bit-for-bit (D-123 revised) | `sim/generator.py` | implemented (W5) |
 | F-IO-1 | atomic write, reopen validation and provenance protocol | `schema/io.py` | implemented (W2) |
 | F-UNF-1 | energy window -> channel/primary selection from `E(ch)` at channel centres (D-111) | `unfold/selection.py` | implemented (W4) |
 | F-UNF-2 | unfold fit weights `sigma_fit**2 = max(stat, 1) + (syst_frac*data)**2`, data-side only (D-112) | `unfold/selection.py` | implemented (W4) |
@@ -214,17 +214,16 @@ is allowed and disables padding.
 
 **Definition.** `SOURCE_MODE_DEPOSITION_MAX_KEV = 4096.0` and
 `SOURCE_MODE_DEPOSITION_BINS = 4096`, i.e. uniform edges `e_k = k` keV for `k = 0..4096`.
-This is the frozen source-mode pulse-spectrum axis (D-33) and the matrix primary
-grid (D-101/D-121). It has a single implementation
-(`core.binning.source_mode_deposition_edges_kev`): `calib.model` imports it as its
-`FIXED_DEPOSITION_*` aliases for the parameter-independent fit-time `C_fit`, and `sim`
-uses it for both the `mc_spectrum` axis and the matrix `G.y`. A column is active when
-its upper edge is `> 0`; all 4096 columns are active here.
+This is the frozen source-mode pulse-spectrum axis (D-33/D-120) and the
+parameter-independent fit-time `C_fit` axis (D-101). It has a single implementation
+(`core.binning.source_mode_deposition_edges_kev`): `calib.model` imports it and
+re-exports the former `FIXED_DEPOSITION_*` aliases, and `sim` uses it for the
+source-mode `mc_spectrum`. A column is active when its upper edge is `> 0`.
 
-**Why uniform.** The fit-time response must not depend on the fitted parameters (D-79),
-so its deposition axis is fixed; reusing the same fixed axis as the matrix primary grid
-means one Monte-Carlo histogram definition serves both. The exported `C.y`/`G.x`
-deposition axis is separate and channel-derived (D-101).
+**Why uniform.** The fit-time response must not depend on the fitted parameters
+(D-79), so its deposition axis is fixed. The matrix-mode primary and deposition axes
+are the calibration product's channel-derived `C.y` (D-101/D-121 revised), so the
+matrix `G` is square and does not use this fixed axis.
 
 ### F-KERN-1 - exact Gaussian bin integral
 
@@ -540,7 +539,7 @@ above the primary column's top edge). The check is one vectorized mask and runs 
 violation is `CertificateError("F-SIM-6")`. It complements the always-on F-SIM-1 accounting,
 which catches deposits that leave the deposition axis entirely.
 
-### F-SIM-7 - worker-count-independent seed derivation
+### F-SIM-7 - deterministic seed derivation
 
 Each matrix primary column has an independent stream seeded by `column_seed(seed, j)`; each
 source-mode event block by `block_seed(seed, b)`. Both use a SplitMix64 mixer of `(seed + tag)`
@@ -551,11 +550,16 @@ and the index, reduced to `[0, 2**63)`:
         mixed = splitmix64((mixed + index) & (2**64 - 1))
         return mixed % (2**63)
 
-with `tag = 0x01` for columns and `0x02` for blocks. The worker partition therefore chooses only
-which process evaluates a stream, never the stream itself, so merging the summed histograms
-reproduces the single-process result bit-for-bit (counts are integer-valued). Source-mode blocks
-have the fixed size `SOURCE_MODE_EVENT_BLOCK` and are never split across workers, so each block's
-reseed point is global and worker-independent.
+with `tag = 0x01` for columns and `0x02` for blocks. For a fixed seed and a fixed worker
+partition, merging the summed histograms reproduces the invocation result bit-for-bit (counts are
+integer-valued). Source-mode blocks have the fixed size `SOURCE_MODE_EVENT_BLOCK` and are never
+split across workers.
+
+**R1 revision (D-123).** Bit-for-bit equivalence across *different* worker counts is not a
+contract: Geant4's engine state (including internal generator caches) makes a mid-run reseed
+process-dependent. The matrix per-column streams do not depend on the partition, and the matrix
+merged result is worker-count independent in practice (covered by a test), but only the
+same-seed/same-partition reproducibility is normative.
 
 ### F-SOLVE-1 - Tikhonov objective and its normalization
 

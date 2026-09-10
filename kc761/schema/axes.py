@@ -23,6 +23,12 @@ UNIT_MM = "mm"
 UNIT_COUNTS = "counts"
 UNIT_DIMENSIONLESS = "dimensionless"
 
+CHANNEL_AXIS_NAME = "channel"
+DEPOSITION_AXIS_NAME = "deposition_energy_kev"
+PRIMARY_AXIS_NAME = "primary_energy_kev"
+ENERGY_AXIS_NAME = "energy_kev"
+"""Canonical axis names (single source; D-14 units live in the unit constants)."""
+
 PARAM_AXIS_NAME = "reported_parameter"
 """Axis name of the ``param_cov`` matrix (D-13)."""
 
@@ -97,13 +103,15 @@ def channel_axis(n_channels: int) -> Axis:
             f"n_channels={n_channels} exceeds the supported maximum {MAX_CHANNELS} (D-52)"
         )
     return Axis(
-        name="channel",
+        name=CHANNEL_AXIS_NAME,
         edges=np.arange(-0.5, n_channels + 0.5, 1.0),
         unit=UNIT_CHANNEL,
     )
 
 
-def energy_axis(edges_kev: NDArray[np.float64], *, name: str = "energy_kev") -> Axis:
+def energy_axis(
+    edges_kev: NDArray[np.float64], *, name: str = ENERGY_AXIS_NAME
+) -> Axis:
     """Variable energy axis in keV (F-BIN-1)."""
     return Axis(name=name, edges=np.asarray(edges_kev, dtype=np.float64), unit=UNIT_KEV)
 

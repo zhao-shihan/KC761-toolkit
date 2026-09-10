@@ -24,14 +24,6 @@ def as_float_array(name: str, value: object, *, ndim: int | None = None) -> NDAr
     return array
 
 
-def require_finite(name: str, *arrays: object) -> None:
-    """Require every array to be finite (NaN and Inf are rejected)."""
-    for index, value in enumerate(arrays):
-        array = np.asarray(value, dtype=np.float64)
-        if not np.isfinite(array).all():
-            raise ValidationError(f"{name}[{index}] contains non-finite values")
-
-
 def require_positive(name: str, value: float) -> float:
     """Require a finite, strictly positive scalar."""
     if not np.isfinite(value) or value <= 0.0:

@@ -6,10 +6,10 @@ containers and the matrix modes' plane/sphere surfaces (D-31). Only the
 organisation changed: the registry carries an explicit provenance note per key
 and the mode/geometry labels are frozen here once.
 
-The matrix-mode primaries are drawn on the fixed source-mode Monte-Carlo axis
-``0..4096 keV / 4096 bins`` from :mod:`kc761.core.binning` (D-121); the
-deposition axis is the calibration product's ``C.y`` and is supplied by the
-runner. No Geant4 import happens in this module.
+The matrix-mode primary and deposition axes are both the calibration product's
+``C.y`` (channel-derived, D-121 revised); the runner supplies those edges, so the
+matrix ``G`` is square. The fixed source-mode Monte-Carlo axis is used only by the
+source-mode pulse spectrum. No Geant4 import happens in this module.
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ from typing import Final
 import numpy as np
 from numpy.typing import NDArray
 
-from kc761.core.binning import source_mode_deposition_edges_kev
 from kc761.errors import ValidationError
 
 
@@ -475,11 +474,13 @@ MODE_METADATA: Final[dict[int, tuple[str, str]]] = {
 
 @dataclass(frozen=True)
 class PrimaryAxis:
-    """Primary-energy binning shared by both matrix modes.
+    """Primary-energy binning of the matrix modes.
 
-    ``edges_kev`` are strictly increasing in keV (the fixed source-mode axis,
-    D-121); ``active`` holds the column indices that receive events (upper edge
-    > 0, since a gamma cannot carry a negative kinetic energy).
+    ``edges_kev`` are strictly increasing in keV; the matrix runner passes the
+    calibration product's ``C.y`` edges (D-121 revised), so the primary axis and
+    the deposition axis coincide and ``G`` is square. ``active`` holds the column
+    indices that receive events (upper edge > 0, since a gamma cannot carry a
+    negative kinetic energy).
     """
 
     edges_kev: tuple[float, ...]
@@ -532,11 +533,6 @@ class PrimaryAxis:
 def make_primary_axis(edges_kev: NDArray[np.float64] | tuple[float, ...]) -> PrimaryAxis:
     """Build the primary axis from explicit edges (keV, strictly increasing)."""
     return PrimaryAxis(edges_kev=tuple(float(edge) for edge in edges_kev), active=())
-
-
-def default_primary_axis() -> PrimaryAxis:
-    """The fixed source-mode primary axis ``0..4096 keV / 4096 bins`` (D-121)."""
-    return make_primary_axis(source_mode_deposition_edges_kev())
 
 
 @dataclass(frozen=True)
@@ -611,8 +607,6 @@ class ColumnSchedule:
                 raise ValidationError(f"column {column} has negative count {count}")
             if column not in self.axis.active and count != 0:
                 raise ValidationError(f"inactive column {column} has {count} events")
-        if sum(self.counts) < 0:  # pragma: no cover - defensive
-            raise ValidationError("schedule total is negative")
 
     @classmethod
     def fixed_total(cls, axis: PrimaryAxis, n_events: int) -> ColumnSchedule:
@@ -636,9 +630,9 @@ class ColumnSchedule:
     def slices(self, n_workers: int) -> tuple[ColumnSlice, ...]:
         """Partition the active columns into at most ``n_workers`` slices.
 
-        The partition is contiguous and balanced by column count; because every
-        column has its own RNG stream (F-SIM-7) the partition does not affect
-        the merged result.
+        The partition is contiguous and balanced by column count; every column
+        has its own RNG stream (F-SIM-7), and fixed seed + fixed partition is
+        bit-for-bit reproducible (D-123 revised).
         """
         if n_workers < 1:
             raise ValidationError(f"n_workers must be >= 1, got {n_workers!r}")
@@ -733,7 +727,6 @@ __all__ = [
     "Sphere",
     "SphereGammaSource",
     "Tube",
-    "default_primary_axis",
     "get_source",
     "make_primary_axis",
     "mode_metadata",

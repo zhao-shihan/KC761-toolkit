@@ -9,9 +9,9 @@ Two scoring paths share this module:
 
 Workers write only minimal raw ROOT histograms; merging happens here in Python
 with ``uproot`` (D-11/D-125), followed by the physical-layer certificates
-(D-127) and an atomic ``schema.write_product``. The merged result is
-worker-count independent because the RNG streams are derived per column (matrix)
-and per event block (source) by F-SIM-7 (D-123).
+(D-127) and an atomic ``schema.write_product``. Randomness is derived per column
+(matrix) and per event block (source) by F-SIM-7 (D-123), so a fixed seed and
+worker partition reproduce bit-for-bit.
 
 Geant4 is imported lazily inside the worker/interactive functions, so merging,
 thread estimation and product assembly stay testable without Geant4.
@@ -32,12 +32,18 @@ import numpy as np
 import uproot
 
 from kc761.core.binning import (
+    MAX_CHANNELS,
     SOURCE_MODE_DEPOSITION_BINS,
     source_mode_deposition_edges_kev,
 )
 from kc761.errors import UsageError, ValidationError
 from kc761.runtime import configure_logging
-from kc761.schema.axes import energy_axis
+from kc761.schema.axes import (
+    DEPOSITION_AXIS_NAME,
+    ENERGY_AXIS_NAME,
+    PRIMARY_AXIS_NAME,
+    energy_axis,
+)
 from kc761.schema.io import build_provenance, read_product, write_product
 from kc761.schema.products import (
     SCHEMA_VERSION,
@@ -68,8 +74,8 @@ from kc761.sim.sources import (
     MatrixSource,
     PrimaryAxis,
     SourceSpec,
-    default_primary_axis,
     get_source,
+    make_primary_axis,
     mode_metadata,
 )
 
@@ -394,13 +400,13 @@ def _write_matrix_product(
     product = SimProduct(
         format_version=SCHEMA_VERSION,
         primary_to_deposition=Histogram2D(
-            x=energy_axis(deposition_edges_kev, name="deposition_energy_kev"),
-            y=energy_axis(primary_edges_kev, name="primary_energy_kev"),
+            x=energy_axis(deposition_edges_kev, name=DEPOSITION_AXIS_NAME),
+            y=energy_axis(primary_edges_kev, name=PRIMARY_AXIS_NAME),
             values=counts,
             variances=certificates.binomial_variance(counts, totals),
         ),
         primary_column_totals=Histogram1D(
-            axis=energy_axis(primary_edges_kev, name="primary_energy_kev"),
+            axis=energy_axis(primary_edges_kev, name=PRIMARY_AXIS_NAME),
             values=totals,
         ),
         mode=mode,
@@ -430,7 +436,14 @@ def run_matrix(
     command: str = "kc761 sim",
     arguments: Sequence[tuple[str, str]] = (),
 ) -> Path:
-    """Run a matrix-mode simulation and write a ``SimProduct`` (D-121)."""
+    """Run a matrix-mode simulation and write a ``SimProduct`` (D-121).
+
+    The calibration product supplies both energy axes: the deposition axis is
+    ``C.y`` and the primary (incident gamma) axis is the *same* channel-derived
+    axis, so ``G`` is a square matrix on the legacy layout. This is the frozen
+    D-121 revision; the fixed source-mode Monte-Carlo axis is used only by the
+    source-mode ``mc_spectrum``.
+    """
     if n_events <= 0:
         raise UsageError(f"n_events must be positive, got {n_events!r}")
     source = _matrix_source(mode)
@@ -439,7 +452,13 @@ def run_matrix(
     if not isinstance(product, CalibProduct):
         raise ValidationError(f"{calib_path}: expected a calib product")
     deposition_edges = np.asarray(product.deposition_to_channel.y.edges, dtype=np.float64)
-    axis = default_primary_axis()
+    n_deposition = int(deposition_edges.size) - 1
+    if n_deposition > MAX_CHANNELS:
+        raise ValidationError(
+            f"calibration deposition axis has {n_deposition} bins, above the "
+            f"supported maximum {MAX_CHANNELS} (D-52)"
+        )
+    axis = make_primary_axis(deposition_edges)
     schedule = ColumnSchedule.fixed_total(axis, n_events)
     workers = estimate_threads(
         deposition_edges.size - 1,
@@ -522,7 +541,7 @@ def _write_mc_spectrum(
     product = McSpectrumProduct(
         format_version=SCHEMA_VERSION,
         spectrum=Histogram1D(
-            axis=energy_axis(energy_edges_kev, name="energy_kev"),
+            axis=energy_axis(energy_edges_kev, name=ENERGY_AXIS_NAME),
             values=values,
             variances=variances,
         ),

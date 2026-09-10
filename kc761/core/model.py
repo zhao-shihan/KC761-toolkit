@@ -46,17 +46,10 @@ SIGMA_FLOOR_KEV = 1e-3
 N_CALIB = 4
 N_RESOL = 3
 
-PARAM_NAMES_INTERNAL: tuple[str, ...] = ("c0", "k1", "k2", "k3", "b0", "b1", "b2")
+N_REPORTED_PARAMS = N_CALIB + N_RESOL
+"""Reported fit parameters ``(c0..c3, b0..b2)`` (single source; F-RESP-4)."""
+
 PARAM_NAMES_REPORTED: tuple[str, ...] = ("c0", "c1", "c2", "c3", "b0", "b1", "b2")
-
-CALIB_FORMULA = (
-    "E(ch) = c0 + c1*ch + c2*ch^2 + c3*ch^3   (E in keV, ch = channel)"
-)
-
-RESOL_FORMULA = (
-    f"sigma^2(E) = (1-t)^2*b0^2 + 2*(1-t)*t*b1^2 + t^2*b2^2,"
-    f"   t = max(E, 0)/{RESOL_E_REF_KEV:g} keV   (sigma in keV)"
-)
 
 
 @dataclass(frozen=True)

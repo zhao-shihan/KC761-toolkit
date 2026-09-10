@@ -13,11 +13,9 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
+from kc761.core.uncertainty import DEFAULT_SYST_FRAC
 from kc761.errors import ValidationError
 from kc761.schema.products import CalibProduct, Histogram1D
-
-DEFAULT_SYST_FRAC = 0.10
-"""Default per-dataset fractional systematic (F-CAL-1, D-48)."""
 
 
 @dataclass(frozen=True)

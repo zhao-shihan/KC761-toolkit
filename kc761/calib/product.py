@@ -14,6 +14,7 @@ from numpy.typing import NDArray
 from kc761.core._checks import as_float_array
 from kc761.core.binning import ChannelGrid
 from kc761.core.model import (
+    N_REPORTED_PARAMS,
     InternalCalibration,
     energy_kev,
     internal_to_reported,
@@ -21,15 +22,18 @@ from kc761.core.model import (
 )
 from kc761.core.response import build_response_matrix
 from kc761.errors import ValidationError
-from kc761.schema.axes import channel_axis, energy_axis, reported_parameter_axis
+from kc761.schema.axes import (
+    DEPOSITION_AXIS_NAME,
+    channel_axis,
+    energy_axis,
+    reported_parameter_axis,
+)
 from kc761.schema.products import (
     SCHEMA_VERSION,
     CalibProduct,
     Histogram2D,
     Provenance,
 )
-
-DEPOSITION_AXIS_NAME = "deposition_energy_kev"
 
 
 def channel_derived_edges_kev(
@@ -74,7 +78,7 @@ def build_calib_product(
     if resol.size != 3:
         raise ValidationError(f"resol_params must have 3 entries, got {resol.size}")
     covariance = as_float_array("param_cov", param_cov, ndim=2)
-    if covariance.shape != (7, 7):
+    if covariance.shape != (N_REPORTED_PARAMS, N_REPORTED_PARAMS):
         raise ValidationError(f"param_cov must be 7x7, got {covariance.shape}")
     if int(n_channels) < 1:
         raise ValidationError(f"n_channels must be >= 1, got {n_channels!r}")

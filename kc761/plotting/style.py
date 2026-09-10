@@ -30,12 +30,10 @@ from kc761.errors import UsageError  # noqa: E402
 #: Artist colours, grouped by role. Names match the pre-rewrite figures.
 COLOR_DATA: Final = "blue"
 COLOR_FIT: Final = "red"
-COLOR_SIM_RAW: Final = "dimgray"
 COLOR_SCALE: Final = "seagreen"
 COLOR_RESIDUAL_POINTS: Final = "darkgoldenrod"
 COLOR_RESIDUAL_ZERO: Final = "black"
 COLOR_RESIDUAL_LEVEL: Final = "red"
-COLOR_REF_LINE: Final = "dimgray"
 COLOR_CALIB: Final = "darkgreen"
 COLOR_RESOL: Final = "darkolivegreen"
 COLOR_PARAM_BOX: Final = "white"
@@ -116,13 +114,11 @@ __all__ = [
     "COLOR_FIT",
     "COLOR_PARAM_BOX",
     "COLOR_PARAM_EDGE",
-    "COLOR_REF_LINE",
     "COLOR_RESIDUAL_LEVEL",
     "COLOR_RESIDUAL_POINTS",
     "COLOR_RESIDUAL_ZERO",
     "COLOR_RESOL",
     "COLOR_SCALE",
-    "COLOR_SIM_RAW",
     "REFERENCE_LINES_KEV",
     "RESIDUAL_MAX",
     "RESOL_BAND_SCALE",

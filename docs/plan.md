@@ -182,14 +182,33 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | ID | Decision |
 |----|----------|
 | D-120 | New additive product kind `mc_spectrum` (source-mode simulated spectrum), separate from the measured `spectrum` kind. It carries one `kc761_mc_spectrum` TH1D (energy axis in keV, counts, required `fSumw2`) plus common meta and the fields `source_key`, `mode_name`, `geometry_name`, `geometry_param_mm`, `n_events`, `seed`, `workers`. W6 connects `calib --sim` to it; the calib library only consumes a `Histogram1D`. |
-| D-121 | The matrix-mode **primary** grid is the fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins` (D-33/D-101), single-sourced as `core.binning.source_mode_deposition_edges_kev()`. The matrix **deposition** axis is the calibration product's `C.y`, bitwise (D-114). `kc761/calib` imports the same core axis; its former local `FIXED_DEPOSITION_*` names become aliases of the core source. |
+| D-121 | (revised in R1) The matrix-mode **primary** and **deposition** axes are both the calibration product's `C.y` (channel-derived, legacy square layout), bitwise (D-114); `G` has shape `(n_deposition, n_primary)` with equal axes. The fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins` (D-33) is used only by the source-mode `mc_spectrum` and the parameter-independent fit-time `C_fit` (D-101); `kc761/calib` imports it and its former local `FIXED_DEPOSITION_*` names are aliases. |
 | D-122 | `kc761/sim` owns the final source registry: the seven legacy keys `k40`, `lu176`, `am241`, `th232`, `th232-unshielded`, `ra226`, `ra226-unshielded`, carried verbatim with per-entry provenance notes; source geometry, container, shield and material values are unchanged (D-34). Appendix A item 6 is resolved by this decision. |
-| D-123 | Simulation randomness is worker-count and worker-order independent. Matrix mode derives an independent RNG stream per active primary column from `(base seed, column index)`; source mode derives one stream per fixed event block from `(base seed, block index)`. Both derivations are the single formula F-SIM-7. The default base seed is the legacy value `908136382`. |
+| D-123 | (R1 revision) Simulation randomness is deterministic for a fixed base seed **and a fixed worker count/order**: the same invocation reproduces bit-for-bit. Matrix mode derives an independent RNG stream per active primary column from `(base seed, column index)`; source mode derives one stream per fixed event block from `(base seed, block index)`. Both derivations are the single formula F-SIM-7. Bit-for-bit equivalence across *different* worker counts is not part of the contract. The default base seed is the legacy value `908136382`. |
 | D-124 | The worker count is estimated from available memory and the per-worker footprint (histograms plus a documented Geant4 baseline), and the estimate is logged with its reason; an explicit `threads` argument overrides it. `MAX_CHANNELS` (D-52) still bounds the deposition axis. |
 | D-125 | Each worker writes only the minimal raw ROOT histograms (spectrum, or G plus zero-deposition counts). Merging is done in Python with `uproot` (D-11): axis arrays are checked bitwise and contents summed; the final `mc_spectrum`/`SimProduct` is written through `schema.write_product` (atomic, refuse-overwrite, provenance). Temporary worker files are removed on success and on failure; no `.part` file is left behind. |
 | D-126 | The source-mode interactive/visualization path is kept. The Geant4 macros move into `kc761/sim` and the interactive macro enables `/tracking/storeTrajectory 1`; the repository-root `G4History.macro` is deleted in W7. The per-event ntuple remains deleted (D-30). |
 | D-127 | Physical-layer certificates owned by W5: F-SIM-1 event accounting (`sum_deposition + zero_j = N_j`, `sum_j N_j = n_events`), F-SIM-2 exact stored variance (matrix: `N_j p (1-p)`; source spectrum: `c (1 - c/P)` with `P` the recorded pulse total), F-SIM-3 `eta in [0, 1]` with `eta_j = column_sum_j / N_j`, and the new F-SIM-6 physical boundary (any G entry whose deposition-bin lower edge exceeds its primary-column upper edge is exactly zero). F-SIM-6 runs in strict mode and fails with its formula ID. |
 | D-128 | The source-mode spectrum variance uses the conditional-binomial convention of D-127 with the recorded pulse total `P = sum(counts)` as the fixed total; the derivation documents this as a plug-in approximation to the multinomial over pulses. |
+
+### 1.12 W6 config-file mode (2026-09-10, user-approved)
+
+| ID | Decision |
+|----|----------|
+| D-129 | Configuration files are TOML read with the standard library `tomllib` (no new dependency). One file may contain the top-level tables `[sim]`, `[calib]`, `[compose]` and `[unfold]`; each subcommand reads only its own table, and a missing table is a usage error. `csv2root` and `subbkg` take no config file. |
+| D-130 | Invocation is `-c/--config FILE` on `sim`, `calib`, `compose` and `unfold`. Config mode is mutually exclusive with the run-selection arguments; only the global options `--strict`, `--log-level`, `--dry-run` and `--force` are accepted alongside it. Without `--config` the existing flag surface is unchanged. |
+| D-131 | Every config file declares `config_version = 1`; a missing or different value is a usage error. Any key outside the frozen schema is an error (fail loud; no silent ignore). |
+| D-132 | Relative paths in a config file resolve against the directory containing that file (`~` is expanded); absolute paths are used as-is. |
+| D-133 | Products written in config mode record the config file path and sha256 in `provenance.inputs` (D-18) and the fully resolved settings in their existing settings/meta fields. |
+| D-134 | `[sim]` replaces the legacy `runsim` batch runner: it carries batch options (`resume`, `force`, `dry_run`) and a list of `[[sim.runs]]` single-run specs. A run specifies a source key XOR one matrix mode (`plane_front_gamma`/`sphere_gamma`) plus `calib`; `events` is required (interactive runs are not part of config mode); `threads`, `seed`, `verbose` and `output` are optional. Runs execute sequentially (run-level parallelism is not part of the contract). |
+| D-135 | Each sim run executes in a fresh child process by re-invoking `sys.executable -m kc761 sim ...` in single-run mode; the parent process never imports Geant4. This is required because a `G4RunManager` can be initialized only once per process. |
+| D-136 | sim batch failure policy: a failed run is recorded and the batch continues; the process returns 1 if any run failed and 0 only when all succeeded. |
+| D-137 | sim resume: `resume = true` (default) skips a run whose target exists and passes schema validation, and fails loudly when an existing target is invalid (never delete or overwrite another product); `resume = false` applies the D-17 refuse-overwrite rule. |
+| D-138 | `output` is optional everywhere in config mode; when absent the D-19 default naming applies, e.g. source mode `<source>-n<N>-s<SEED>.root`, matrix `<calib-stem>-<mode>-n<N>-s<SEED>.root`, and `<command>[-<label>]...` under `out/<subcommand>/` for calib/compose/unfold. |
+| D-139 | `calib` config mode runs one fit from `[[calib.datasets]]` (data, sim, label plus optional channel window and `syst_frac`); `compose`/`unfold` config mode run one operation from their tables. Mode-dependent required fields are enforced per mode: `calib_only` requires neither `alpha` nor the energy window, and the single-run CLI applies the same rule (R1 leftover). |
+| D-140 | Business options `force`, `no_plot`, `dry_run` and `resume` may appear in config files; `strict` and `log_level` stay CLI-only and apply to the whole invocation. English-commented `examples/*.toml` are shipped for the four config-capable subcommands. |
+| D-141 | Config parsing and validation live in `kc761/cli/config.py` as strict, frozen dataclasses; the module imports no Geant4 and no numerics. The sim batch driver only validates, expands argv, manages resume and subprocesses, and aggregates the exit code. |
+| D-142 | The plot CLI surface (Appendix A item 4) is resolved as a single `--no-plot` switch (plots on by default) for `calib` and `unfold`, with `no_plot` as the config key; `compose` and `sim` produce no plots and redirecting plots to another directory is not supported. |
 
 ## 2. Target architecture
 
@@ -218,9 +237,10 @@ kc761/
   unfold/                     # window/pad orchestration, report, plots
   sim/                        # geometry, materials, sources, detector, physics, actions, runner
   plotting/                   # shared style and panel helpers
-  cli/                        # argparse tree and subcommand modules
+  cli/                        # argparse tree, subcommand modules and config parsing (D-141)
 tests/                        # auxiliary tests and deterministic fixtures
 docs/                         # plan, architecture, formats, derivations
+examples/                     # shipped TOML config examples (D-140)
 ```
 
 Dependency rules:
@@ -272,7 +292,10 @@ in `kc761/schema/products.py` (`meta_field_types`).
   (str), `created_utc` (str), `git_revision` (str), `git_dirty` (int),
   `python_version` (str), `dependency_versions` (JSON), `command`, full CLI
   arguments (JSON), input paths and sha256 (JSON).
-* calib adds: `channel_max`, `params_reported_json`, `resol_params_json`.
+* calib adds: `channel_max`, `params_reported_json`, `resol_params_json`, and
+  the W3 diagnostics `chi2`, `dof`, `covariance_scale`, `fit_status`,
+  `scales_json`, `scale_bound_flags_json`, `resol_clamp_count`,
+  `resol_clamp_energy_low_kev`, `resol_clamp_energy_high_kev` (D-106).
 * sim adds: `mode` (int), `mode_name`, `geometry_name`, `geometry_param_mm`,
   `angular_distribution`, `seed`, `n_events`, `workers`.
 * compose adds nothing beyond the common fields.
@@ -302,7 +325,7 @@ carry the derivation, its approximations, and the certificate that guards it.
 | F-BIN-1 | channel axis `-0.5 .. n-0.5`; variable energy axis in keV with strictly increasing edges |
 | F-BIN-2 | parameter-independent evaluation geometry: full deposition axis x requested channel rows, no bin selection (D-79) |
 | F-BIN-3 | working window `[chlo - pad, chhi + pad]`, pad in local resolution widths converted to channels; reported window `[chlo, chhi]` |
-| F-BIN-4 | fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins`, shared by the source spectrum and the matrix primary grid (D-33/D-101/D-121) |
+| F-BIN-4 | fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins` (source-mode spectrum and fit-time `C_fit` only; the matrix primary axis is `C.y`, D-121 revised) |
 | F-KERN-1 | `P(i|j) = Phi((e_{i+1}-c_j)/sigma_j) - Phi((e_i-c_j)/sigma_j)` exact bin integral |
 | F-KERN-2 | smoothstep support taper (D-76) and exact column renormalization; empty columns are exactly zero |
 | F-KERN-3 | sparse triple assembly with exact-zero pruning beyond `n_sigma sigma` |
@@ -322,15 +345,24 @@ carry the derivation, its approximations, and the certificate that guards it.
 | F-UNC-1 | statistical propagation with the same Hessian that solved the problem |
 | F-UNC-2 | systematic propagation (calibration, simulation MC multinomial, data-side term) |
 | F-UNC-3 | strict band decomposition `total**2 = stat**2 + syst**2` |
+| F-UNF-1 | energy window to channel rows and reported primary bins, with F-BIN-3 padding |
+| F-UNF-2 | data-side unfold fit weights `sigma_fit**2 = max(stat,1) + (syst_frac*data)**2` (D-112) |
+| F-UNF-3 | exact-zero primary column pruning before the solve (D-110) |
+| F-UNF-4 | unfold diagnostics: `chi2`, `dof = fit rows - active solution bins`, `covariance_scale = 1` |
+| F-UNF-5 | full unfolding orchestration (compose, solve, bands, product) |
+| F-UNF-6 | `calib_only` relabeling onto the channel-derived energy axis (D-113) |
 | F-CAL-1 | fit weights `var = max(stat,1) + (syst_frac*data)**2 + MC` |
-| F-CAL-2 | per-dataset quadratic Bezier scale |
+| F-CAL-2 | per-dataset quadratic Bezier scale (free middle control abscissa `s0`, D-103) |
+| F-CAL-3 | fit parameter start values and bounds (D-103) |
+| F-CAL-4 | calibration prediction Jacobian and exact chi-square gradient (chain through F-RESP-4) |
+| F-CAL-5 | calibration covariance: Fisher inverse, Schur scale marginalization, reported-basis transform, `s**2` (D-105) |
 | F-SIM-1 | fixed per-column sampling and uniform energy draw |
 | F-SIM-2 | binomial/multinomial variance and `fSumw2` |
 | F-SIM-3 | detection efficiency `eta = column_sum/N = 1 - zero/N` |
 | F-SIM-4 | plane/sphere source sampling (Lambertian) |
 | F-SIM-5 | 10 us pulse merging |
 | F-SIM-6 | physical boundary certificate: deposition-bin lower edge above a primary-column upper edge is exactly zero (strict) |
-| F-SIM-7 | worker-count-independent seed derivation for matrix columns and source event blocks (D-123) |
+| F-SIM-7 | deterministic seed derivation for matrix columns and source event blocks; same seed + same worker partition reproduces bit-for-bit (D-123) |
 | F-IO-1 | atomic write / reopen validation protocol |
 
 Numerical decisions already frozen elsewhere in this document are normative;
@@ -389,7 +421,7 @@ derivations may add detail but must not contradict them.
 | W3 | `calib`: datasets + Bezier scaling + single-stage fit + Fisher covariance + report | continuous chi2 surface; resolution positivity certificate; covariance single definition |
 | W4 | `unfold`: compose, solver + KKT, strict uncertainty decomposition, bands | KKT/column-sum/conservation certificates; `total**2 = stat**2 + syst**2` identity |
 | W5 | `sim`: geometry dataclass, parameterized source modes, no ntuple, memory-budgeted workers, uproot merge | per-column accounting and physics-boundary certificates; sampling derivation documented; fixed seed reproducible |
-| W6 | `cli`: six subcommands, strict csv2root parser, subbkg semantics, compose artifact | uniform logging/errors/exit codes; `--force` semantics; runs on the provided CSV sample |
+| W6 | `cli`: six subcommands wired to the libraries, strict csv2root parser, subbkg semantics, compose artifact, config-file mode (sim batch/calib/compose/unfold) and `examples/*.toml` | uniform logging/errors/exit codes; `--force`/resume semantics; config mode runs a multi-run sim batch and single-run calib/compose/unfold; runs on the provided CSV sample |
 | W7 | docs final English pass, CI complete, legacy deletion | deletion list empty; repository contains only the new implementation, tests and docs |
 
 ## 9. Risks and required inputs
@@ -397,9 +429,9 @@ derivations may add detail but must not contradict them.
 1. **Unknown geometry provenance.** Crystal dimensions, R4600 composition,
    shield geometry and sample densities keep their current values by decision
    D-34; the geometry dataclass must mark each value as measured/assumed.
-2. **CSV format pending.** The strict `csv2root` parser cannot be finalized
-   until the user provides the raw CSV files in `data/exp/`; W0 only freezes its
-   CLI surface and error policy.
+2. **CSV sample provided.** The raw files are in `data/exp/2609a/`
+   (`Channel,Count` header with a `#<...>` acquisition time); W6 finalizes the
+   strict `csv2root` grammar, ranges and error policy (Appendix A item 8).
 3. **Strict mode is opt-in.** Normal runs do not self-certify; CI runs the
    certificate suites in strict mode on synthetic fixtures.
 4. **No packaging.** Import paths are guaranteed only by the launcher and the
@@ -432,9 +464,10 @@ A module is complete when, simultaneously:
 3. **`calib --sim` naming.** The data-fitting spectrum option is currently
    `--sim`, which collides conceptually with `unfold --sim` (the matrix-mode
    simulation file). Renaming (e.g. `--mc`) was proposed but not decided.
-4. **Plot CLI surface.** D-70 fixes the visual style, but the flags for
-   enabling/disabling or redirecting plots (`--no-plot`, output paths) are not
-   decided; W0 exposes `--no-plot` provisionally and marks it here.
+4. **Plot CLI surface.** Resolved by D-142 (2026-09-10): a single `--no-plot`
+   switch (plots on by default) for `calib` and `unfold`, `no_plot` as the
+   config key; `compose`/`sim` produce no plots and redirecting plots is not
+   supported.
 5. **Optimizer controls.** D-47 fixes a single quasi-Newton stage; the CLI
    flags for iteration limits/tolerances are not decided (legacy had
    `--stage1-maxiter` / `--stage2-maxiter`).
@@ -444,8 +477,10 @@ A module is complete when, simultaneously:
 7. **Format version numbering.** Resolved by D-78 (2026-09-10): the new
    products start at `format_version = 1`, independent of the legacy
    calibration version 3.
-8. **csv2root strict parser details.** Column semantics, header grammar and
-   accepted ranges depend on the sample CSV the user will provide.
+8. **csv2root strict parser details.** The sample CSV is now provided
+   (`data/exp/2609a/`); W6 finalizes the column semantics, header grammar and
+   accepted ranges and records them in `docs/formats.md` under the
+   contract-change process.
 
 ## Appendix B. W0 deliverables
 

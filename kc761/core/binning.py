@@ -1,6 +1,6 @@
 """Channel and energy grids, and the padded working window.
 
-Formula IDs (docs/derivations.md): F-BIN-1 .. F-BIN-3.
+Formula IDs (docs/derivations.md): F-BIN-1 .. F-BIN-4.
 
 Frozen decisions (docs/plan.md):
 
@@ -34,24 +34,23 @@ from kc761.core.model import (
 )
 from kc761.errors import ValidationError
 
-CHANNEL_UNIT = "channel"
-ENERGY_UNIT_KEV = "kev"
-
 MAX_CHANNELS = 4096
 """Validated support limit (D-52); W1 may lower it with a measured justification."""
 
 SOURCE_MODE_DEPOSITION_MAX_KEV: Final = 4096.0
 SOURCE_MODE_DEPOSITION_BINS: Final = 4096
-"""Fixed uniform source-mode Monte-Carlo axis: ``0..4096 keV / 4096 bins``.
+"""Fixed uniform *source-mode* Monte-Carlo axis: ``0..4096 keV / 4096 bins``.
 
-The source-mode spectrum (D-33) and the matrix-mode primary grid (D-101/D-121)
-are the same axis, so it lives here once and is imported by ``kc761.sim`` and
-``kc761.calib`` (the former ``calib.model.FIXED_DEPOSITION_*`` are aliases).
+This is the axis of the source-mode pulse spectrum (D-33/D-120) and of the
+parameter-independent fit-time ``C_fit`` (D-101). The matrix-mode primary and
+deposition axes are the calibration product's ``C.y`` (D-121 revised), so this
+axis is *not* used by the matrix ``G``. It has a single implementation here;
+``calib.model`` re-exports the former ``FIXED_DEPOSITION_*`` names as aliases.
 """
 
 
 def source_mode_deposition_edges_kev() -> NDArray[np.float64]:
-    """Return the fixed uniform source-mode deposition edges in keV (D-121)."""
+    """Return the fixed uniform source-mode deposition edges in keV (F-BIN-4)."""
     return np.linspace(
         0.0, SOURCE_MODE_DEPOSITION_MAX_KEV, SOURCE_MODE_DEPOSITION_BINS + 1
     )

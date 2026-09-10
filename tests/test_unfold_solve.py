@@ -149,6 +149,7 @@ def test_closed_loop_recovers_lines_and_bands_are_finite() -> None:
         assert abs(result.mu[position] - amplitude) < 5.0 * error
 
 
+@pytest.mark.slow
 def test_pull_distribution_is_centred_and_covers() -> None:
     calib = make_calib_product()
     sim = make_sim_product(calib)

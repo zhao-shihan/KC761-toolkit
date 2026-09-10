@@ -33,7 +33,6 @@ from kc761.core._checks import as_float_array, require_positive
 from kc761.core.binning import ChannelGrid, EnergyGrid
 from kc761.core.kernel import (
     N_SIGMA,
-    SparseTriples,
     response_triples,
     response_triples_grad,
 )
@@ -44,9 +43,6 @@ from kc761.core.model import (
     resolution_sigma_kev,
 )
 from kc761.errors import CertificateError, ValidationError
-
-N_REPORTED_PARAMS = 7
-"""Reported fit parameters ``(c0, c1, c2, c3, b0, b1, b2)`` (F-RESP-4)."""
 
 RESPONSE_COLUMN_TOL = 1e-10
 """F-RESP-1/F-RESP-2 certificate tolerance."""
@@ -215,25 +211,6 @@ def slice_response(
         channel_low=channel_low,
         channel_high=channel_high,
     )
-
-
-def response_triples_for(
-    deposition_edges_kev: NDArray[np.float64],
-    calibration: InternalCalibration,
-    resol_params: NDArray[np.float64],
-    *,
-    channel_grid: ChannelGrid,
-    channel_max: float,
-    n_sigma: float = N_SIGMA,
-) -> SparseTriples:
-    """Kernel triples of C for inspection and certificates (F-RESP-1)."""
-    edges = _check_edges("deposition_edges_kev", deposition_edges_kev)
-    channel_edges_kev = energy_kev(
-        channel_grid.edges(), calibration, channel_max=require_positive("channel_max", channel_max)
-    )
-    deposition_centers = 0.5 * (edges[:-1] + edges[1:])
-    sigma = resolution_sigma_kev(deposition_centers, resol_params)
-    return response_triples(channel_edges_kev, deposition_centers, sigma, n_sigma=n_sigma)
 
 
 def response_parameter_jacobian(

@@ -36,8 +36,7 @@ Rules:
 
 | Module | Responsibility | Formula IDs |
 |--------|----------------|-------------|
-| `core/model.py` | energy calibration (dual basis), resolution, positivity certificate | F-MODEL-1..5 |
-| `core/model.py` | energy calibration, resolution model, positivity/monotonicity certificates | F-MODEL-1..5 |
+| `core/model.py` | energy calibration (dual basis), resolution, positivity/monotonicity certificates | F-MODEL-1..5 |
 | `core/binning.py` | channel/energy grids, working window/pad, support limit, fixed source-mode MC axis | F-BIN-1..4 |
 | `core/kernel.py` | exact Gaussian bin integrals, smoothstep taper, kernel derivatives, sparse assembly | F-KERN-1..4 |
 | `core/response.py` | response matrix C, composed matrix R, window slicing, response Jacobian | F-RESP-1..4 |
@@ -45,20 +44,22 @@ Rules:
 | `core/solver.py` | non-negative QP, regularization spec, KKT certificate | F-SOLVE-1..3 |
 | `core/covariance.py` | Fisher information, `s**2` scaling, optional profile diagnostic | F-COV-1..3 |
 | `core/uncertainty.py` | strict stat/syst propagation, simulation MC term, band combination | F-UNC-1..3 |
+| `core/_checks.py` | shared array/shape/finiteness guards | - |
+| `core/_linalg.py` | shared symmetric-positive-definite factorization policy | - |
 | `core/_gen/` | committed sympy-generated kernels with manifest and import-time freshness check | F-MODEL/F-KERN (D-77) |
 | `schema/axes.py` | `Axis` (edges + unit), axis constructors and `reported_parameter_axis` | F-BIN-1 |
 | `schema/products.py` | product containers, `product_kind` dispatch, object names, meta field/type tables, provenance | F-IO-1 |
 | `schema/io.py` | atomic write, reopen validation, overwrite policy, provenance assembly, product certificates | F-IO-1 |
 | `schema/_uproot.py` | verified low-level uproot helpers (spike): variance buffers, axis titles/units, bin labels, meta RNTuple | F-IO-1 |
 | `calib/model.py` | global calibration objective over datasets: fixed-axis `C_fit`, F-CAL-1 weights, start values/bounds, analytic prediction Jacobian and exact gradient | F-CAL-1/F-CAL-3/F-CAL-4 |
-| `calib/scaling.py` | per-dataset quadratic-Bezier scale with the fixed middle control channel and analytic derivatives | F-CAL-2 |
+| `calib/scaling.py` | per-dataset quadratic-Bezier scale (free middle control abscissa `s0`) and analytic derivatives | F-CAL-2 |
 | `calib/covariance.py` | full-parameter Fisher inverse, scale marginalization, reported-basis transform, `s**2` scaling | F-CAL-5 |
 | `calib/fit.py` | single bounded trust-region Gauss-Newton stage, certificates, product write, figure; public `run_fit` | F-CAL-1..5 |
 | `calib/product.py` | export `C` on the channel-derived axis `E(i +- 1/2)` (D-101), reported parameters, clamp record | F-RESP-1/F-IO-1 |
 | `calib/report.py` | text report of chi2/dof, parameters, scales and clamp statistics | - |
 | `calib/plot.py` | calibration figure on the shared plotting style | - |
 | `plotting/` | shared style, palette and atomic figure saving (leaf) | D-70 |
-| `unfold/inputs.py` | product loading, axis bitwise checks, upstream provenance checks | F-UNF-1 |
+| `unfold/inputs.py` | product loading, axis bitwise checks, upstream provenance checks | D-114 |
 | `unfold/compose.py` | `run_compose`: full-axis composition and compose artifact | F-RESP-2/F-RESP-3 |
 | `unfold/selection.py` | energy window to channel/primary selection and data-side fit weights | F-UNF-1/F-UNF-2 |
 | `unfold/solve.py` | exact-zero pruning, non-negative solve, strict uncertainty bands, diagnostics | F-UNF-3/F-UNF-4 |
@@ -67,7 +68,7 @@ Rules:
 | `sim/config.py` | run defaults: base seed, event-block size, raw histogram names, memory budget | F-SIM-7/D-123/D-124 |
 | `sim/geometry.py` | frozen detector geometry dataclass with per-field provenance | D-34 |
 | `sim/materials.py` | material compositions/densities and the lazy Geant4 builder | D-32/D-34 |
-| `sim/sources.py` | seven-key source registry, geometry dataclasses, matrix modes, primary axis and column schedule | F-SIM-1/F-BIN-4/D-122 |
+| `sim/sources.py` | seven-key source registry, geometry dataclasses, matrix modes, primary axis and column schedule | F-SIM-1/D-122 |
 | `sim/detector.py` | Geant4 detector/source construction and the pure plane/sphere source builders | D-31/D-34 |
 | `sim/physics.py` | physics list (Penelope, 0.1 mm) and decay/GPS configuration | D-32 |
 | `sim/generator.py` | matrix primary sampling and the deterministic seed derivation (pure functions) | F-SIM-4/F-SIM-7 |
@@ -104,9 +105,11 @@ Rules:
   propagation context) and the `ComposedResponse.channel_low/high` fields;
   existing positional signatures are unchanged.
 * The fixed source-mode Monte-Carlo axis (`0..4096 keV / 4096 bins`) is single
-  sourced in `core.binning.source_mode_deposition_edges_kev()` (F-BIN-4/D-121):
+  sourced in `core.binning.source_mode_deposition_edges_kev()` (F-BIN-4):
   `kc761.calib` imports it for the parameter-independent fit-time `C_fit`, and
-  `kc761.sim` uses it for the `mc_spectrum` axis and the matrix `G.y`.
+  `kc761.sim` uses it for the source-mode `mc_spectrum`. The matrix-mode primary
+  and deposition axes are both the calibration product's `C.y` (D-121 revised),
+  so matrix `G` is square and does not use this fixed axis.
 * `kc761/core/_gen/` is generated by `tools/generate_kernels.py` and guarded
   by `_manifest.json`; the mechanical single-source gate is
   `tools/check_single_source.py`.

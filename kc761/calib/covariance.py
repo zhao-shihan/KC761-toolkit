@@ -31,10 +31,10 @@ from numpy.typing import NDArray
 
 from kc761.core._checks import as_float_array
 from kc761.core.covariance import CovarianceEstimate, fisher_information
-from kc761.core.model import internal_jacobian
+from kc761.core.model import N_REPORTED_PARAMS, internal_jacobian
 from kc761.errors import SolverError, ValidationError
 
-N_REPORTED: int = 7
+N_REPORTED: int = N_REPORTED_PARAMS
 """Reported core size ``(c0, c1, c2, c3, b0, b1, b2)``."""
 
 _SCALE_GAUGE_RCOND: float = 1e-12

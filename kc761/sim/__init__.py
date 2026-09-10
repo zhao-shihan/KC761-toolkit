@@ -2,7 +2,7 @@
 
 Owns the frozen source registry (D-122), the detector geometry/material data
 (D-34), the two matrix sampling modes (D-31) and the batch runner with
-memory-budgeted workers and worker-count-independent randomness
+memory-budgeted workers and deterministic per-column/per-block randomness
 (D-123/D-124).
 
 Geant4 is imported lazily inside functions only, so this package stays

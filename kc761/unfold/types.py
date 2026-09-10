@@ -22,6 +22,7 @@ from kc761.core.solver import (
     KktCertificate,
     RegularizationSpec,
 )
+from kc761.core.uncertainty import DEFAULT_SYST_FRAC
 from kc761.errors import ValidationError
 from kc761.schema.products import (
     ComposeProduct,
@@ -45,7 +46,7 @@ class UnfoldSettings:
     energy_high_kev: float
     difference_order: int = DEFAULT_DIFFERENCE_ORDER
     pad_nsigma: float = 5.0
-    syst_frac: float = 0.10
+    syst_frac: float = DEFAULT_SYST_FRAC
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.energy_low_kev) or not np.isfinite(self.energy_high_kev):

@@ -184,8 +184,10 @@ def _kernel_pattern(
 ) -> tuple:
     """Evaluate the tapered kernel on its nonzero pattern.
 
-    Returns ``(triples,)`` or ``(triples, dp_dc, dp_dsigma, dp_de_lo, dp_de_hi)``
-    with the derivative arrays aligned with ``triples``.
+    Returns ``(triples,)`` without gradients, or the 7-tuple ``(triples, n,
+    dp_de_lo, dp_de_hi, dp_dc, dp_dsigma, column_denominator)``; the derivative
+    arrays are aligned with ``triples``, while ``n`` and ``column_denominator``
+    carry the F-KERN-3 renormalization bookkeeping.
     """
     edges = as_float_array("spectrum_edges_kev", spectrum_edges_kev, ndim=1)
     centers = as_float_array("source_centers_kev", source_centers_kev, ndim=1)

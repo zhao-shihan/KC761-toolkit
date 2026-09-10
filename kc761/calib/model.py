@@ -51,6 +51,7 @@ from kc761.core.binning import (
     source_mode_deposition_edges_kev,
 )
 from kc761.core.model import (
+    N_REPORTED_PARAMS,
     InternalCalibration,
     energy_kev,
     internal_jacobian,
@@ -60,8 +61,9 @@ from kc761.core.response import (
     response_parameter_jacobian,
 )
 from kc761.errors import SolverError, ValidationError
+from kc761.schema.axes import UNIT_CHANNEL, UNIT_KEV
 
-N_CORE: Final = 7
+N_CORE: Final = N_REPORTED_PARAMS
 """Fit-basis core ``(c0, k1, k2, k3, b0, b1, b2)`` (F-MODEL-2)."""
 
 # ``FIXED_DEPOSITION_*`` and ``fixed_deposition_edges_kev`` are aliases of the
@@ -208,12 +210,12 @@ class CalibrationModel:
     def _add_dataset(self, spec: DatasetSpec) -> None:
         data = spec.data
         mc = spec.mc
-        if data.axis.unit != "channel":
+        if data.axis.unit != UNIT_CHANNEL:
             raise ValidationError(
                 f"dataset {spec.label!r}: data spectrum must carry the channel axis, "
                 f"got unit {data.axis.unit!r}"
             )
-        if mc.axis.unit != "kev":
+        if mc.axis.unit != UNIT_KEV:
             raise ValidationError(
                 f"dataset {spec.label!r}: MC spectrum must carry an energy axis in keV, "
                 f"got unit {mc.axis.unit!r}"

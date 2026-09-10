@@ -34,6 +34,12 @@ from kc761.errors import CertificateError, SolverError, ValidationError
 
 BandKind = Literal["stat", "syst"]
 
+DEFAULT_SYST_FRAC = 0.10
+"""Default data-side fractional systematic (F-CAL-1/F-UNF-2, D-48).
+
+Single source for both the calibration and the unfolding weight defaults.
+"""
+
 DECOMPOSITION_TOL = 1e-9
 """Relative tolerance of the F-UNC-3 identity."""
 

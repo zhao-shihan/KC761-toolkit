@@ -263,11 +263,6 @@ def meta_field_types(dispatch_key: str) -> dict[str, type]:
     return types
 
 
-def meta_fields(dispatch_key: str) -> tuple[str, ...]:
-    """Return the exact ordered ``meta`` field list for a dispatch key."""
-    return tuple(meta_field_types(dispatch_key))
-
-
 def product_kind_for(dispatch_key: str) -> str:
     """Map a dispatch key to the ``product_kind`` written on disk."""
     if dispatch_key not in PRODUCT_KIND_FOR_DISPATCH:

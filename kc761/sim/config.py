@@ -21,7 +21,7 @@ DEFAULT_SEED: Final = 908136382
 
 Worker ``i`` no longer derives its stream from ``seed + i + 1``; matrix mode
 derives a stream per primary column and source mode per event block (F-SIM-7),
-so the result does not depend on the worker partition.
+so a fixed seed and worker partition reproduce bit-for-bit.
 """
 
 SOURCE_MODE_NAME: Final = "source_decay"

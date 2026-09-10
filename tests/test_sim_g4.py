@@ -12,10 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kc761.core.binning import (
-    SOURCE_MODE_DEPOSITION_BINS,
-    source_mode_deposition_edges_kev,
-)
+from kc761.core.binning import SOURCE_MODE_DEPOSITION_BINS
 from kc761.schema import io
 from kc761.schema.products import McSpectrumProduct, SimProduct
 from kc761.sim import DEFAULT_SEED, certificates, runner
@@ -55,15 +52,19 @@ def test_matrix_run_writes_a_strict_product(tmp_path: Path) -> None:
     )
     product = _read_sim(path)
     counts = product.primary_to_deposition.values
-    assert counts.shape == (24, SOURCE_MODE_DEPOSITION_BINS)
+    c_edges = np.asarray(synthetic.make_calib_product().deposition_to_channel.y.edges)
+    # D-121 revised: primary and deposition are both C.y, so G is square.
+    assert counts.shape == (c_edges.size - 1, c_edges.size - 1)
     assert product.mode == 1
+    assert product.mode_name == "plane_front_gamma"
     assert product.geometry_name == "plane"
     assert product.n_events == 128
     assert int(product.primary_column_totals.values.sum()) == 128
     assert np.all(counts >= 0.0)
-    assert np.array_equal(
-        product.primary_to_deposition.y.edges, source_mode_deposition_edges_kev()
-    )
+    # Non-vacuous: the scoring path must actually record deposits.
+    assert float(counts.sum()) > 0.0
+    assert np.array_equal(product.primary_to_deposition.x.edges, c_edges)
+    assert np.array_equal(product.primary_to_deposition.y.edges, c_edges)
     # F-SIM-6: no entry deposits more energy than its primary column carries.
     certificates.verify_physical_boundary(
         counts,
@@ -90,14 +91,15 @@ def test_matrix_same_seed_is_bitwise_reproducible(tmp_path: Path) -> None:
 
 
 def test_matrix_two_workers_match_one_worker(tmp_path: Path) -> None:
+    # Stronger than the D-123 contract: matrix columns carry independent
+    # streams, so the merged product is partition-independent in practice.
     calib = _write_calib(tmp_path)
-    # 2176 events = one full 2048-column slice plus one short slice, so both
-    # workers actually receive events.
+    # 48 events over the 24 columns: the two workers split the columns 12/12.
     single = runner.run_matrix(
-        "plane-front-gamma", calib, tmp_path / "one.root", n_events=2176, seed=3, threads=1
+        "plane-front-gamma", calib, tmp_path / "one.root", n_events=48, seed=3, threads=1
     )
     split = runner.run_matrix(
-        "plane-front-gamma", calib, tmp_path / "two.root", n_events=2176, seed=3, threads=2
+        "plane-front-gamma", calib, tmp_path / "two.root", n_events=48, seed=3, threads=2
     )
     a = _read_sim(single)
     b = _read_sim(split)
@@ -118,6 +120,8 @@ def test_source_run_writes_a_strict_mc_spectrum(tmp_path: Path) -> None:
     variances = product.spectrum.variances
     assert variances is not None
     assert np.all(variances >= 0.0)
+    # Non-vacuous: the source-mode scoring path must record deposits.
+    assert float(product.spectrum.values.sum()) > 0.0
 
 
 def test_source_same_seed_is_bitwise_reproducible(tmp_path: Path) -> None:
@@ -133,3 +137,68 @@ def test_source_same_seed_is_bitwise_reproducible(tmp_path: Path) -> None:
     assert isinstance(b, McSpectrumProduct)
     assert np.array_equal(a.spectrum.values, b.spectrum.values)
     assert np.array_equal(a.spectrum.variances, b.spectrum.variances)
+
+
+def test_source_two_workers_same_partition_is_reproducible(tmp_path: Path) -> None:
+    # D-123 (revised): same seed + same worker partition is bit-for-bit.
+    first = runner.run_source(
+        "am241", tmp_path / "one.root", n_events=2048, seed=7, threads=2
+    )
+    second = runner.run_source(
+        "am241", tmp_path / "two.root", n_events=2048, seed=7, threads=2
+    )
+    a = io.read_product(first)
+    b = io.read_product(second)
+    assert isinstance(a, McSpectrumProduct)
+    assert isinstance(b, McSpectrumProduct)
+    assert np.array_equal(a.spectrum.values, b.spectrum.values)
+    assert np.array_equal(a.spectrum.variances, b.spectrum.variances)
+    assert b.workers == 2
+
+
+def test_matrix_folds_out_of_range_deposits_into_zero(tmp_path: Path) -> None:
+    # Decision 1 makes the deposition axis channel-derived, so its first edge
+    # can exceed 0 keV; out-of-range deposits must be undetected (zero) rather
+    # than lost to G4 under/overflow, or F-SIM-1 fails.
+    from kc761.calib.product import build_calib_product
+    from kc761.schema.io import build_provenance
+
+    provenance = build_provenance(
+        producer="test", command="test", arguments=(), inputs=[]
+    )
+    calib = build_calib_product(
+        core_internal=np.array([60.0, 5.0, 5.0, 5.0]),
+        resol_params=np.array([2.0, 1.0, 0.0]),
+        param_cov=np.diag([0.25, 1e-4, 1e-6, 1e-8, 0.04, 0.09, 0.16]),
+        chi2=1.0,
+        dof=1,
+        covariance_scale=1.0,
+        fit_status="converged",
+        scales=(),
+        scale_bound_flags=(),
+        n_channels=8,
+        channel_max=7.0,
+        provenance=provenance,
+        strict=True,
+    )
+    calib_path = io.write_product(
+        calib, tmp_path / "calib_positive.root", force=True, strict=True
+    )
+    path = runner.run_matrix(
+        "plane-front-gamma",
+        calib_path,
+        tmp_path / "G_positive.root",
+        n_events=64,
+        seed=12345,
+        threads=1,
+        strict=True,
+    )
+    product = _read_sim(path)
+    counts = product.primary_to_deposition.values
+    totals = product.primary_column_totals.values
+    assert counts.shape == (8, 8)
+    assert np.all(counts >= 0.0)
+    # strict=True already ran F-SIM-1 (sum(counts)+zero == N_j); the folded
+    # out-of-range deposits make the product non-vacuous without underflow.
+    assert float(counts.sum()) > 0.0
+    assert np.all(counts.sum(axis=0) <= totals + 1e-9)

@@ -102,7 +102,7 @@ def _residual_panel(ax, detail: DatasetDetail) -> None:
     ax.set_title(f"{detail.label} residual", fontsize=9)
 
 
-def _calibration_panel(ax, result: FitResult, energy_max: float) -> None:
+def _calibration_panel(ax, result: FitResult) -> None:
     calibration = InternalCalibration.from_array(result.core_internal[:4])
     channel = np.linspace(0.0, result.channel_max, 400)
     energy = energy_kev(channel, calibration, channel_max=result.channel_max)
@@ -233,7 +233,7 @@ def plot_fit(
             channel_max=result.channel_max,
         )[0]
     )
-    _calibration_panel(fig.add_subplot(footer[0, 0]), result, energy_max)
+    _calibration_panel(fig.add_subplot(footer[0, 0]), result)
     _resolution_panel(fig.add_subplot(footer[0, 1]), result, energy_max)
     _parameter_panel(fig.add_subplot(footer[0, 2]), result)
     return kp.save_figure(fig, path, force=force)

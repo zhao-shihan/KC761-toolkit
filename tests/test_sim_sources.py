@@ -87,13 +87,14 @@ def test_plane_and_sphere_sources_derive_from_geometry() -> None:
     assert np.isclose(sphere.radius_mm, expected)
 
 
-def test_default_primary_axis_is_the_fixed_source_mode_axis() -> None:
-    axis = sources.default_primary_axis()
-    assert axis.n_columns == binning.SOURCE_MODE_DEPOSITION_BINS == 4096
-    assert axis.n_active == 4096
-    assert np.array_equal(
-        np.asarray(axis.edges_kev), binning.source_mode_deposition_edges_kev()
-    )
+def test_matrix_primary_axis_is_calibration_derived() -> None:
+    # D-121 revised: the matrix primary edges are the calibration C.y edges
+    # (non-uniform), so no fixed source-mode default axis remains.
+    edges = np.array([0.0, 1.0, 1.5, 2.5, 5.0])
+    axis = sources.make_primary_axis(edges)
+    assert axis.n_columns == edges.size - 1
+    assert np.array_equal(np.asarray(axis.edges_kev), edges)
+    assert not hasattr(sources, "default_primary_axis")
 
 
 def test_fixed_axis_has_a_single_source_shared_with_calib() -> None:
