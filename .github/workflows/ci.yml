@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install contract dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy scipy sympy numba uproot ruff pytest hypothesis
+      - name: Single-source gate
+        run: python tools/check_single_source.py
+      - name: Lint
+        run: ruff check .
+      - name: Tests without Geant4 or the ROOT executable
+        run: pytest -q -m "not g4 and not root"
