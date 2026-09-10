@@ -46,6 +46,12 @@ append-only; derivations may gain detail but must never contradict
 | F-SIM-4 | plane and circumscribed-sphere source sampling (Lambertian) | `sim/` | planned |
 | F-SIM-5 | 10 us pulse merging for the source mode | `sim/` | planned |
 | F-IO-1 | atomic write, reopen validation and provenance protocol | `schema/io.py` | implemented (W2) |
+| F-UNF-1 | energy window -> channel/primary selection from `E(ch)` at channel centres (D-111) | `unfold/selection.py` | implemented (W4) |
+| F-UNF-2 | unfold fit weights `sigma_fit**2 = max(stat, 1) + (syst_frac*data)**2`, data-side only (D-112) | `unfold/selection.py` | implemented (W4) |
+| F-UNF-3 | exact-zero primary-column pruning and reduced non-negative solve (D-110) | `unfold/solve.py` | implemented (W4) |
+| F-UNF-4 | unfold diagnostics: weighted chi2, `dof = n_fit_rows - n_active`, `covariance_scale = 1` (D-118) | `unfold/solve.py` | implemented (W4) |
+| F-UNF-5 | refolded `R . mu` restricted to the reported channel window `[chlo, chhi]` (D-117) | `unfold/unfold.py` | implemented (W4) |
+| F-UNF-6 | calib-only channel-to-energy relabeling on `C.y = E(i +- 1/2)` (D-113) | `unfold/unfold.py` | implemented (W4) |
 
 ## 2. Sympy generation convention
 
@@ -544,18 +550,32 @@ Three contributions, all first-order at fixed active set:
    solves `V_k = -H_FF^-1 (g_k)_F` (zero on the active set) and
    `Cov_calib = V Sigma_q V^T`.
 3. **Simulation MC.** With `R = C G diag(1/N)` and `N_j` fixed by the
-   sampling design (F-SIM-1), `dR/dG_js = C_j e_s^T / N_s`. The
-   half-gradient derivative is a rank-one row
-   `dg/dG_js = d_js e_s^T` with
-   `d_js = (C_j^T W r + (R^T W C_j)_s mu_s)/N_s`, so the free-set solution
-   derivative is `-d_js H_FF^-1 (e_s)_F` (zero on the active set). The
-   recorded-bin multinomial covariance `Cov(G_s) = N_s (diag(q_s) - q_s
-   q_s^T)` gives the rank-one contribution `kappa_s u_s u_s^T` with
-   `u_s = H_FF^-1 (e_s)_F` and
-   `kappa_s = N_s (sum_j q_j d_js^2 - (sum_j q_j d_js)^2)`. The band is
-   `sqrt(sum_s kappa_s u_s^2)`; `kappa_s >= 0` is checked against a small
-   relative tolerance. Because `u_s` is needed for every primary bin, the
-   helper materializes the reduced inverse once (documented cost).
+   sampling design (F-SIM-1), `dR/dG_js = C_j e_s^T / N_s`. Differentiating
+   the half-gradient `g = H mu - b` at fixed `mu` gives the **full vector**
+
+   `dg_a/dG_js = [ delta_{a,s} (C_j^T W r) + (R^T W C_j)_a mu_s ] / N_s`
+
+   (D-119). The earlier rank-one form `d_js e_s^T` dropped the second term;
+   finite differences on random problems show it contributes at the same order
+   as the first (~50% of the derivative), so it must be kept. With the
+   recorded-bin multinomial covariance `Cov(G_s) = N_s (diag(p_s) - p_s p_s^T)`
+   and the reduced free-set inverse `U = H_FF**-1`, the propagated covariance is
+
+   `Cov(mu) = sum_s (1/N_s) U A_s U^T`,
+   `A_s = sum_j p_js v_js v_js^T - (sum_j p_js v_js)(sum_k p_ks v_ks)^T`,
+   `v_js = (C_j^T W r) e_s + (R^T W C_j) mu_s`.
+
+   The band is the square root of its diagonal:
+
+   `Var_i = sum_s (1/N_s) [ sum_j p_js X_js_i**2 - Xbar_s_i**2 ]`,
+   `X_js = U v_js`, `Xbar_s = sum_j p_js X_js`.
+
+   The unrecorded zero-deposition category has `v = 0`, so it cancels from
+   `A_s` (the sums run over recorded deposition bins only); dropping it from a
+   centred form would omit its `p_zero Xbar**2` contribution. `Var_i >= 0`
+   is checked against a small relative tolerance. Because `U` and
+   `U (R^T W C)` are needed for every primary bin, the helper materializes the
+   reduced inverse once (documented cost).
 
 ### F-UNC-3 - strict band decomposition
 
@@ -606,3 +626,112 @@ calibration parameter vectors are JSON number lists in the frozen
 buffer (not `errors()**2`), so a write/read cycle is bit exact. Historical
 note: the earlier W0 draft stored `calib_sha256`/`sim_sha256` fields and a
 `geometry_param` key; both were removed in W2 (D-88/D-89).
+
+### F-UNF-1 - energy window to channel and primary selection
+
+**Assumptions.** The calibration `E(ch)` is strictly increasing on the
+acquisition range (F-MODEL-3), the data channel axis is uniform, and the
+primary axis is the simulation's variable energy axis (`G.y`).
+
+**Derivation.** Let `centres_i = E(i)` for `i = 0..n-1`. For a requested
+energy window `[elo, ehi]` with `elo <= ehi`:
+
+    chlo = clip(first i with centres_i >= elo, 0, n-1),
+    chhi = clip(last  i with centres_i <= ehi, 0, n-1).
+
+At least one centre must fall inside, otherwise the window is empty at the
+channel resolution and a `ValidationError` is raised. `elo`/`ehi` must lie
+inside `[E_min, E_max]`, the primary axis range, otherwise the requested
+window cannot be represented by the simulation and a `ValidationError` is
+raised. The solver then works on `[chlo - pad, chhi + pad]` (F-BIN-3) and the
+reported `mu` covers the primary bins whose **centres** lie in `[elo, ehi]`.
+
+**Limits.** Centres (not bin edges) define membership on both axes; this is a
+half-bin boundary convention, documented here so it is not re-derived. A
+window narrower than the channel pitch selects at most one channel.
+
+### F-UNF-2 - data-side unfold fit weights
+
+**Derivation.** With `stat` the per-channel data variance (`fSumw2`), `data`
+the measured counts and `syst_frac` the fractional data-side systematic, the
+unfold fit uses
+
+    sigma_fit**2 = max(stat, 1) + (syst_frac * data)**2.
+
+The `max(stat, 1)` floor and the `syst_frac = 0.10` default are the frozen
+F-CAL-1 weight conventions. The simulation-MC term is deliberately **excluded**
+from the weights (D-112): it depends on the unknown deposition distribution and
+would make the objective iterative. It enters only the systematic band through
+F-UNC-2, so the fit stays a single non-negative QP.
+
+**Limits.** The floor is a documented approximation (F-CAL-1 limitations); for
+Poisson data with `pred < 1` it biases `chi2/dof` low. The systematic term is
+linearized in `data`, so it does not model the Poisson variance of the
+systematic itself.
+
+### F-UNF-3 - exact-zero column pruning
+
+**Derivation.** `R = C . G . diag(1/N)` is non-negative, so a column is exactly
+zero if and only if its sum is exactly zero. Columns with `sum_i R_ij == 0.0`
+carry no data information: their gradient entry `(R^T W y)_j` is zero and their
+normal-matrix diagonal `(R^T W R)_jj` is zero, so the non-negative solver fixes
+them at zero in every mode. They are removed from the solved matrix (D-110) and
+re-inserted as zeros in the reported solution; the removal uses exact `== 0.0`
+comparison, never a tolerance.
+
+**Limits.** Removing columns re-indexes the finite-difference penalty
+(F-SOLVE-1). In this pipeline exact-zero columns are the leading/trailing part
+of the primary range (depositions that cannot reach any channel), so the kept
+range is contiguous and the reduced penalty is the exact sub-block of the
+full-axis penalty. An interior zero column would make the reduced penalty a
+re-indexed operator; the definition here is the reduced operator (`D` on the
+kept columns), which is the frozen meaning of "solve on the remaining columns".
+
+### F-UNF-4 - unfold diagnostics
+
+**Derivation.** With the fit rows `F = [chlo - pad, chhi + pad]`, the reduced
+response `R_FK` (kept columns `K`), the solution `mu_K`, weights
+`sigma_fit` (F-UNF-2) and data `y_F`:
+
+    chi2 = sum_F ((y - R mu)**2 / sigma_fit**2),
+    n_active = #{k in K : mu_k > 0},
+    dof = |F| - n_active,
+    covariance_scale = 1.
+
+`covariance_scale` is fixed to one because the unfold reports the analytic
+first-order propagation (F-UNC-1/F-UNC-2) and never rescales it by a reduced
+chi-square; `dof` is the number of fit rows minus the number of active
+(positive) solution bins. `dof` can be zero or negative for a heavily
+regularized / underdetermined problem; it is then reported as computed and
+`chi2/dof` is not used.
+
+**Limits.** `n_active` counts strictly positive bins, so a bin that sits at the
+constraint is not counted as a fitted parameter even though its uncertainty is
+zero (F-UNC-1); this is the active-set convention of F-SOLVE-2/F-SOLVE-3.
+
+### F-UNF-5 - refolded channel spectrum
+
+**Derivation.** With the full-axis composed response `R` (F-RESP-2), the
+full-axis solution `mu` (zeros on pruned columns) and the reported channel
+window `[chlo, chhi]`,
+
+    refolded_i = sum_j R_ij mu_j,   i in [chlo, chhi].
+
+This is the model prediction of the measured channel spectrum under the
+unfolded primary spectrum; it uses the same padded composition as the solve and
+is sliced to the reported channel window only for storage.
+
+### F-UNF-6 - calib-only channel relabeling
+
+**Derivation.** Calibration-only mode does not invert the response. It reuses
+the channel-derived deposition axis stored in `C.y`, whose edges are
+`E(i +- 1/2)` (F-RESP-1), as the new energy axis of the measured spectrum:
+
+    values'_i = values_i,   variances'_i = variances_i,
+    edges'_i = C.y.edges_i,  unit = kev.
+
+Counts and `fSumw2` are copied bin by bin (no interpolation, no rebinning), so
+the operation is exactly invertible by the axis alone.
+
+**Limits.** The data channel axis must equal `C.x` bitwise (D-114); otherwise
+the relabeling would attach the wrong energies to the counts.

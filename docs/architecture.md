@@ -58,7 +58,12 @@ Rules:
 | `calib/report.py` | text report of chi2/dof, parameters, scales and clamp statistics | - |
 | `calib/plot.py` | calibration figure on the shared plotting style | - |
 | `plotting/` | shared style, palette and atomic figure saving (leaf) | D-70 |
-| `unfold/` | window/pad orchestration, uncertainty bands, report, plots | F-SOLVE/F-UNC |
+| `unfold/inputs.py` | product loading, axis bitwise checks, upstream provenance checks | F-UNF-1 |
+| `unfold/compose.py` | `run_compose`: full-axis composition and compose artifact | F-RESP-2/F-RESP-3 |
+| `unfold/selection.py` | energy window to channel/primary selection and data-side fit weights | F-UNF-1/F-UNF-2 |
+| `unfold/solve.py` | exact-zero pruning, non-negative solve, strict uncertainty bands, diagnostics | F-UNF-3/F-UNF-4 |
+| `unfold/unfold.py` | `run_unfold`: full and `calib_only` orchestration, product assembly | F-UNF-5/F-UNF-6 |
+| `unfold/report.py`, `unfold/plot.py` | text report and figure on the shared plotting style | D-70 |
 | `sim/` | geometry, materials, sources, detector, physics, actions, runner | F-SIM-1..5 |
 | `cli/` | argument parsing, logging, strict mode, exit codes | - |
 

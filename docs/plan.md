@@ -162,6 +162,21 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-107 | Optimizer controls are fixed, documented defaults inside `FitSettings` (`maxiter`, `ftol`, `xtol`, `gtol`); the fit runs one bounded trust-region (reflective) Gauss-Newton stage with the analytic residual Jacobian (`scipy.optimize.least_squares`, `method="trf"`, `x_scale="jac"`). A plain L-BFGS-B line search stalls on the nearly flat `sigma -> 0` corner of the resolution model, so the named "L-BFGS-B/trust-constr" family is realized by its bounded trust-region member. Exposing the controls on the CLI is W6 (Appendix A item 5). |
 | D-108 | A non-converged optimizer records `fit_status` and, outside strict mode, still writes the product with the fit marked; strict mode aborts with a classified error. A degenerate fit (`dof < 1`, singular Fisher, non-finite objective) is a hard `ValidationError`/`SolverError` in every mode. |
 
+### 1.10 W4 contract decisions (2026-09-10, user-approved)
+
+| ID | Decision |
+|----|----------|
+| D-110 | Exact-zero primary-column pruning (F-UNF-3): after composing over the full primary axis and slicing the padded channel rows, primary columns whose sliced response is **exactly** zero are removed (no tolerance) and the non-negative solve runs on the remaining columns only. Pruned columns are fixed at zero in the reported solution. |
+| D-111 | Energy-to-channel window mapping (F-UNF-1): `E(ch)` is evaluated at the channel **centres**; `chlo`/`chhi` are the first/last channel centre inside `[elo, ehi]`, clipped to the acquisition, and at least one centre must fall inside. `elo`/`ehi` must lie inside the primary axis range. The reported `mu` covers the primary bins whose centres lie in `[elo, ehi]`. Violations are `ValidationError`. |
+| D-112 | Unfold fit weights are data-side only (F-UNF-2): `sigma_fit**2 = max(stat, 1) + (syst_frac * data)**2`. The simulation-MC term enters only the systematic band (F-UNC-2), never the weights, so the unfold does not iterate. |
+| D-113 | `calib_only` relabels the channel axis to the channel-derived deposition axis `E(i +- 1/2)` stored in `C.y`, keeps counts and `fSumw2` bin-by-bin unchanged, sets `mode = calib_only`, carries only common meta plus `mode`, and needs no `alpha`. |
+| D-114 | Axis and provenance validation: `C.y` (deposition) must equal `G.x` bitwise, `C.x` must equal the data channel axis, and `N_j` must use `G.y`; a mismatch is `ValidationError`. Input digests recorded by an upstream product (`fingerprint_for`/`input_sha256`) are checked against the actual file whenever present (`ProvenanceError` on mismatch). |
+| D-115 | Compose orchestration lives in `kc761/unfold/compose.py` (`run_compose`); `kc761 compose` stays a thin W6 wrapper. |
+| D-116 | Solver failures (iteration exhaustion, unbounded objective, non-positive-definite normal matrix) raise `SolverError` in every mode; no product and no `.part` file is left behind. |
+| D-117 | `refolded` is `R . mu` evaluated on the reported channel window `[chlo, chhi]` (F-UNF-5). |
+| D-118 | Unfold diagnostics (F-UNF-4): `chi2` is the weighted residual sum of squares over the fit rows; `dof = n_fit_rows - n_active` with `n_active` the number of strictly positive solution entries; `covariance_scale = 1.0` (the analytic propagation is not rescaled). |
+| D-119 | F-UNC-2 core repair (found in W4, user-approved): `simulation_mc_variance` used a rank-one half-gradient derivative `d_js e_s^T` that dropped the `(R^T W C_j) mu_s` vector term and only broadcast for square `n_primary == n_deposition`. The exact multinomial propagation (full-vector derivative, non-centred `sum_j p X^2 - Xbar^2` form so the unrecorded zero-deposition category is included, reduced free-set inverse) replaces it; the F-UNC-2 derivation is corrected and an FD regression is added. |
+
 ## 2. Target architecture
 
 ```

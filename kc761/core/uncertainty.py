@@ -287,11 +287,24 @@ def simulation_mc_variance(
 ) -> NDArray[np.float64]:
     """Per-primary-bin variance from the multinomial simulation MC (F-UNC-2).
 
-    Derivation (docs/derivations.md F-UNC-2): with ``R = C G diag(1/N)`` the
-    gradient perturbation of column ``s`` is a rank-one term, so the band
-    contribution is ``sum_s kappa_s * (H**-1 e_s)**2`` with
-    ``kappa_s = sum_j G_js d_js**2 - (sum_j G_js d_js)**2 / N_s`` and
-    ``d_js`` assembled from the F-RESP-4 chain at fixed active set.
+    Exact first-order propagation (D-119). With ``R = C G diag(1/N)`` the
+    half-gradient derivative of ``g = H mu - b`` with respect to ``G_js`` is the
+    **full** vector
+
+        ``dg/dG_js = [ (C_j^T W r) e_s + (R^T W C_j) mu_s ] / N_s``,
+
+    not the rank-one form ``d_js e_s^T``: the second term couples every primary
+    row and cannot be dropped. With the multinomial covariance
+    ``Cov(G_s) = N_s (diag(p_s) - p_s p_s^T)`` and reduced free-set inverse
+    ``U = H_FF**-1``, the diagonal of the propagated covariance is
+
+        ``Var_i = sum_s (1/N_s) [ sum_j p_js X_js_i^2 - Xbar_s_i^2 ]``
+
+    with ``X_js = U v_js``, ``v_js = (C_j^T W r) e_s + (R^T W C_j) mu_s`` and
+    ``Xbar_s = sum_j p_js X_js``. The unrecorded zero-deposition category has
+    ``v = 0``, so it cancels from ``A_s`` and the sums run over the recorded
+    deposition bins only. ``fisher`` is the same half-Hessian used by the
+    solver.
     """
     matrix = check_response_matrix(response.matrix)
     counts = as_float_array("deposition_counts", deposition_counts, ndim=2)
@@ -317,24 +330,39 @@ def simulation_mc_variance(
     weights = 1.0 / errors**2
     hessian = _hessian(composed_sparse, errors, fisher)
     weighted = matrix.T @ sparse.diags(weights)
-    # (R^T W C): shape (n_primary, n_deposition).
     weighted_composed = composed_sparse.T @ sparse.diags(weights)
+    # (R^T W C): shape (n_primary, n_deposition).
     mixed = (weighted_composed @ matrix).toarray()
     column_term = np.asarray(weighted @ residual, dtype=np.float64)
-    sensitivity = _reduced_columns(hessian, solution, np.eye(solution.size))
-    # Half-gradient derivatives: g_half = H_half mu - b, so
-    # d g_half / dG_js = (C_j^T W r + (R^T W C_j) mu_s) / N_s.
-    local = column_term[:, None] + (mixed * solution[None, :]).T
-    per_column = (1.0 / totals)[None, :] * local  # (n_deposition, n_primary)
-    kappa = np.sum(counts * per_column**2, axis=0) - (
-        np.sum(counts * per_column, axis=0) ** 2
-    ) / totals
-    scale = np.maximum(1.0, np.abs(kappa))
-    if np.any(kappa < -1e-9 * scale):
-        worst = float(np.min(kappa))
+    inverse = _reduced_columns(hessian, solution, np.eye(solution.size))
+    mapped = inverse @ mixed  # (n_primary, n_deposition)
+    mapped_sq = mapped * mapped
+    probabilities = counts / totals[None, :]  # (n_deposition, n_primary)
+    variance = np.zeros(solution.size, dtype=np.float64)
+    for column in range(solution.size):
+        p_s = probabilities[:, column]
+        u_s = inverse[:, column]
+        mu_s = solution[column]
+        centre = p_s @ column_term
+        mean_mapped = mapped @ p_s
+        # Diag(Cov) = sum_s (1/N_s)[sum_j p_js X_js^2 - Xbar_s^2] with
+        # X_js = H^-1 v_js; the zero-deposition category has v = 0 and cancels
+        # from A_s, so the bin sums above are the full multinomial sums.
+        energy = float(p_s @ (column_term * column_term))
+        cross = mapped @ (p_s * column_term)
+        spread = mapped_sq @ p_s
+        xbar = centre * u_s + mu_s * mean_mapped
+        variance += (
+            energy * u_s * u_s
+            + 2.0 * mu_s * u_s * cross
+            + mu_s * mu_s * spread
+            - xbar * xbar
+        ) / totals[column]
+    scale = np.maximum(1.0, np.abs(variance))
+    if np.any(variance < -1e-9 * scale):
+        worst = float(np.min(variance))
         raise SolverError(f"simulation MC variance is negative: {worst:.3g}")
-    kappa = np.maximum(kappa, 0.0)
-    return np.sum(kappa[None, :] * sensitivity**2, axis=1)
+    return np.maximum(variance, 0.0)
 
 
 def _hessian(

@@ -99,7 +99,12 @@ no missing and no extra field (`SchemaError` otherwise). The complete list:
   `difference_order` (int), `energy_low_kev`, `energy_high_kev` (float),
   `channel_low`, `channel_high` (int), `pad_nsigma` (float), `syst_frac`
   (float), `chi2` (float), `dof` (int), `covariance_scale` (float). The
-  `calib_only` variant carries only the common fields plus `mode`.
+  `calib_only` variant carries only the common fields plus `mode`. Per D-118,
+  `chi2` is the weighted residual sum of squares over the solver rows,
+  `dof = n_fit_rows - n_active` (the number of strictly positive solution bins)
+  may be zero or negative for a heavily regularized problem, and
+  `covariance_scale` is fixed to `1.0` (the analytic F-UNC-1/F-UNC-2 bands are
+  never rescaled).
 * spectrum: `daq_time_s` (float), `source_file` (str).
 
 The former `calib_sha256`/`sim_sha256` fields are removed (D-89). Every input
