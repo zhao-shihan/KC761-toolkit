@@ -26,9 +26,9 @@
 //                       the channels); content R[ch, Edep] =
 //                       probability that a count in the energy-deposition
 //                       bin Edep is detected in channel ch.  The
-//                       columns are NOT renormalized: the Gaussian
-//                       probability beyond the detector channel range is
-//                       truncated, i.e. physically lost.  The per-bin
+//                       columns use the fit's 5-sigma cutoff and
+//                       renormalization: the Gaussian probability beyond
+//                       the detector channel range is redistributed.  The per-bin
 //                       uncertainties (fSumw2) hold the per-element 1-sigma
 //                       uncertainties propagated linearly from param_cov.
 //
@@ -50,7 +50,7 @@
 
 namespace {
 
-const char* kMagic = "kc761calib-export-v2\n";
+const char* kMagic = "kc761calib-export-v3\n";
 const int kNC = 4;                    // calibration coefficients c0..c3
 const int kNB = 3;                    // resolution parameters b0..b2
 const int kNCore = 7;                 // stored parameters (c0..c3, b0..b2)

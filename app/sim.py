@@ -6,17 +6,14 @@ Two simulation families share this entry point:
 * radioactive sources (mutually exclusive --<key> flags): the source
   nuclide decays inside its geometry, and per-event energy deposition is
   saved to a ROOT ntuple;
-* matrix modes (--plane-front-gamma/--sphere-gamma): one gamma
-  per event is launched from a sampling surface, and the (primary energy,
+* matrix modes (--plane-front-gamma/--sphere-gamma): one gamma per
+  event is launched from a sampling surface, and the (primary energy,
   crystal deposition) pairs accumulate into the primary-to-deposition
-  matrix G,
-  which is composed with a kc761calib export's deposition-to-channel matrix
-  C into the primary-to-channel matrix R = C @ G.  These modes are
-  batch-only and produce no
-  ntuple; the output ROOT file contains the three matrices
-  (``primary_to_channel`` = R, ``deposition_to_channel`` = C copy,
-  ``primary_to_deposition`` = G) plus the inherited calibration and
-  new mode parameters, and is directly readable by kc761unfold.
+  matrix; these modes are batch-only and produce no ntuple.  The output
+  ROOT file contains the primary-to-deposition matrix, the per-primary
+  detection efficiency and the run metadata.  The primary-to-channel
+  composition ``R = C p_tilde diag(eta)`` happens at unfold time, which
+  consumes this simulation file together with a kc761calib export.
 """
 
 from __future__ import annotations
@@ -29,7 +26,7 @@ from pathlib import Path
 from geant4_pybind import G4UIExecutive, G4UImanager, G4VisExecutive
 
 from _bootstrap import REPO_ROOT
-from kc761sim import compose, config, detector, runner
+from kc761sim import export, config, detector, runner
 from kc761sim.paths import count_label, final_output_path, output_stem
 from kc761util.calibfile import load_calib_file
 from kc761util.hadd import add_hadd_option
@@ -92,7 +89,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="FILE",
         help="output ROOT file name (default: out/sim_output.root in batch "
         "mode, out/sim_vis_output.root in interactive mode; matrix modes: "
-        "out/sim/<calib>-<mode>-matrix-<N>.root; a missing .root suffix "
+        "out/sim/<calib>-<mode>-<N>.root; a missing .root suffix "
         "is appended)",
     )
     parser.add_argument(
@@ -128,17 +125,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "interactive mode)",
     )
     parser.add_argument(
-        "--compose-from",
-        dest="compose_from",
-        metavar="G_FILE",
+        "--reuse-merged",
+        dest="reuse_merged",
+        metavar="FILE",
         default=None,
-        help="matrix modes only: skip the simulation and compose the "
-        "composite matrix from an existing merged-G intermediate "
+        help="matrix modes only: skip the simulation and write the "
+        "simulation file from an existing merged intermediate "
         "(the *-g.root kept after a failed export)",
     )
     add_hadd_option(parser)
     add_root_option(parser)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.threads is not None and args.threads < 0:
+        parser.error("--threads must be non-negative (0 = one worker per "
+                     "CPU)")
+    return args
 
 
 def _selected_source(args: argparse.Namespace) -> str:
@@ -188,7 +189,7 @@ def batch_mode(args: argparse.Namespace, source_key: str, verbose: int) -> None:
 
 def batch_matrix_mode(args: argparse.Namespace, mode: str, calib_path: str,
                       verbose: int) -> None:
-    """Simulate G, compose R = C @ G and write the composite ROOT file."""
+    """Simulate the primary-to-deposition matrix and write the simulation file."""
     threads = args.threads if args.threads and args.threads > 0 else max(
         1, os.cpu_count() or 1)
 
@@ -197,13 +198,9 @@ def batch_matrix_mode(args: argparse.Namespace, mode: str, calib_path: str,
     calib_file = Path(calib_path).expanduser().resolve()
     if not calib_file.is_file():
         raise SystemExit(f"error: calibration file not found: {calib_file}")
+    # The simulation file only needs the calibration file's binning; its
+    # matrix and uncertainties are not consumed here.
     calib = load_calib_file(calib_file)
-    if calib.to_channel_uncertainties is None:
-        raise SystemExit(
-            "error: the calibration file stores no per-element "
-            "uncertainties (no fSumw2); the composite output needs them "
-            "for the deposition response copy and the uncertainty "
-            "propagation")
     if mode == "plane-front-gamma":
         source = detector.build_plane_gamma_source(calib.energy_edges)
     else:
@@ -213,37 +210,42 @@ def batch_matrix_mode(args: argparse.Namespace, mode: str, calib_path: str,
         os.makedirs(_SIM_OUT_DIR, exist_ok=True)
         args.output = os.path.join(
             _SIM_OUT_DIR,
-            f"{calib_file.stem}-{mode}-matrix-{count_label(args.events)}.root")
+            f"{calib_file.stem}-{mode}-{count_label(args.events)}.root")
+    else:
+        # Normalize the extension once, so the Geant4 intermediate and
+        # the TFile output agree (a missing .root would otherwise
+        # produce an extensionless file kc761unfold cannot find).
+        args.output = final_output_path(args.output)
 
     # The merged G histogram is an intermediate next to the output; its
     # stem must stay dot-free (the Geant4 analysis manager appends ".root"
     # only to dot-free names).
     g_path = output_stem(args.output) + "-g.root"
-    if args.compose_from is not None:
+    if args.reuse_merged is not None:
         # Retry path: reuse a kept intermediate instead of re-simulating.
-        g_path = str(Path(args.compose_from).expanduser().resolve())
+        g_path = str(Path(args.reuse_merged).expanduser().resolve())
         if not Path(g_path).is_file():
             raise SystemExit(
-                f"error: merged-G intermediate not found: {g_path}")
+                f"error: merged intermediate not found: {g_path}")
     else:
         runner.run_batch_matrix(source, g_path, args.events, threads,
                                 args.seed, verbose, hadd_exe=args.hadd)
-    rc = compose.compose_matrix_output(
+    rc = export.write_sim_file(
         calib_path=str(calib_file), merged_g_path=g_path,
         output_path=args.output, source=source,
         n_events=args.events, seed=args.seed, root_exe=args.root,
         calib=calib)
     if rc != 0:
-        retry = ("" if args.compose_from is not None
-                 else f"; retry the composition alone with "
-                 f"--compose-from {g_path}")
+        retry = ("" if args.reuse_merged is not None
+                  else f"; retry the composition alone with "
+                  f"--reuse-merged {g_path}")
         raise SystemExit(
-            f"error: composite export failed (exit code {rc}){retry}")
-    # G lives on in the composite output, so drop the intermediate unless
-    # the user supplied it via --compose-from.
-    if args.compose_from is None:
+            f"error: simulation-file export failed (exit code {rc}){retry}")
+    # The matrix lives on in the simulation output, so drop the
+    # intermediate unless the user supplied it via --reuse-merged.
+    if args.reuse_merged is None:
         os.remove(g_path)
-    print(f"Composite response written: {final_output_path(args.output)}")
+    print(f"simulation file written: {final_output_path(args.output)}")
 
 
 def main(argv: list[str] | None = None) -> None:

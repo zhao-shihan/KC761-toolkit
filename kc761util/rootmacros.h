@@ -1,6 +1,6 @@
 // rootmacros.h
 // Shared helpers for the toolkit's standalone ROOT writer macros
-// (calib2root.cxx, matrix2root.cxx, ...): binary-export reading and the
+// (calib2root.cxx, sim2root.cxx, unfold2root.cxx): binary-export reading and the
 // guarded row-major TH2 fill.  Each macro is invoked by root in its own
 // process, so plain (non-static) helpers cannot collide between macros.
 //
@@ -39,6 +39,13 @@ inline bool ReadRaw(std::FILE* f, void* buf, size_t nbytes) {
     return std::fread(buf, 1, nbytes, f) == nbytes;
 }
 
+// Abort the macro with a diagnostic (the standalone writers' single
+// failure path).
+inline void Fatal(const std::string& message) {
+    std::cerr << "error: " << message << "\n";
+    gSystem->Exit(1);
+}
+
 inline void StripNewline(std::string& s) {
     if (!s.empty() && s.back() == '\n') s.pop_back();
 }
@@ -75,6 +82,11 @@ inline void WriteCalibrationMetadata(
         const std::string errName = std::string(kResolNames[i]) + "_err";
         (new TParameter<double>(errName.c_str(), resolErr[i]))->Write();
     }
+    // Format marker: 3 = the exported matrix uses the fit's convention
+    // (5-sigma kernel-support cutoff + column renormalization).  Files
+    // without this marker predate that convention and must not be
+    // unfolded against (their column sums are not 1).
+    (new TNamed("format_version", "3"))->Write();
     (new TNamed("param_order", paramOrder.c_str()))->Write();
     TMatrixDSym* cov = new TMatrixDSym(7);
     for (int r = 0; r < 7; ++r)

@@ -15,15 +15,18 @@ prediction, darkgoldenrod residual points with red +/-0.3 level guides.
 """
 
 from __future__ import annotations
+
+import matplotlib
+
+# Must run before pyplot is imported; 3.11+ ignores a use() after it.
+matplotlib.use("Agg", force=True)
+
 from .types import UnfoldResult
 from matplotlib.backend_bases import FigureCanvasBase
 from matplotlib import pyplot as plt
 import numpy as np
 
 from pathlib import Path
-
-import matplotlib
-matplotlib.use("Agg")
 
 
 # Palette (kc761calib conventions): colors of the plotted artists.

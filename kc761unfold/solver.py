@@ -6,7 +6,7 @@ The objective
 
 under ``mu >= 0`` is a convex quadratic program.  The Hessian
 ``H = 2 R^T W R + 2 a D^T D`` is banded (for calibration responses the
-bandwidth is ~2 x the Gaussian kernel support; composite responses are
+bandwidth is ~2 x the Gaussian kernel support; composed responses are
 wider but use the same machinery), so the bound-constrained optimum is
 found with a Lawson-Hanson style active-set loop on LAPACK banded
 Cholesky factorizations (O(n b^2), BLAS-parallel): bins with negative
@@ -23,7 +23,8 @@ from __future__ import annotations
 import numba
 import numpy as np
 from scipy import sparse
-from scipy.linalg import cholesky_banded, cho_solve_banded
+from scipy.linalg import (cho_factor, cho_solve, cho_solve_banded,
+                         cholesky_banded)
 
 # per-entry relative jitter, fallback only (non-PD Hessian)
 JITTER_FRAC = 1e-10
@@ -43,6 +44,9 @@ def csr_to_upper_banded(h: sparse.csr_matrix) -> tuple[np.ndarray, int]:
     i = coo.row
     j = coo.col
     sel = j >= i
+    if not sel.any():
+        raise RuntimeError(
+            "Hessian has no entries (empty response or all-zero weights)")
     u = int((j[sel] - i[sel]).max())
     ab = np.zeros((u + 1, n), dtype=float)
     # direct assignment: every call site passes a canonical CSR (no
@@ -88,8 +92,43 @@ def _embed_equilibrate(ab: np.ndarray, u: int, free: np.ndarray
     return abw, d_scale
 
 
+def _embed_and_factor_dense(ab: np.ndarray, u: int, free: np.ndarray):
+    """Dense LAPACK path for a nearly dense Hessian (multithreaded BLAS).
+
+    The banded Cholesky is single-threaded and, at a bandwidth close to
+    ``n`` (the composed response carries the continuum, so its band is
+    nearly full), costs the same O(n^3) as a dense factorization without
+    the BLAS parallelism.  The embedding/equilibration semantics match
+    :func:`_embed_equilibrate` exactly.
+    """
+    n = ab.shape[1]
+    h = np.zeros((n, n), dtype=float)
+    idx = np.arange(n)
+    for d in range(u + 1):
+        diag = idx[:n - d]
+        h[diag, diag + d] = ab[u - d, d:]
+    h = h + np.triu(h, 1).T
+    nf = ~free
+    h[nf, :] = 0.0
+    h[:, nf] = 0.0
+    h[nf, nf] = 1.0
+    d_scale = 1.0 / np.sqrt(np.maximum(np.abs(np.diag(h)), 1e-30))
+    h = h * d_scale[:, None] * d_scale[None, :]
+    try:
+        c, lower = cho_factor(h, lower=False, check_finite=False)
+    except np.linalg.LinAlgError:
+        h[idx, idx] *= 1.0 + JITTER_FRAC
+        try:
+            c, lower = cho_factor(h, lower=False, check_finite=False)
+        except np.linalg.LinAlgError as exc:
+            raise RuntimeError(
+                "dense Cholesky factorization failed (degenerate Hessian; "
+                "check the data and the response matrix)") from exc
+    return c, lower, d_scale, True
+
+
 def embed_and_factor(ab: np.ndarray, u: int, free: np.ndarray
-                     ) -> tuple[np.ndarray, bool, np.ndarray]:
+                     ) -> tuple[np.ndarray, bool, np.ndarray, bool]:
     """Embed identity rows/cols for non-free bins, equilibrate, factorize.
 
     Returns the Cholesky factor, the lower flag and the diagonal
@@ -105,23 +144,39 @@ def embed_and_factor(ab: np.ndarray, u: int, free: np.ndarray
     precision (this is what keeps the active-set decisions exact at the
     mu = 0 boundary).  No jitter is added on the normal path; only a
     non-positive-definite embedded block (degenerate data) falls back to
-    a per-entry relative jitter.
+    a per-entry relative jitter.  A nearly dense band takes the dense
+    LAPACK path instead (see :func:`_embed_and_factor_dense`).
     """
+    if 2 * u >= ab.shape[1]:
+        return _embed_and_factor_dense(ab, u, free)
     abw, d_scale = _embed_equilibrate(ab, u, free)
     try:
         c = cholesky_banded(abw, lower=False, check_finite=False)
     except np.linalg.LinAlgError:
         abw[u] *= 1.0 + JITTER_FRAC
-        c = cholesky_banded(abw, lower=False, check_finite=False)
+        try:
+            c = cholesky_banded(abw, lower=False, check_finite=False)
+        except np.linalg.LinAlgError as exc:
+            raise RuntimeError(
+                "banded Cholesky factorization failed (degenerate "
+                "Hessian; check the data and the response matrix)") from exc
     if not np.isfinite(c).all():
         abw[u] *= 1.0 + JITTER_FRAC
-        c = cholesky_banded(abw, lower=False, check_finite=False)
+        try:
+            c = cholesky_banded(abw, lower=False, check_finite=False)
+        except np.linalg.LinAlgError as exc:
+            raise RuntimeError(
+                "banded Cholesky factorization failed (degenerate "
+                "Hessian; check the data and the response matrix)") from exc
+    if not np.isfinite(c).all():
+        raise RuntimeError(
+            "banded Cholesky factorization failed after jitter attempts "
+            "(degenerate Hessian; check the data and the response matrix)")
     return c, False, d_scale
 
 
 def solve_embedded(ab: np.ndarray, u: int, free: np.ndarray, rhs: np.ndarray,
-                   factor: tuple[np.ndarray, bool, np.ndarray] | None = None
-                   ) -> np.ndarray:
+                   factor=None) -> np.ndarray:
     """Solve the embedded (equilibrated) banded system.
 
     ``rhs`` may be one vector or a column stack of right sides; the
@@ -130,12 +185,13 @@ def solve_embedded(ab: np.ndarray, u: int, free: np.ndarray, rhs: np.ndarray,
     """
     if factor is None:
         factor = embed_and_factor(ab, u, free)
-    c, lower, d_scale = factor
+    c, lower, d_scale, dense = factor
     if rhs.ndim == 1:
         b = (np.where(free, rhs, 0.0)) * d_scale
     else:
         b = (rhs * free[:, None]) * d_scale[:, None]
-    x = cho_solve_banded((c, lower), b)
+    x = (cho_solve((c, lower), b, check_finite=False) if dense
+         else cho_solve_banded((c, lower), b))
     return x * d_scale[:, None] if x.ndim == 2 else x * d_scale
 
 
@@ -153,10 +209,20 @@ class UnfoldProblem:
         self.d_op = d_op
         self.alpha = alpha
         self.n = len(y)
+        self.converged = False  # set True by solve() on a normal exit
         # Full CSR Hessian H = 2 R^T W R + 2 a D^T D and the
         # normal-equation right side b = 2 R^T W y (both mu-independent).
-        self._h = (2.0 * (r.T @ sparse.diags(w) @ r)
-                   + 2.0 * alpha * (d_op.T @ d_op)).tocsr()
+        # For a nearly dense response (the composed R carries the
+        # continuum), build R^T W R with one BLAS-threaded dense GEMM
+        # instead of the single-threaded sparse product.
+        if r.nnz > 0.25 * self.n * self.n:
+            r_dense = r.toarray()
+            rtw_r = (r_dense.T * w) @ r_dense
+            self._h = (sparse.csr_matrix(2.0 * rtw_r)
+                       + 2.0 * alpha * (d_op.T @ d_op)).tocsr()
+        else:
+            self._h = (2.0 * (r.T @ sparse.diags(w) @ r)
+                       + 2.0 * alpha * (d_op.T @ d_op)).tocsr()
         self._b = 2.0 * (self.r.T @ (self.w * self.y))
 
     # --- objective ---
@@ -178,12 +244,15 @@ class UnfoldProblem:
         the enlarged set strictly decreases the objective); then the
         inner loop walks from the current *feasible* ``mu`` along the
         segment ``mu + t (x_P - mu)`` to the optimum ``x_P`` of the free
-        set, stopping at the first bin that hits zero (``t < 1``), which
+        set, stopping at the first bin that hits zero (        ``t < 1``), which
         is dropped and the set re-solved.  The iterate stays feasible and
         the objective strictly decreases at every solve, so the loop
-        converges to the exact KKT point ``mu >= 0, g >= 0, mu * g = 0``
-        (a stall guard catches the degenerate ``t = 0`` corner).  Fills
-        ``mu``, ``free``, ``chi2``, ``pen_cost`` and ``n_iter``; returns
+        converges to the exact KKT point ``mu >= 0, g >= 0, mu * g = 0``.
+        A stall (the degenerate ``t = 0`` corner) or exhausting the
+        iteration budget raises ``RuntimeError`` instead of returning a
+        non-converged point.  Fills
+        ``mu``, ``free``, ``chi2``, ``pen_cost``, ``n_iter`` and
+        ``converged``; returns
         ``mu``.
         """
         ab, u = self.hessian_banded()
@@ -213,17 +282,21 @@ class UnfoldProblem:
                 free = free & ~hit
             # Cycle guard: an outer iteration that changed neither mu nor
             # the free set (the t = 0 degenerate walk) would repeat
-            # identically forever; report the stalled point instead.
+            # identically forever; fail hard instead of returning a
+            # non-converged point.
             state = (free.tobytes(), mu.tobytes())
             if state == prev_state:
-                print("[unfold] warning: active-set QP stalled without "
-                      "progress; the solution may be degenerate")
-                break
+                raise RuntimeError(
+                    "active-set QP stalled without progress; the problem "
+                    "may be degenerate (check the data and the response "
+                    "matrix)")
             prev_state = state
         else:
-            print(f"[unfold] warning: active-set QP did not converge in "
-                  f"{max_iters - 1} iterations")
+            raise RuntimeError(
+                f"active-set QP did not converge in {max_iters - 1} "
+                f"iterations")
         self.n_iter = nit
+        self.converged = True
         clip_tol = max(1e-6, 1e-9 * float(np.max(mu)))
         self.mu = np.where(mu < clip_tol, 0.0, mu)
         # the covariance machinery (kc761unfold.uncertainties) treats bins at the

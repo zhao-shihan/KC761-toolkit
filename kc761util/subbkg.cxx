@@ -69,10 +69,31 @@ void subbkg(const std::string& sigFile, const std::string& bkgFile,
         gSystem->Exit(1);
         return;
     }
-    double r = tSig->GetVal() / tBkgVal;
+    double tSigVal = tSig->GetVal();
+    if (tSigVal <= 0.0) {
+        std::cerr << "[subbkg] error: signal daq_time must be > 0 (got "
+                  << tSigVal << ")\n";
+        gSystem->Exit(1);
+        return;
+    }
+    double r = tSigVal / tBkgVal;
+    if (!(r > 0.0)) {
+        std::cerr << "[subbkg] error: invalid background scale r = " << r
+                  << " (the signal/background daq_time ratio must be > 0)\n";
+        gSystem->Exit(1);
+        return;
+    }
 
     hSig->Sumw2();
     hBkg->Sumw2();
+
+    // Empty bins carry zero statistical error; give them an approximate
+    // Poisson error of 1 in both spectra, so the subtracted spectrum's
+    // empty-bin error becomes sqrt(1 + r^2) instead of 0.
+    for (int i = 1; i <= nBins; ++i) {
+        if (hSig->GetBinError(i) < 1.0) hSig->SetBinError(i, 1.0);
+        if (hBkg->GetBinError(i) < 1.0) hBkg->SetBinError(i, 1.0);
+    }
 
     TFile fOut(outName.c_str(), "RECREATE");
     fOut.cd();

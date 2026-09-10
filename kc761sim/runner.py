@@ -4,10 +4,10 @@ Two scoring paths share the run-manager assembly and the multiprocessing
 batch machinery but differ in their outputs:
 
 * the radioactive-source path writes the ntuple + spectrum histogram;
-* the matrix-mode path writes only the primary-to-deposition histogram G (TH2D)
+* the matrix-mode path writes only the primary-to-deposition histogram (TH2D)
   and the zero-deposition counter (TH1D), which are merged with hadd and
-  then composed into the primary-to-channel response matrix by
-  :mod:`kc761sim.compose`.
+  exported as the simulation file by :mod:`kc761sim.export` (the primary-to-channel
+  composition happens at unfold time).
 
 The merge validation is driven by a :class:`MergeExpectation` descriptor,
 so both paths share :func:`merge_worker_outputs` without hardcoding either
@@ -41,8 +41,8 @@ from . import (
 )
 from .config import SourceSpec
 from .paths import (
-    MATRIX_G_HIST_NAME,
-    MATRIX_ZERO_HIST_NAME,
+    PRIMARY_TO_DEPOSITION_HIST_NAME,
+    ZERO_DEPOSITION_HIST_NAME,
     NTUPLE_NAME,
     SPECTRUM_HIST_NAME,
     final_output_path,
@@ -76,7 +76,7 @@ class MergeExpectation:
 
     @classmethod
     def matrix(cls) -> "MergeExpectation":
-        return cls(hist_names=(MATRIX_G_HIST_NAME, MATRIX_ZERO_HIST_NAME))
+        return cls(hist_names=(PRIMARY_TO_DEPOSITION_HIST_NAME, ZERO_DEPOSITION_HIST_NAME))
 
 
 def apply_verbosity(run_manager: G4RunManager, verbose: int) -> None:
@@ -421,7 +421,7 @@ def run_batch_matrix(
     The merged output contains only the G histogram and the zero-deposition
     counter; the primary-to-channel response matrix is composed from it
     afterwards by
-    :mod:`kc761sim.compose`.
+    :mod:`kc761sim.export`.
     """
     _run_batch(
         functools.partial(run_matrix_simulation, source),

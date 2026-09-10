@@ -15,8 +15,8 @@ import time
 import numpy as np
 from scipy import optimize
 
-from .covariance import parameter_covariance
-from .fitparamspace import CALIB, RESOL
+from .fitparamspace import CALIB, CORE, RESOL
+from .profilecov import profile_covariance
 from .types import FitResult
 
 # Progress-line print cadence for each stage (modulo, when verbose).
@@ -132,40 +132,53 @@ def _fit_once(model, x0, bounds, stage1_maxiter, stage2_maxiter,
 
 
 def _fit_statistics(model, q):
-    """Diagnostics, covariance and per-block uncertainties at the fitted point."""
+    """Diagnostics, profile covariance and per-block uncertainties at the fitted point."""
     det = model.detail(q)
-    reduced = (det.chi2 / det.ndof if det.valid and det.ndof > 0
-               and np.isfinite(det.chi2) else None)
-    cov = parameter_covariance(model, q, reduced_chi2=reduced)
+    cov7, _, bound_limited, err_lo, err_hi = profile_covariance(
+        model, q)
+    # Full covariance: the profile-widths x linear-correlation 7x7 on the
+    # core block (internal slope basis); the scale parameters are not
+    # reported, so their rows/columns stay NaN.
+    cov = np.full((len(q), len(q)), np.nan)
+    cov[CORE, CORE] = cov7
     perr = np.sqrt(np.maximum(np.diag(cov), 0.0))
 
     calib_cov = np.asarray(cov[CALIB, CALIB], dtype=float)
     resol_cov = np.asarray(cov[RESOL, RESOL], dtype=float)
     calib_unc = np.sqrt(np.maximum(np.diag(calib_cov), 0.0))
     resol_unc = np.sqrt(np.maximum(np.diag(resol_cov), 0.0))
-    return det, cov, perr, calib_cov, calib_unc, resol_cov, resol_unc
+    return (det, cov, perr, calib_cov, calib_unc, resol_cov, resol_unc,
+            bound_limited, err_lo, err_hi)
+
+
+# Fit exit states carried by FitResult.status (see kc761calib.types).
+STATUS_CONVERGED = "converged"
+STATUS_STOPPED = "stopped-early"
+STATUS_DEGENERATE = "degenerate"
 
 
 def _reconcile_success(det, success: bool, message: str):
     if not det.valid or not np.isfinite(det.chi2):
-        return False, ("degenerate fit (insufficient data coverage or "
-                       "infeasible parameters)")
+        return (False, STATUS_DEGENERATE,
+                "degenerate fit (insufficient data coverage or "
+                "infeasible parameters)")
     if success:
-        return True, message
-    return True, f"converged (optimizer stopped early: {message})"
+        return True, STATUS_CONVERGED, message
+    return False, STATUS_STOPPED, f"optimizer stopped early: {message}"
 
 
 def _finalize(model, q, success: bool = True, message: str = "",
               nfev: int = 0) -> FitResult:
     q = np.asarray(q, dtype=float)
-    det, cov, perr, calib_cov, calib_unc, resol_cov, resol_unc = (
-        _fit_statistics(model, q))
-    success, message = _reconcile_success(det, success, message)
+    (det, cov, perr, calib_cov, calib_unc, resol_cov, resol_unc,
+     bound_limited, err_lo, err_hi) = _fit_statistics(model, q)
+    success, status, message = _reconcile_success(det, success, message)
     chi2 = float(det.chi2)
     ndof = int(det.ndof)
 
     return FitResult(
         success=success,
+        status=status,
         message=message,
         nfev=int(nfev),
         params=q,
@@ -180,6 +193,9 @@ def _finalize(model, q, success: bool = True, message: str = "",
         resol_params=np.asarray(q[RESOL], dtype=float),
         resol_uncertainties=resol_unc, resol_cov=resol_cov,
         detail=det,
+        bound_limited=bound_limited,
+        err_lo=err_lo,
+        err_hi=err_hi,
     )
 
 

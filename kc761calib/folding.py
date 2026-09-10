@@ -20,9 +20,10 @@ cutoff ``exp(-12.5) ~ 3.7e-6`` makes the truncation negligible and keeps the
 residual smooth in the resolution parameters, so finite-difference
 covariance steps sample the same derivative everywhere) and each column is
 renormalized to sum exactly 1, absorbing the ~1e-6 quadrature error of the
-finite support.  The renormalization is a fit-internal choice: the exported
-full-range matrix (:mod:`kc761calib.export`) keeps the columns unnormalized,
-so the probability beyond the detector range stays truncated.  Because
+finite support.  The exported full-range matrix
+(:mod:`kc761calib.export`) uses the same 5-sigma cutoff and column
+renormalization, so the probability beyond the detector range is
+redistributed rather than truncated.  Because
 ``sigma`` saturates at its ``E = 0`` value (see :mod:`kc761calib.response`),
 the kernel support never collapses to a sub-bin delta below the fit range.
 
@@ -383,13 +384,13 @@ def _folded_variances_csr(indptr, indices, data, bands_all, band_dims):
 
 
 @dataclass
-class SimProjection:
-    """One simulation projected through the response onto channels.
+class McProjection:
+    """One Monte Carlo spectrum projected through the response onto channels.
 
     ``counts``/``variances`` are the folded counts and their exact MC
     variance per channel (module docstring); ``rebinned`` /
     ``rebinned_variances`` carry the pre-folding ``W n`` and ``W^2 v`` on
-    the energy-deposition bins, so consumers needing the raw-sim spectrum do
+    the energy-deposition bins, so consumers needing the raw-MC spectrum do
     not recompute the rebin.
     """
 
@@ -404,7 +405,7 @@ class Response:
     per chi-square evaluation.  Each dataset rebins its simulation onto the
     binning, folds it through the matrix into channel space, and slices its
     own channel range; projections carry the folded counts with their MC
-    variances (:class:`SimProjection`).
+    variances (:class:`McProjection`).
     """
 
     def __init__(self, binning: ExtendedBinning, matrix: sparse.spmatrix):
@@ -425,22 +426,23 @@ class Response:
         matrix = build_response_matrix(binning, resol_params, n_sigma)
         return cls(binning, matrix)
 
-    def _rebin_structure(self, sim):
+    def _rebin_structure(self, mc_spectrum):
         """Source-major rebin triples and bandwidth ``(rows, weights, offsets,
-        max_band)`` for ``sim``."""
-        return _assemble_rebin_weights(sim.edges, self.binning.energy_edges)
+        max_band)`` for ``mc_spectrum``."""
+        return _assemble_rebin_weights(mc_spectrum.edges,
+                                       self.binning.energy_edges)
 
     @staticmethod
-    def _source_variances(sim) -> np.ndarray:
+    def _source_variances(mc_spectrum) -> np.ndarray:
         """Per-source-bin variances: stored ``sumw2`` or the Poisson estimate."""
-        variances = sim.variances
+        variances = mc_spectrum.variances
         if variances is None:
-            return np.maximum(sim.counts, 0.0)
+            return np.maximum(mc_spectrum.counts, 0.0)
         return variances
 
     @staticmethod
     def _variance_stack(bands_list: list[np.ndarray]):
-        """Pad per-sim band arrays to a common ``max_band`` and stack them."""
+        """Pad per-MC band arrays to a common ``max_band`` and stack them."""
         max_band = max(b.shape[0] - 1 for b in bands_list)
         n_rows = bands_list[0].shape[1]
         stacked = np.zeros((len(bands_list), max_band + 1, n_rows))
@@ -449,34 +451,35 @@ class Response:
         return stacked, np.array([b.shape[0] - 1 for b in bands_list],
                                  dtype=np.int64)
 
-    def project(self, sim) -> SimProjection:
-        """Rebinned, folded sim counts per channel with their MC variance."""
-        return self.project_many([sim])[0]
+    def project(self, mc_spectrum) -> McProjection:
+        """Rebinned, folded MC counts per channel with their MC variance."""
+        return self.project_many([mc_spectrum])[0]
 
-    def project_many(self, sims) -> list[SimProjection]:
-        """Project several sims; single-sim ``project`` delegates here.
+    def project_many(self, mc_spectra) -> list[McProjection]:
+        """Project several MC spectra; single-spectrum ``project`` delegates here.
 
-        Rebins each sim onto the binning and folds them through the shared
-        matrix in one sparse @ dense multiply (better matrix-structure reuse
-        than N matvecs); the variances are propagated by one row-parallel
-        kernel over the CSR triples.  Sims sharing a binning reuse one rebin
-        structure.
+        Rebins each spectrum onto the binning and folds them through the
+        shared matrix in one sparse @ dense multiply (better
+        matrix-structure reuse than N matvecs); the variances are
+        propagated by one row-parallel kernel over the CSR triples.
+        Spectra sharing a binning reuse one rebin structure.
         """
-        if not sims:
+        if not mc_spectra:
             return []
         n_target = self.binning.energy_centers.size
         structure = None
         prev_edges = None
         rebinned_list = []
         bands_list = []
-        for sim in sims:
-            if structure is None or not np.array_equal(sim.edges, prev_edges):
-                structure = self._rebin_structure(sim)
-                prev_edges = sim.edges
+        for mc_spectrum in mc_spectra:
+            if structure is None or not np.array_equal(mc_spectrum.edges,
+                                                       prev_edges):
+                structure = self._rebin_structure(mc_spectrum)
+                prev_edges = mc_spectrum.edges
             rows, weights, offsets, max_band = structure
             rebinned, bands = _rebin_accumulate(
-                rows, weights, offsets, sim.counts,
-                self._source_variances(sim), n_target, max_band)
+                rows, weights, offsets, mc_spectrum.counts,
+                self._source_variances(mc_spectrum), n_target, max_band)
             rebinned_list.append(rebinned)
             bands_list.append(bands)
         folded = self.matrix @ np.column_stack(rebinned_list)
@@ -485,10 +488,10 @@ class Response:
             self.matrix.indptr, self.matrix.indices, self.matrix.data,
             bands_all, band_dims)
         return [
-            SimProjection(
+            McProjection(
                 counts=folded[:, j],
                 variances=variances_all[j * n_target:(j + 1) * n_target],
                 rebinned=rebinned_list[j],
                 rebinned_variances=bands_list[j][0])
-            for j in range(len(sims))
+            for j in range(len(mc_spectra))
         ]

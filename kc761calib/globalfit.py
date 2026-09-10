@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 @dataclass
 class DatasetSpec:
     data: Spectrum
-    sim: Spectrum
+    mc_spectrum: Spectrum
     channel_low: int
     channel_high: int
 
@@ -62,7 +62,7 @@ class GlobalFitModel:
             self.fit_channel_low, self.fit_channel_high, self.last_channel)
 
         self.models = [
-            FitModel(s.data, s.sim, s.channel_low, s.channel_high,
+            FitModel(s.data, s.mc_spectrum, s.channel_low, s.channel_high,
                      syst_frac=self.syst_fracs[i],
                      init_response=self.init_response)
             for i, s in enumerate(self.specs)
@@ -100,10 +100,6 @@ class GlobalFitModel:
 
     # ----- evaluation -------------------------------------------------------
 
-    def masks(self, q) -> list[np.ndarray]:
-        """Per-dataset usable-bin masks (fixed; frozen for numerical Jacobians)."""
-        return [m.usable_mask for m in self.models]
-
     def _build_response(self, calib_params: np.ndarray,
                         resol_params: np.ndarray) -> Response:
         """One shared binning + deposition-to-channel response matrix per evaluation."""
@@ -126,21 +122,18 @@ class GlobalFitModel:
         if key != self._proj_cache_key:
             resp = self._build_response(calib_params, resol_params)
             self._proj_cache = (resp, resp.project_many(
-                [m.sim for m in self.models]))
+                [m.mc_spectrum for m in self.models]))
             self._proj_cache_key = key
         return self._proj_cache
 
     def _per_dataset_arrays(self, calib_params: np.ndarray,
                             resol_params: np.ndarray,
-                            mask_list: list[np.ndarray] | None = None,
                             ) -> list[DatasetArrays] | None:
         resp, projections = self._cached_projection(calib_params, resol_params)
         arrays_list = []
         for i, m in enumerate(self.models):
-            mask = None if mask_list is None else mask_list[i]
-            arrays = m.dataset_arrays(
-                resp, mask=mask, projection=projections[i])
-            if len(arrays.data_counts) < m.min_usable_bins:
+            arrays = m.dataset_arrays(resp, projection=projections[i])
+            if m.positive_stat_bins < m.min_positive_stat_bins:
                 return None
             arrays_list.append(arrays)
         return arrays_list
@@ -157,18 +150,14 @@ class GlobalFitModel:
             for i, arrays in enumerate(arrays_list)
         ]
 
-    def residuals(self, q, mask_list=None) -> np.ndarray:
+    def residuals(self, q) -> np.ndarray:
         q = np.asarray(q, dtype=float)
-        if mask_list is not None:
-            sizes = [int(np.sum(m)) for m in mask_list]
-        else:
-            sizes = [m.usable_bins for m in self.models]
+        sizes = [m.channel_high - m.channel_low + 1 for m in self.models]
         gate = self._gate(q)
         if gate is None:
             return np.full(int(sum(sizes)), np.nan)
         calib_params, resol_params = gate
-        arrays_list = self._per_dataset_arrays(calib_params, resol_params,
-                                               mask_list)
+        arrays_list = self._per_dataset_arrays(calib_params, resol_params)
         if arrays_list is None:
             return np.full(int(sum(sizes)), np.nan)
         return np.concatenate(self._per_dataset_pulls(q, arrays_list))
@@ -200,14 +189,15 @@ class GlobalFitModel:
             return FitDetail(datasets=[], chi2=np.inf, ndof=0,
                              **base, valid=False)
         calib_params, resol_params = gate
-        resp = self._build_response(calib_params, resol_params)
+        resp, projections = self._cached_projection(calib_params, resol_params)
 
         entries = []
         for i, m in enumerate(self.models):
-            entries.append(m.dataset_detail(self.labels[i], resp,
-                                            q[self.param_space.scale(i)]))
-        if any(ds.n_bins < m.min_usable_bins
-               for ds, m in zip(entries, self.models)):
+            entries.append(m.dataset_detail(
+                self.labels[i], resp, q[self.param_space.scale(i)],
+                projection=projections[i]))
+        if any(m.positive_stat_bins < m.min_positive_stat_bins
+               for m in self.models):
             return FitDetail(datasets=[], chi2=np.inf, ndof=0,
                              **base, valid=False)
 

@@ -9,10 +9,12 @@ covariance unchanged, a poor fit inflates the reported uncertainties.
 
 ``J`` is always obtained by finite differences (the model has no analytic
 derivatives).  The step balances the ``O(h^2)`` truncation error against the
-``O(eps/h)`` round-off error, giving the relative step ``eps^(1/3) ~ 4.9e-3``
+``O(eps/h)`` round-off error, giving the relative step ``eps^(1/3) ~ 6e-6``
 for central differences (``eps^(1/2)`` for the one-sided differences used at
-bounds), based on float32 eps (see :func:`numerical_jacobian`).  The
-covariance is assembled by inverting ``J^T J`` on the identifiable subspace
+bounds), based on float64 eps (see :func:`numerical_jacobian`).  The
+covariance is only the sampling seed of the reported profile covariance
+(:mod:`kc761calib.profilecov`) and of ``tmp/chi2_shape.py``; it is
+assembled by inverting ``J^T J`` on the identifiable subspace
 (SVD rank test); undetermined parameters report NaN uncertainties instead
 of a misleading finite or zero value.
 """
@@ -21,8 +23,8 @@ from __future__ import annotations
 
 import numpy as np
 
-_CENTRAL_STEP = np.finfo(np.float32).eps ** (1.0 / 3.0)
-_ONESIDED_STEP = np.finfo(np.float32).eps ** 0.5
+_CENTRAL_STEP = np.finfo(np.float64).eps ** (1.0 / 3.0)
+_ONESIDED_STEP = np.finfo(np.float64).eps ** 0.5
 
 
 def numerical_jacobian(fun, x: np.ndarray,
@@ -124,18 +126,16 @@ def parameter_covariance(model, q: np.ndarray, *,
                          rel_step: float = _CENTRAL_STEP) -> np.ndarray:
     """Covariance of the fitted parameters from numerically differentiated residuals.
 
-    The residual bin selection is frozen (``model.masks(q)``) so the Jacobian
-    differencing sees a fixed residual layout.  ``reduced_chi2``, when finite
-    and positive, rescales the covariance by ``s^2 = chi^2/ndof``; pass None
-    for the unscaled ``(J^T J)^-1``.  Parameters that cannot be probed or are
-    undetermined (rank-deficient Jacobian) report NaN variances.
+    ``reduced_chi2``, when finite and positive, rescales the covariance by
+    ``s^2 = chi^2/ndof``; pass None for the unscaled ``(J^T J)^-1``.
+    Parameters that cannot be probed or are undetermined (rank-deficient
+    Jacobian) report NaN variances.
     """
     q = np.asarray(q, dtype=float)
     n = len(q)
     cov = np.full((n, n), np.nan)
-    masks = model.masks(q)
 
-    def fun(qq): return model.residuals(qq, masks)
+    def fun(qq): return model.residuals(qq)
 
     jac = numerical_jacobian(fun, q, model.bounds, rel_step=rel_step)
     finite_cols = np.all(np.isfinite(jac), axis=0)

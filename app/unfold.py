@@ -12,7 +12,7 @@ from kc761unfold.cli import parse_args
 from kc761unfold.export import run_export
 from kc761unfold.plot import plot_result
 from kc761unfold.reader import (energy_to_channels, load_calibration,
-                                slice_calibration)
+                                load_sim, validate_sim_against_calib)
 from kc761unfold.report import print_summary
 from kc761unfold.types import UnfoldSettings
 from kc761util.rootcxxfrontend import find_root
@@ -57,6 +57,15 @@ def _run(args) -> int:
               f"{calib_full.n_channels}; mismatched binning",
               file=sys.stderr)
         return 1
+    if args.sim is None and not args.calib_only:
+        print("[unfold] error: --sim is required in unfold mode "
+              "(pass it, or use --calib-only to relabel without "
+              "unfolding)", file=sys.stderr)
+        return 1
+    sim_full = None
+    if args.sim is not None:
+        sim_full = load_sim(str(args.sim))
+        validate_sim_against_calib(sim_full, calib_full)
     elo = args.elo
     ehi = args.ehi
     try:
@@ -64,20 +73,25 @@ def _run(args) -> int:
     except ValueError as exc:
         print(f"[unfold] error: {exc}", file=sys.stderr)
         return 1
-    calib = slice_calibration(calib_full, ch_lo, ch_hi)
 
     settings = UnfoldSettings(alpha=args.alpha, mask_z0=args.mask_z0,
                               mask_floor=args.mask_floor, k=args.k,
                               snip_iter=args.snip_iter,
                               syst_frac=args.syst,
+                              pad_nsigma=args.pad_nsigma,
                               energy_low=elo, energy_high=ehi,
                               channel_low=ch_lo, channel_high=ch_hi)
-    if args.calib_only:
-        result = unfold_mod.run_calib_only(calib, data.counts,
-                                           data.uncertainties, settings)
-    else:
-        result = unfold_mod.run_unfold(calib, data.counts, data.uncertainties,
-                                       settings)
+    try:
+        if args.calib_only:
+            result = unfold_mod.run_calib_only(calib_full, data.counts,
+                                               data.uncertainties, settings)
+        else:
+            result = unfold_mod.run_unfold(calib_full, sim_full,
+                                           data.counts, data.uncertainties,
+                                           settings)
+    except RuntimeError as exc:
+        print(f"[unfold] error: {exc}", file=sys.stderr)
+        return 1
     print_summary(result, str(data_file), str(calib_file))
 
     stem = data_file.stem

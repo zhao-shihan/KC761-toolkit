@@ -11,6 +11,10 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
+
+# Must run before pyplot is imported; 3.11+ ignores a use() after it.
+matplotlib.use("Agg", force=True)
+
 from matplotlib import pyplot as plt
 from matplotlib.backend_bases import FigureCanvasBase
 from matplotlib.gridspec import GridSpecFromSubplotSpec
@@ -22,8 +26,6 @@ from .response import (PARAM_NAMES_B, PARAM_NAMES_C, PARAM_NAMES_K,
                        resol_sigma_model)
 from .scaling import scale_model
 from .util import bernstein_basis
-
-matplotlib.use("Agg")
 
 
 # Palette: colors of the plotted artists, grouped per panel.
@@ -115,22 +117,40 @@ def _title_panel(ax, txt: str) -> None:
 
 
 def _parameter_text(result) -> str:
-    def rows(names, vals, uncs): return "\n".join(
-        f"{n} = {v: .6g} $\\pm$ {u_: .3g}"
-        for n, v, u_ in zip(names, vals, uncs))
+    def asym(v, lo, hi):
+        # LaTeX superscript/subscript: value with +hi over -lo; when the
+        # upper and lower errors round to the same string, report the
+        # symmetric value with +-.
+        lo_s = f"{lo:.3g}"
+        hi_s = f"{hi:.3g}"
+        if lo_s == hi_s:
+            return f"{v: .6g}$\\pm{hi_s}$"
+        return f"{v: .6g}$^\\text{{+{hi_s}}}_\\text{{-{lo_s}}}$"
+
+    def rows(names, vals, los, his): return "\n".join(
+        f"{n} = {asym(v, lo, hi)}"
+        for n, v, lo, hi in zip(names, vals, los, his))
     calib = result.calib_params
-    calib_unc = result.calib_uncertainties
+    calib_cov = result.calib_cov
     coeffs, coeff_uncertainties, _ = reported_calib(
-        calib, result.calib_cov, result.detail.channel_max)
+        calib, calib_cov, result.detail.channel_max)
     resol = result.resol_params
-    resol_unc = result.resol_uncertainties
+    if result.err_lo is not None and result.err_hi is not None:
+        # Asymmetric profile widths for the fit-basis parameters
+        # (c0..c3 keep the transformed symmetric values).
+        k_lo, k_hi = result.err_lo[1:4], result.err_hi[1:4]
+        b_lo, b_hi = result.err_lo[4:7], result.err_hi[4:7]
+    else:
+        k_lo = k_hi = result.calib_uncertainties[CALIB_K]
+        b_lo = b_hi = result.resol_uncertainties
     return ("\n".join([
         "=== Calibration coefficients ===",
-        rows(PARAM_NAMES_C, coeffs, coeff_uncertainties),
+        rows(PARAM_NAMES_C, coeffs, coeff_uncertainties,
+             coeff_uncertainties),
         "==== Calibration slopes ====",
-        rows(PARAM_NAMES_K, calib[CALIB_K], calib_unc[CALIB_K]),
+        rows(PARAM_NAMES_K, calib[CALIB_K], k_lo, k_hi),
         "=== Resolution parameters ===",
-        rows(PARAM_NAMES_B, resol, resol_unc),
+        rows(PARAM_NAMES_B, resol, b_lo, b_hi),
     ]))
 
 
@@ -206,18 +226,18 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
     ch_full = np.arange(ds.channel_low, ds.channel_high + 1, dtype=float)
     sb_full = scale_model(ds.scale_params, ch_full,
                           ds.channel_low, ds.channel_high)
-    stairs_handle = ax.stairs(sb_full[lo:] * ds.raw_sim[lo:],
+    stairs_handle = ax.stairs(sb_full[lo:] * ds.raw_mc_counts[lo:],
                               ds.bin_edges[lo:],
                               lw=0.8, color=_COLOR_SIM_RAW, zorder=2)
     # MC statistical uncertainty bars of the raw (pre-folding) rebinned
-    # sim, scaled by the same scale curve as the stairs, at the midpoints
-    # of the energy-deposition bin edges.  No own legend entry: the legend
-    # reuses the "Raw sim." handle, overlaid with the uncertainty-bar
-    # artist.
-    sim_centers = 0.5 * (ds.bin_edges[lo:-1] + ds.bin_edges[lo + 1:])
-    sim_unc_handle = ax.errorbar(
-        sim_centers, sb_full[lo:] * ds.raw_sim[lo:],
-        yerr=sb_full[lo:] * ds.raw_sim_uncertainties[lo:],
+    # MC spectrum, scaled by the same scale curve as the stairs, at the
+    # midpoints of the energy-deposition bin edges.  No own legend entry:
+    # the legend reuses the "Raw MC" handle, overlaid with the
+    # uncertainty-bar artist.
+    mc_centers = 0.5 * (ds.bin_edges[lo:-1] + ds.bin_edges[lo + 1:])
+    mc_unc_handle = ax.errorbar(
+        mc_centers, sb_full[lo:] * ds.raw_mc_counts[lo:],
+        yerr=sb_full[lo:] * ds.raw_mc_uncertainties[lo:],
         fmt="none", ecolor=_COLOR_SIM_RAW, elinewidth=0.8, capsize=0,
         zorder=2.5)
     # The data-side artists cover the usable bins: keep only the bins at or
@@ -225,18 +245,18 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
     # bins fully above zero).
     m = ds.bin_centers >= e_lo
     data_handle = ax.errorbar(ds.bin_centers[m], ds.data_counts[m],
-                              yerr=ds.data_uncertainties[m],
+                              yerr=ds.data_display_uncertainties[m],
                               fmt="o", ms=1.5, lw=0.8, color=_COLOR_DATA,
                               zorder=3, label="Data (bkg-subtracted)")
     # Uncertainty band around the best-fit curve: the Monte Carlo
-    # statistical uncertainty of the scaled folded-sim prediction, +/-
-    # model_uncertainties.  No own legend entry: the legend reuses the
+    # statistical uncertainty of the scaled folded-MC prediction, +/-
+    # model_mc_uncertainties.  No own legend entry: the legend reuses the
     # "Best fit" handle, overlaid with the band patch.
     band_handle = ax.fill_between(ds.bin_centers[m],
                                   (ds.model_prediction
-                                   - ds.model_uncertainties)[m],
+                                   - ds.model_mc_uncertainties)[m],
                                   (ds.model_prediction
-                                   + ds.model_uncertainties)[m],
+                                   + ds.model_mc_uncertainties)[m],
                                   color=_COLOR_FIT, alpha=0.18, linewidth=0,
                                   zorder=3.5)
     line_fit, = ax.plot(ds.bin_centers[m], ds.model_prediction[m], "-",
@@ -252,19 +272,19 @@ def _spectrum_panel(ax, ds, calib, channel_max, title: str | None) -> None:
     ax.set_ylabel("Counts")
 
     # Legend order (top->bottom): Data, Best-fit (line + MC stat. band),
-    # Raw sim. (line + MC stat. uncertainty bars), Scale.
+    # Raw MC (line + MC stat. uncertainty bars), Scale.
     ax.legend([data_handle, (line_fit, band_handle),
-               (stairs_handle, sim_unc_handle), line_scale],
+               (stairs_handle, mc_unc_handle), line_scale],
               ["Data (bkg-subtracted)",
-               "Best fit (folded sim.)",
-               "Raw sim. (scaled)",
+               "Best fit (folded MC)",
+               "Raw MC (scaled)",
                "Scale s(ch)"],
               fontsize=8, loc="lower left")
     if title is not None:
         ax.set_title(title, fontsize=9)
 
 
-def _residual_panel(ax, bin_centers, data_counts, combined_uncertainties,
+def _residual_panel(ax, bin_centers, data_counts, fit_sigma,
                     model_prediction, energy_low, energy_high,
                     title: str) -> None:
     # Same positive-energy truncation as the spectrum panel so both panels
@@ -273,18 +293,17 @@ def _residual_panel(ax, bin_centers, data_counts, combined_uncertainties,
     m = bin_centers >= energy_low
     bin_centers = bin_centers[m]
     data_counts = data_counts[m]
-    combined_uncertainties = combined_uncertainties[m]
+    fit_sigma = fit_sigma[m]
     model_prediction = model_prediction[m]
     ok = model_prediction > 0
     rel = (data_counts[ok] - model_prediction[ok]) / model_prediction[ok]
     # The uncertainty bars on the ratio carry the full per-bin sigma of the
     # numerator (data - model): the data's statistical + systematic
     # uncertainty plus the Monte Carlo statistical uncertainty of the
-    # scaled folded-sim prediction, divided by the model prediction -- i.e.
-    # combined_uncertainties includes the simulated spectrum's
-    # finite-statistics uncertainty.
+    # scaled folded-MC prediction, divided by the model prediction -- i.e.
+    # fit_sigma includes the MC spectrum's finite-statistics uncertainty.
     ax.errorbar(bin_centers[ok], rel,
-                yerr=combined_uncertainties[ok] / model_prediction[ok],
+                yerr=fit_sigma[ok] / model_prediction[ok],
                 fmt="o", ms=1.5, lw=0.8, color=_COLOR_RESIDUAL_POINTS, alpha=0.8)
     ax.axhline(0, color=_COLOR_RESIDUAL_ZERO, lw=0.8)
     for level in (-0.3, 0.3):
@@ -450,7 +469,7 @@ def plot_fit(result, out_plot: str) -> Path:
         res_title = f"{label} residual"
         _spectrum_panel(ax_spec, ds, calib, det.channel_max, spec_title)
         _residual_panel(ax_pull, ds.bin_centers, ds.data_counts,
-                        ds.combined_uncertainties, ds.model_prediction,
+                        ds.fit_sigma, ds.model_prediction,
                         float(ds.bin_edges[_positive_start(ds.bin_edges)]),
                         ds.bin_edges[-1], res_title)
 

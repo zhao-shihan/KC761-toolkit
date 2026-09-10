@@ -22,11 +22,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# Mode identifiers stored in the composite output files.
+# Mode identifiers stored in the G output files.
 MODE_PLANE = 1
 MODE_SPHERE = 2
 
-# Per-mode metadata written to the composite output files:
+# Per-mode metadata written to the G output files:
 # ``(mode, mode_name, geometry parameter name)``.
 _MODE_METADATA = {
     MODE_PLANE: ("plane_front_gamma", "plane_z_mm"),
@@ -123,7 +123,7 @@ def mode_metadata(source: MatrixSource) -> tuple[int, str, str, float]:
     """``(mode, mode_name, geometry parameter name, geometry parameter)``.
 
     The single dispatch point for everything mode-specific that the
-    composite export records; the geometry parameter is ``z_mm`` for the
+    simulation-file records; the geometry parameter is ``z_mm`` for the
     plane and ``radius`` for the sphere.
     """
     if isinstance(source, PlaneGammaSource):

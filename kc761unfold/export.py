@@ -9,59 +9,51 @@ success (it is kept for inspection on failure).
 from __future__ import annotations
 
 import sys
-import tempfile
 from pathlib import Path
 
 import numpy as np
 
+from kc761util.binexport import ExportWriter
 from kc761util.rootcxxfrontend import format_macro_cmd, run_macro
 
 from .types import UnfoldResult
 
-_MAGIC = "kc761unfold export v1\n"
-
-
-def _put(fh, arr: np.ndarray) -> None:
-    np.asarray(arr, dtype=float).tofile(fh)
-
-
-def _put_i64(fh, value: int) -> None:
-    np.int64(value).tofile(fh)
+_MAGIC = b"kc761unfold export v2\n"
 
 
 def write_export_file(result: UnfoldResult) -> Path:
-    """Serialize the result to a temporary file; return its path."""
-    fh = tempfile.NamedTemporaryFile(mode="wb", suffix=".kc761unfold",
-                                     delete=False)
-    with fh:
-        fh.write(_MAGIC.encode("ascii"))
-        _put_i64(fh, 1 if result.calib_only else 0)
-        _put_i64(fh, result.n_bins)
-        _put_i64(fh, result.channel_low)
-        _put_i64(fh, result.channel_high)
-        _put(fh, result.energy_edges)
-        _put(fh, result.counts)
-        _put(fh, result.sigma_total)
-        _put_i64(fh, 1 if result.refolded is not None else 0)
+    """Serialize the result to a temporary file; return its path.
+
+    The per-bin uncertainty bands (total, statistical and systematic)
+    are exported explicitly; the full covariance matrices are not part
+    of the output (the diagonals carry the exported 1-sigma bands, and
+    the zero-content/bound bins keep their 0 entries).
+    """
+    writer = ExportWriter("kc761unfold-export-", _MAGIC)
+    with writer:
+        writer.put_i64(1 if result.calib_only else 0)
+        writer.put_i64(result.n_bins)
+        writer.put_i64(result.channel_low)
+        writer.put_i64(result.channel_high)
+        writer.put_f64(result.energy_edges)
+        writer.put_f64(result.counts)
+        writer.put_f64(result.sigma_total)
+        writer.put_f64(result.sigma_stat)
+        writer.put_f64(result.sigma_syst)
+        writer.put_i64(1 if result.refolded is not None else 0)
         if result.refolded is not None:
-            _put(fh, result.refolded)
-        _put_i64(fh, 1 if result.stat_cov is not None else 0)
-        if result.stat_cov is not None:
-            _put(fh, np.asarray(result.stat_cov, dtype=float).ravel())
-        _put_i64(fh, 1 if result.syst_cov is not None else 0)
-        if result.syst_cov is not None:
-            _put(fh, np.asarray(result.syst_cov, dtype=float).ravel())
+            writer.put_f64(result.refolded)
         s = result.settings
-        _put(fh, np.array([s.alpha, s.mask_z0, s.mask_floor, s.syst_frac,
-                           s.energy_low, s.energy_high]))
-        _put_i64(fh, s.k)
-        _put_i64(fh, s.snip_iter)
-        _put(fh, np.array([result.chi2 if result.chi2 is not None else 0.0,
-                           result.pen_cost if result.pen_cost is not None
-                           else 0.0]))
-        _put_i64(fh, result.ndof if result.ndof is not None else 0)
-        _put_i64(fh, result.n_iter if result.n_iter is not None else 0)
-    return Path(fh.name)
+        writer.put_f64(np.array([s.alpha, s.mask_z0, s.mask_floor,
+                                  s.syst_frac, s.energy_low, s.energy_high]))
+        writer.put_i64(s.k)
+        writer.put_i64(s.snip_iter)
+        writer.put_f64(np.array(
+            [result.chi2 if result.chi2 is not None else 0.0,
+             result.pen_cost if result.pen_cost is not None else 0.0]))
+        writer.put_i64(result.ndof if result.ndof is not None else 0)
+        writer.put_i64(result.n_iter if result.n_iter is not None else 0)
+    return Path(writer.path)
 
 
 def run_export(result: UnfoldResult, root_out: str | Path,

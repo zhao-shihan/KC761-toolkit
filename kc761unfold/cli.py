@@ -16,12 +16,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Unfold a KC761 channel spectrum into an energy spectrum "
                     "with the hybrid regularized unfolding, "
                     "using the to-channel matrix of a kc761calib export "
-                    "(deposition-to-channel) or a kc761sim composite "
-                    "file (primary-to-channel).  "
+                    "(deposition-to-channel) composed with the kc761sim "
+                    "matrix-mode simulation file (primary-to-deposition).  "
         "Alternatively, --calib-only relabels the channel axis "
                     "to energy without unfolding.  The unfolded spectrum "
                     "(TH1D, total uncertainties), the statistical and systematic "
-                    "covariance matrices (TH2D), the refolded spectrum and "
+                    "uncertainty bands (TH1D), the refolded spectrum and "
                     "the fit settings are written to a ROOT file via "
                     "kc761unfold/unfold2root.cxx."
     )
@@ -29,9 +29,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="data spectrum ROOT file (kc761_spectrum TH1D); "
                              "background subtraction is optional")
     parser.add_argument("--calib", type=Path, required=True, metavar="FILE",
-                        help="kc761calib export or kc761sim composite ROOT file with the "
-                             "to-channel matrix (deposition-to-channel "
-                             "or primary-to-channel, required)")
+                        help="kc761calib export ROOT file with the "
+                             "deposition-to-channel matrix (required)")
+    parser.add_argument("--sim", type=Path, default=None, metavar="FILE",
+                        help="kc761sim matrix-mode simulation file "
+                             "(primary-to-deposition counts and detection "
+                             "efficiency; required unless --calib-only is "
+                             "given)")
     parser.add_argument("--calib-only", action="store_true",
                         help="relabel the channel axis to energy without "
                              "unfolding")
@@ -45,6 +49,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         metavar="ALPHA",
                         help="regularization strength (dimensionless, "
                              f"default {DEFAULT_ALPHA:g})")
+    parser.add_argument("--pad-nsigma", type=float, default=5.0,
+                        metavar="N",
+                        help="window padding in local resolution widths, "
+                             "clipped to the detector range (default 5)")
     parser.add_argument("--k", type=int, default=DEFAULT_K, choices=(1, 2),
                         metavar="K",
                         help="difference order of the density penalty "
@@ -78,4 +86,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--no-root-output", action="store_true",
                         help="skip writing the ROOT output file")
     add_root_option(parser)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.alpha <= 0:
+        parser.error("--alpha must be positive")
+    if args.pad_nsigma < 0:
+        parser.error("--pad-nsigma must be >= 0")
+    if args.syst < 0:
+        parser.error("--syst must be >= 0")
+    if args.snip_iter < 0:
+        parser.error("--snip-iter must be >= 0 (0 disables peak clipping)")
+    if args.mask_z0 <= 0:
+        parser.error("--mask-z0 must be positive")
+    if not 0.0 <= args.mask_floor <= 1.0:
+        parser.error("--mask-floor must be in [0, 1]")
+    return args

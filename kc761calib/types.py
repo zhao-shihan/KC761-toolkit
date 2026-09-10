@@ -18,14 +18,15 @@ from .fitparamspace import CORE
 class DatasetArrays:
     """Per-dataset arrays shared by the residual/chi2/detail evaluation paths.
 
-    ``data_*``/``mc_uncertainties``/``model_counts`` cover the usable bins
-    (the frozen ``usable_mask`` or an explicit mask).
+    ``data_*``/``mc_*``/``model_counts`` cover the fit window bins (all
+    of them; empty bins are handled by the variance floor).
     """
 
     data_counts: np.ndarray  # background-subtracted counts on the used bins
-    data_uncertainties: np.ndarray  # data-side 1-sigma (stat + syst)
-    mc_uncertainties: np.ndarray  # MC 1-sigma of the unscaled folded sim
-    model_counts: np.ndarray  # folded sim bin, unscaled (used bins)
+    stat_uncertainties: np.ndarray  # data histogram per-bin errors (sumw2 sqrt)
+    data_display_uncertainties: np.ndarray  # data band 1-sigma (stat + syst·data)
+    mc_uncertainties: np.ndarray  # MC 1-sigma of the unscaled folded MC spectrum
+    model_counts: np.ndarray  # folded MC spectrum, unscaled (used bins)
     bin_centers: np.ndarray  # energy positions of the used channels (keV)
     channel_centers: np.ndarray  # channel numbers of the used bins
 
@@ -34,10 +35,10 @@ class DatasetArrays:
 class DatasetDetail:
     """Diagnostics for one dataset on its channel-range fit binning.
 
-    ``data_*``/``mc_uncertainties``/``model_uncertainties``/
-    ``combined_uncertainties`` and ``model_prediction`` cover the usable
-    bins; ``raw_sim`` and ``raw_sim_uncertainties`` cover the full selected
-    channel range (``bin_edges`` binning).
+    ``data_*``/``mc_*``/``model_mc_uncertainties``/``fit_sigma`` and
+    ``model_prediction`` cover the fit window bins; ``raw_mc_counts``
+    and ``raw_mc_uncertainties`` cover the same full selected channel
+    range (``bin_edges`` binning).
     """
 
     label: str
@@ -45,13 +46,13 @@ class DatasetDetail:
     channel_high: int  # last selected channel (0-based, inclusive)
     bin_centers: np.ndarray  # energy positions of the used channels (keV)
     data_counts: np.ndarray  # background-subtracted counts per used bin
-    data_uncertainties: np.ndarray  # data-side 1-sigma (stat + syst)
-    mc_uncertainties: np.ndarray  # MC 1-sigma of the unscaled model
-    model_uncertainties: np.ndarray  # MC 1-sigma of the scaled model
-    combined_uncertainties: np.ndarray  # stat + syst + model MC 1-sigma
-    model_prediction: np.ndarray  # best-fit, scaled folded sim per channel
-    raw_sim: np.ndarray  # sim on the deposition bins, unscaled (full)
-    raw_sim_uncertainties: np.ndarray  # rebinned sim 1-sigma, unscaled
+    data_display_uncertainties: np.ndarray  # data band 1-sigma (stat + syst·data)
+    mc_uncertainties: np.ndarray  # MC 1-sigma of the unscaled folded MC spectrum
+    model_mc_uncertainties: np.ndarray  # MC 1-sigma of the scaled model
+    fit_sigma: np.ndarray  # chi-square denominator (stat + syst·data + model MC)
+    model_prediction: np.ndarray  # best-fit, scaled folded MC spectrum
+    raw_mc_counts: np.ndarray  # rebinned MC spectrum, unscaled (full range)
+    raw_mc_uncertainties: np.ndarray  # rebinned MC 1-sigma, unscaled
     scale_params: np.ndarray  # (s0, s1, s2, s3) quadratic-Bezier scale
     chi2: float
     n_bins: int
@@ -91,6 +92,22 @@ class FitResult:
     resol_uncertainties: np.ndarray
     resol_cov: np.ndarray
     detail: FitDetail | None = None
+    # Fit exit state: "converged" (optimizer converged normally),
+    # "stopped-early" (optimizer reported failure but the result is
+    # non-degenerate), or "degenerate" (invalid coverage/chi2; the
+    # fitted parameters are not meaningful).  Products are written for
+    # all three states; only "converged" exits 0.
+    status: str = "converged"
+    # Per-core-parameter flags from the profile covariance: a side made
+    # infeasible by a fit bound (one-sided crossing).  Length 7, aligned
+    # with the core parameters.
+    bound_limited: np.ndarray | None = None
+    # Asymmetric 1-sigma widths of the 7 core parameters from the
+    # dchi2 = 1 profile crossings (metadata; the covariance itself uses
+    # the symmetrized widths).  Bound-side infeasibility reports that
+    # side as 0.
+    err_lo: np.ndarray | None = None
+    err_hi: np.ndarray | None = None
 
     @property
     def scales(self) -> np.ndarray:
@@ -101,12 +118,6 @@ class FitResult:
         """7x7 covariance of the shared core parameters ``(c0, k1, k2, k3, b0,
         b1, b2)``, including the calib-resol cross block."""
         return np.asarray(self.cov[CORE, CORE], dtype=float)
-
-    @property
-    def scale_uncertainties(self) -> np.ndarray:
-        scale_slice = slice(len(self.params) - len(self.detail.scale_params),
-                            len(self.params))
-        return self.uncertainties[scale_slice]
 
     @property
     def chi2_per_dataset(self) -> np.ndarray:

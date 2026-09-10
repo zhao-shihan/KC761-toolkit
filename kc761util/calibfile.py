@@ -1,17 +1,11 @@
-"""Shared reader/validator for kc761calib exports and kc761sim composite files.
+"""Shared reader/validator for kc761calib exports.
 
-Both file kinds carry one TH2D to-channel matrix plus the calibration
-metadata; they differ only in what the matrix's energy (y) axis means
-(channel <- energy deposition for kc761calib exports, channel <- true
-primary gamma energy for kc761sim composites).  The reader therefore
-accepts either name and treats the y axis as "the energy axis the matrix
-maps from" without further interpretation.
-
-The returned snapshot is dense and keeps the stored NaN semantics:
-``param_cov`` rows/columns may be NaN (undetermined parameters, as
-kc761calib writes them) and ``to_channel_uncertainties`` may contain NaN;
-callers apply their own NaN policy (see :mod:`kc761unfold.reader` and
-:mod:`kc761util.respcomp`).
+The file carries one TH2D deposition-to-channel matrix plus the
+calibration metadata.  The returned snapshot is dense and keeps the
+stored NaN semantics: ``param_cov`` rows/columns may be NaN
+(undetermined parameters, as kc761calib writes them) and
+``to_channel_uncertainties`` may contain NaN; callers apply their own
+NaN policy (see :mod:`kc761unfold.reader`).
 
 Validation covers the geometry assumptions the whole toolkit relies on:
 square matrix, uniform channels of width 1, a strictly increasing
@@ -27,18 +21,16 @@ from dataclasses import dataclass
 import numpy as np
 import uproot
 
-# To-channel matrix object name of kc761sim composite files
-# (channel <- primary gamma energy) and of legacy kc761calib
-# exports written before the deposition naming.
-PRIMARY_TO_CHANNEL_HIST_NAME = "primary_to_channel"
 # To-channel matrix object name of kc761calib exports (channel <-
 # energy deposition).
 DEPOSITION_TO_CHANNEL_HIST_NAME = "deposition_to_channel"
-# Primary-to-deposition matrix object name of kc761sim composite files
-# (x = energy deposition, y = primary energy, Monte Carlo counts).
-PRIMARY_TO_DEPOSITION_HIST_NAME = "primary_to_deposition"
 
 # Reported-basis parameter order of ``param_cov``.
+# ROOT-file format marker of kc761calib exports (see rootmacros.h):
+# 3 = the stored matrix uses the fit's 5-sigma + column-renormalization
+# convention.
+FORMAT_VERSION = "3"
+PARAM_ORDER = "c0 c1 c2 c3 b0 b1 b2"
 PARAM_NAMES = ("c0", "c1", "c2", "c3", "b0", "b1", "b2")
 
 # Sanity cap for the channel count (8 * 2^28 values = 2 GiB per block).
@@ -47,7 +39,7 @@ MAX_CHANNELS = 1 << 14
 
 @dataclass
 class CalibFile:
-    """Validated dense snapshot of a calibration or composite ROOT file.
+    """Validated dense snapshot of a calibration ROOT file.
 
     ``matrix[i, j]`` is the probability that a count in energy bin ``j``
     is detected in channel ``i``.  The channels are the uniform
@@ -66,13 +58,6 @@ class CalibFile:
     energy_edges: np.ndarray  # n + 1, strictly increasing
     to_channel: np.ndarray  # (n, n) dense, [channel, energy]
     to_channel_uncertainties: np.ndarray | None  # (n, n) per-element 1-sigma
-    # Composite files only: the conditional primary-to-deposition
-    # distribution ``p_tilde[deposition, primary] = G / column_sum(G)``
-    # (columns normalized over the deposited events, zero-deposition
-    # excluded); combined with the stored matrix's column sums it
-    # rebuilds the full primary-to-deposition matrix for the
-    # systematic-uncertainty propagation.  None for calibration files.
-    primary_to_deposition: np.ndarray | None
     calib_coeffs: np.ndarray  # (c0, c1, c2, c3)
     calib_uncertainties: np.ndarray  # stored 1-sigma of c0..c3
     resol_params: np.ndarray  # (b0, b1, b2)
@@ -86,14 +71,11 @@ class CalibFile:
 
 def _channel_hist_name(f) -> str:
     """Name of the response matrix present in an open ROOT file, or fail."""
-    if PRIMARY_TO_CHANNEL_HIST_NAME in f:
-        return PRIMARY_TO_CHANNEL_HIST_NAME
     if DEPOSITION_TO_CHANNEL_HIST_NAME in f:
         return DEPOSITION_TO_CHANNEL_HIST_NAME
     raise ValueError(
-        f"the file does not contain the TH2D {PRIMARY_TO_CHANNEL_HIST_NAME!r} (or "
-        f"{DEPOSITION_TO_CHANNEL_HIST_NAME!r}); is it a kc761calib export "
-        f"or a kc761sim composite file?")
+        f"the file does not contain the TH2D {DEPOSITION_TO_CHANNEL_HIST_NAME!r}; "
+        f"is it a kc761calib export file?")
 
 
 def _label(source) -> str:
@@ -105,7 +87,7 @@ def _label(source) -> str:
 def load_calib_file(
     source: str | os.PathLike | uproot.ReadOnlyDirectory,
 ) -> CalibFile:
-    """Read and validate a calibration/composite ROOT file into dense form.
+    """Read and validate a calibration ROOT file into dense form.
 
     ``source`` is a ROOT file path (opened here) or an already-open
     ``uproot`` file/directory object; all arrays are materialized before
@@ -143,17 +125,6 @@ def load_calib_file(
             uncertainties = np.asarray(hist.errors(), dtype=float)
         except KeyError:
             uncertainties = None  # no sumw2 buffer stored
-        primary_to_deposition = None
-        if PRIMARY_TO_DEPOSITION_HIST_NAME in file:
-            # Conditional primary-to-deposition: normalize each primary column over
-            # the deposited events (zero-deposition excluded).
-            t_hist = file[PRIMARY_TO_DEPOSITION_HIST_NAME]
-            t_values = np.asarray(
-                t_hist.values(), dtype=float)  # [dep, primary]
-            t_totals = t_values.sum(axis=0)
-            primary_to_deposition = np.divide(t_values, t_totals,
-                                              out=np.zeros_like(t_values),
-                                              where=t_totals > 0.0)
         try:
             params = np.array(
                 [file[name].member("fVal") for name in PARAM_NAMES],
@@ -169,12 +140,23 @@ def load_calib_file(
             resol_e_ref = float(file["resol_e_ref"].member("fVal"))
             calib_formula = str(file["calib_formula"].member("fTitle"))
             resol_formula = str(file["resol_formula"].member("fTitle"))
+            version = str(file["format_version"].member("fTitle"))
+            if version != FORMAT_VERSION:
+                raise ValueError(
+                    f"{label} has calibration format version {version!r}, "
+                    f"expected {FORMAT_VERSION!r}; files predating the "
+                    f"5-sigma/column-renormalization convention must not be "
+                    f"used with the current response model")
             param_order = str(file["param_order"].member("fTitle"))
         except KeyError as exc:
             raise ValueError(
                 f"{label} is missing the expected calibration objects "
-                f"({exc.args[0]}); is it a kc761calib export or a kc761sim "
-                f"composite-response file?") from exc
+                f"({exc.args[0]}); is it a kc761calib export file?") from exc
+        if param_order != PARAM_ORDER:
+            raise ValueError(
+                f"unexpected calibration parameter order {param_order!r} in "
+                f"{label} (expected {PARAM_ORDER!r}); the covariance and "
+                f"parameter blocks would be misinterpreted")
     finally:
         if opened:
             file.close()
@@ -206,7 +188,6 @@ def load_calib_file(
         energy_edges=energy_edges,
         to_channel=values,
         to_channel_uncertainties=uncertainties,
-        primary_to_deposition=primary_to_deposition,
         calib_coeffs=params[:4],
         calib_uncertainties=calib_uncertainties,
         resol_params=params[4:],

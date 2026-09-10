@@ -7,13 +7,23 @@ resolution-folded per-channel model comes from the shared :class:`Response`
 that :class:`GlobalFitModel` builds once per chi-square evaluation and
 reuses across datasets.
 
-The per-bin uncertainty combined in the chi-square denominator has three
-terms, added in quadrature: the data's statistical uncertainty, a
-fractional systematic proportional to the data counts, and the Monte Carlo
-statistical uncertainty of the model prediction ``scale * m`` -- i.e.
-``scale`` times the per-bin MC sigma of the folded sim, propagated exactly
-from the simulation's per-source-bin variance through the rebin and
-response matrix (see :class:`kc761calib.folding.SimProjection`).
+The chi-square denominator combines three terms in quadrature:
+
+    var = max(stat^2, 1) + (syst_frac * data)^2 + (s * mc_sigma)^2,
+
+with the floor on the statistical term only: the data histogram's
+per-bin statistical errors (the file's sumw2 sqrt) floored at 1, a
+fractional systematic proportional to the data counts (squared, i.e.
+|data|, so background-subtracted negative bins are handled
+symmetrically), and the Monte Carlo statistical uncertainty of the
+scaled model prediction (``scale`` times the per-bin MC sigma of the
+folded MC spectrum, propagated exactly from the simulation's
+per-source-bin variance through the rebin and response matrix, see
+:class:`kc761calib.folding.McProjection`).  All window bins
+participate: the floor gives empty bins of unsubtracted spectra an
+approximate Poisson error of 1, while background-subtracted bins keep
+their (possibly smaller) subtraction error above the floor -- their
+fluctuation is already carried by the bin error.
 """
 
 from __future__ import annotations
@@ -21,7 +31,7 @@ from __future__ import annotations
 import numba
 import numpy as np
 
-from .folding import Response, SimProjection
+from .folding import Response, McProjection
 from .scaling import scale_model
 from .types import DatasetArrays, DatasetDetail
 
@@ -29,41 +39,57 @@ DEFAULT_SYST_FRAC = 0.10
 
 
 @numba.njit(inline="always", cache=True)
-def uncertainty_model(data_counts, stat_uncertainties, syst_frac):
-    """Data-side per-bin sigma: statistical + fractional systematic.
+def data_display_sigma(data_counts, stat_uncertainties, syst_frac):
+    """Data-band per-bin sigma: statistical + fractional systematic.
 
-    ``var = stat_uncertainties^2 + (syst_frac * data_counts)^2``, bounded
-    below at 1.
+    ``var = max(stat_uncertainties^2, 1) + (syst_frac * data_counts)^2``
+    (the square makes the fractional term proportional to |data_counts|;
+    the floor matches :func:`fit_variance`).  Used for the displayed
+    data band only; the fit's chi-square denominator is
+    :func:`fit_variance`, which reuses the same two data-side terms plus
+    the scaled model MC term.
     """
-    var = stat_uncertainties**2 + (syst_frac * data_counts)**2
-    return np.sqrt(np.maximum(var, 1.0))
+    var = np.maximum(stat_uncertainties**2, 1.0)
+    var += (syst_frac * data_counts) ** 2
+    return np.sqrt(var)
 
 
 @numba.njit(inline="always", cache=True)
-def combined_variance(data_uncertainties, mc_uncertainties, scale):
-    """Total per-bin variance: data-side plus the scaled MC statistical term.
+def fit_variance(stat_uncertainties, data_counts, model_mc_uncertainties,
+                 syst_frac):
+    """Per-bin variance of the chi-square denominator.
 
-    ``data_uncertainties^2 + (scale * mc_uncertainties)^2`` -- the single
-    definition of the chi-square denominator's variance, shared by the fit
-    (whose per-bin sigma is its sqrt, bounded below at 1) and by the
-    initial-scale weights.
+    ``var = max(stat_uncertainties^2, 1) + (syst_frac * data_counts)^2 +
+    model_mc_uncertainties^2`` -- the single definition of the chi-square
+    denominator's variance: the data histogram's per-bin statistical
+    errors floored at 1 (empty bins of unsubtracted spectra get an
+    approximate Poisson error; background-subtracted bins keep their
+    possibly smaller subtraction error above the floor), a fractional
+    systematic on the data (the square takes |data_counts|, so negative
+    background-subtracted bins are handled symmetrically), and the
+    scaled model prediction's Monte Carlo statistical uncertainty
+    (``model_mc_uncertainties = scale * per-bin MC sigma``).
     """
-    return data_uncertainties**2 + (scale * mc_uncertainties)**2
+    var = np.maximum(stat_uncertainties ** 2, 1.0)
+    var += (syst_frac * data_counts) ** 2
+    var += model_mc_uncertainties ** 2
+    return var
 
 
 class FitModel:
     """One dataset on a fixed channel range ``[channel_low, channel_high]``
     (0-based, inclusive).  The data counts/uncertainties are the raw channel
-    values and never change with the calibration; the sim is rebinned onto the
-    energy-deposition bins and folded through the shared response, so the
-    folded model compares directly to the data.
+    values and never change with the calibration; the Monte Carlo spectrum
+    is rebinned onto the energy-deposition bins and folded through the
+    shared response, so the folded model compares directly to the data.
     """
 
-    def __init__(self, data, sim, channel_low: int, channel_high: int,
+    def __init__(self, data, mc_spectrum, channel_low: int,
+                 channel_high: int,
                  syst_frac: float = DEFAULT_SYST_FRAC, *,
                  init_response=None):
         self.data = data
-        self.sim = sim
+        self.mc_spectrum = mc_spectrum
         self.channel_low = int(channel_low)
         self.channel_high = int(channel_high)
         if not (0 <= self.channel_low <= self.channel_high < data.n_bins):
@@ -80,11 +106,14 @@ class FitModel:
 
         channel_slice = slice(self.channel_low, self.channel_high + 1)
         self.data_counts = data.counts[channel_slice]
-        self.data_uncertainties = data.uncertainties[channel_slice]
-        self.usable_mask = self.data_uncertainties > 0
+        self.stat_uncertainties = data.uncertainties[channel_slice]
+        # All window bins participate in the fit (the variance floor
+        # handles empty bins); the positive-stat count is kept only for
+        # the coverage gate (degenerate-window detection).
+        self.positive_stat_bins = int(np.sum(self.stat_uncertainties > 0))
         self.channel_centers = np.arange(self.channel_low, self.channel_high + 1,
                                          dtype=np.float64)
-        self.min_usable_bins = max(
+        self.min_positive_stat_bins = max(
             10, int(0.1 * (self.channel_high - self.channel_low + 1)))
 
         self.init_response = init_response
@@ -93,46 +122,44 @@ class FitModel:
     # --- data / model assembly ---
 
     def dataset_arrays(self, resp: Response,
-                       mask: np.ndarray | None = None,
-                       projection: SimProjection | None = None) -> DatasetArrays:
-        """Assemble the per-dataset data/model/uncertainty arrays on the usable bins.
+                       projection: McProjection | None = None) -> DatasetArrays:
+        """Assemble the per-dataset data/model/uncertainty arrays on the fit window.
 
-        ``mask`` defaults to the fixed ``usable_mask``; an explicit mask freezes
-        bin selection, as required when differencing residuals numerically.
-        ``projection`` optionally supplies the precomputed folded sim counts
-        and their MC variances (from ``Response.project``/``project_many``);
-        when ``None`` it is computed here.  The returned
-        ``data_uncertainties`` are the data-side sigma (stat + syst) only;
-        the scale-dependent MC term is combined in by the callers once the
-        scale curve is known.
+        All window bins participate (empty bins are handled by the
+        variance floor, see :func:`fit_variance`).  ``projection``
+        optionally supplies the precomputed folded MC counts and their MC
+        variances (from ``Response.project``/``project_many``); when
+        ``None`` it is computed here.  The returned
+        ``data_display_uncertainties`` are the data-band sigma (stat +
+        syst·data) only; the scale-dependent MC term is combined in by the
+        callers once the scale curve is known.
         """
-        if mask is None:
-            mask = self.usable_mask
         bin_slice = resp.binning.channel_slice(
             self.channel_low, self.channel_high)
         if projection is None:
-            projection = resp.project(self.sim)
+            projection = resp.project(self.mc_spectrum)
         model_counts = projection.counts[bin_slice]
         mc_uncertainties = np.sqrt(projection.variances[bin_slice])
-        data_counts = self.data_counts[mask]
+        data_counts = self.data_counts
         return DatasetArrays(
             data_counts=data_counts,
-            data_uncertainties=uncertainty_model(
-                data_counts, self.data_uncertainties[mask], self.syst_frac),
-            mc_uncertainties=mc_uncertainties[mask],
-            model_counts=model_counts[mask],
-            bin_centers=resp.binning.energy_centers[bin_slice][mask],
-            channel_centers=self.channel_centers[mask],
+            stat_uncertainties=self.stat_uncertainties,
+            data_display_uncertainties=data_display_sigma(
+                data_counts, self.stat_uncertainties, self.syst_frac),
+            mc_uncertainties=mc_uncertainties,
+            model_counts=model_counts,
+            bin_centers=resp.binning.energy_centers[bin_slice],
+            channel_centers=self.channel_centers,
         )
 
-    def raw_sim_with_uncertainties_on_bins(
-            self, resp: Response, projection: SimProjection,
+    def raw_mc_with_uncertainties_on_bins(
+            self, resp: Response, projection: McProjection,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Rebinned sim counts and their MC sigmas, prior to folding.
+        """Rebinned MC counts and their MC sigmas, prior to folding.
 
         Sliced from ``projection`` (computed once per evaluation), covering
         the full selected channel range (not the usable-bin mask), so the
-        two arrays pair directly for the raw-sim spectrum and its
+        two arrays pair directly for the raw-MC spectrum and its
         uncertainty bars.
         """
         bin_slice = resp.binning.channel_slice(
@@ -143,46 +170,48 @@ class FitModel:
     def dataset_fit(self, arrays: DatasetArrays,
                     scale_params: np.ndarray) -> tuple[np.ndarray, np.ndarray,
                                                        np.ndarray, np.ndarray]:
-        """Scaled prediction, model uncertainty, combined sigma, pulls.
+        """Scaled prediction, model MC uncertainty, fit sigma, pulls.
 
         The single source of truth for the per-dataset fit evaluation: the
         model prediction ``s(ch) * m(ch)`` with the per-bin scale curve
         ``s(ch) = scale_model(scale_params, ch, channel_low, channel_high)``
         at each channel center, its Monte Carlo statistical uncertainty
         ``s(ch) * mc_uncertainties`` (the band around the best-fit model),
-        the combined per-bin sigma ``sqrt(data_uncertainties^2 + (s(ch) *
-        mc_uncertainties)^2)`` (data statistical + systematic plus the
-        model's MC statistical uncertainty), and the pulls
-        ``(data_counts - prediction) / sigma``.
+        the chi-square denominator sigma
+        ``sqrt(max(stat^2, 1) + (syst*data)^2 + mc_unc^2)``, and the pulls
+        ``(data_counts - prediction) / fit_sigma``.
         """
         scale_curve = scale_model(scale_params, arrays.channel_centers,
                                   self.channel_low, self.channel_high)
         prediction = scale_curve * arrays.model_counts
-        model_uncertainties = scale_curve * arrays.mc_uncertainties
-        sigma = np.sqrt(np.maximum(
-            combined_variance(arrays.data_uncertainties,
-                              arrays.mc_uncertainties,
-                              scale_curve),
-            1.0))
-        residuals = (arrays.data_counts - prediction) / sigma
-        return prediction, model_uncertainties, sigma, residuals
+        model_mc_uncertainties = scale_curve * arrays.mc_uncertainties
+        var = fit_variance(arrays.stat_uncertainties, arrays.data_counts,
+                           model_mc_uncertainties, self.syst_frac)
+        fit_sigma = np.sqrt(var)
+        residuals = (arrays.data_counts - prediction) / fit_sigma
+        return prediction, model_mc_uncertainties, fit_sigma, residuals
 
     def dataset_detail(self, label: str, resp: Response,
-                       scale_params: np.ndarray) -> DatasetDetail:
+                       scale_params: np.ndarray,
+                       projection: McProjection | None = None) -> DatasetDetail:
         """Package one dataset's pulls into plot/report diagnostics.
 
         The channel window is fixed per dataset; the prediction, its Monte
-        Carlo statistical uncertainty, the combined per-bin sigma and the
-        chi-square pulls come from :meth:`dataset_fit`.  The
-        ``raw_sim`` and ``raw_sim_uncertainties`` fields remain
-        unscaled and cover the full selected channel range (including bins
-        excluded by the usable-bin mask).
+        Carlo statistical uncertainty, the chi-square denominator sigma
+        and the pulls come from :meth:`dataset_fit`.  All fields cover the
+        full selected channel range (``bin_edges`` binning).
+        ``projection`` optionally
+        supplies the precomputed folded MC spectrum (and its MC variances)
+        so callers with a cached projection (e.g.
+        :meth:`kc761calib.globalfit.GlobalFitModel.detail`) skip the
+        rebuild.
         """
-        projection = resp.project(self.sim)
+        if projection is None:
+            projection = resp.project(self.mc_spectrum)
         arrays = self.dataset_arrays(resp, projection=projection)
-        prediction, model_uncertainties, sigma, residuals = self.dataset_fit(
-            arrays, scale_params)
-        raw, raw_unc = self.raw_sim_with_uncertainties_on_bins(
+        prediction, model_mc_uncertainties, fit_sigma, residuals = (
+            self.dataset_fit(arrays, scale_params))
+        raw, raw_unc = self.raw_mc_with_uncertainties_on_bins(
             resp, projection)
         edge_slice = resp.binning.channel_edge_slice(self.channel_low,
                                                      self.channel_high)
@@ -192,13 +221,13 @@ class FitModel:
             channel_high=self.channel_high,
             bin_centers=arrays.bin_centers,
             data_counts=arrays.data_counts,
-            data_uncertainties=arrays.data_uncertainties,
+            data_display_uncertainties=arrays.data_display_uncertainties,
             mc_uncertainties=arrays.mc_uncertainties,
-            model_uncertainties=model_uncertainties,
-            combined_uncertainties=sigma,
+            model_mc_uncertainties=model_mc_uncertainties,
+            fit_sigma=fit_sigma,
             model_prediction=prediction,
-            raw_sim=raw,
-            raw_sim_uncertainties=raw_unc,
+            raw_mc_counts=raw,
+            raw_mc_uncertainties=raw_unc,
             scale_params=np.asarray(scale_params, dtype=float),
             chi2=float(residuals @ residuals),
             n_bins=int(len(arrays.data_counts)),
@@ -207,37 +236,31 @@ class FitModel:
 
     # --- validity ---
 
-    @property
-    def usable_bins(self) -> int:
-        return int(self.usable_mask.sum())
-
     def is_valid(self, calib_params) -> bool:
-        """Whether the fixed channel range has enough usable bins.
+        """Whether the fixed channel range has enough positive-stat bins.
 
-        ``calib_params`` is accepted for ``GlobalFitModel.is_valid`` compatibility
-        but is not needed (bin selection is calibration-independent).
+        ``calib_params`` is accepted for ``GlobalFitModel.is_valid``
+        compatibility but is not needed (bin coverage is
+        calibration-independent).
         """
-        return self.usable_bins >= self.min_usable_bins
+        return self.positive_stat_bins >= self.min_positive_stat_bins
 
     # --- initialization helpers ---
 
     def _initial_scale(self) -> float:
         """Overall normalization estimate with the full per-bin variance.
 
-        The variance weights include the Monte Carlo term
-        ``(scale * mc_uncertainties)^2``, which depends on the scale being
-        estimated, so the weighted least-squares estimate is solved as a
-        fixed point: starting from the data-only weights, each iteration
+        The variance weights use the fit variance (the data histogram's
+        statistical errors, the data-side fractional systematic and the
+        scaled MC terms; regular at scale -> 0 because the variance floor
+        keeps the stat term >= 1), solved as a fixed point: starting
+        from the data-only weights, each iteration
         re-weights with the current scale and damp-averages the new estimate
         (the map is not guaranteed monotone).  The fit itself refines this
         starting value, so a few iterations are ample.
         """
         arrays = self.dataset_arrays(self.init_response)
-        if arrays.data_counts.size == 0:
-            raise ValueError(
-                "cannot estimate the initial scale: no usable bins "
-                "(no positive statistical uncertainty)")
-        data_var = arrays.data_uncertainties**2
+        data_var = arrays.data_display_uncertainties**2
         counts = arrays.data_counts
         model = arrays.model_counts
         model_norm = float(np.sum(model * model / data_var))
@@ -246,8 +269,10 @@ class FitModel:
                              "normalization in the usable bins")
 
         def estimate(scale):
-            var = combined_variance(arrays.data_uncertainties,
-                                    arrays.mc_uncertainties, scale)
+            var = fit_variance(arrays.stat_uncertainties,
+                               arrays.data_counts,
+                               scale * arrays.mc_uncertainties,
+                               self.syst_frac)
             num = float(np.sum(counts * model / var))
             den = float(np.sum(model * model / var))
             return num / den

@@ -158,7 +158,11 @@ def _penalty_geometry(widths: np.ndarray, centers: np.ndarray,
     operator, the significance normalization ``sigma_d``, the mask
     entries at the difference rows, and the squared density noise
     ``sigma_rho2 = (sigma/w)^2`` that both the operator (inside ``sd``)
-    and the derivative (inside ``d(sigma_d^2)``) consume.  Both
+    and the derivative (inside ``d(sigma_d^2)``) consume.  The noise
+    benchmark is the classical data-side density noise (Ryan et al.,
+    1988): the significance normalization is unit-variance for the
+    observed spectrum's density, so ``alpha`` is a dimensionless
+    smoothing strength relative to the data's own noise.  Both
     :func:`penalty_operator` and :func:`penalty_operator_grad` assemble
     ``D`` and ``dD`` from these same pieces.
     """
@@ -177,14 +181,19 @@ def penalty_operator(widths: np.ndarray, centers: np.ndarray, sigma: np.ndarray,
     """The normalized masked difference operator D of the penalty.
 
     ``(D mu)_r = m_jc * (L_k rho)_r / sigma_d,r`` with ``rho = mu / w``
-    and ``sigma_d,r = sqrt(|L_k row|^2 @ sigma_rho^2)`` the exact
-    statistical noise of the r-th difference of the density (independent
-    bins, including the 1/h energy-spacing factors of L_k).  ``D mu`` is
-    dimensionless and unit-variance under the null, so the regularization strength
-    ``alpha`` is a dimensionless, problem-independent parameter.
+    and ``sigma_d,r = sqrt(|L_k row|^2 @ sigma_rho^2)`` the
+    data-side density noise of the r-th difference (statistical plus the
+    fractional systematic of the fit sigma)
+    (independent bins, including the 1/h energy-spacing factors of
+    L_k).  ``D mu`` is dimensionless and unit-variance under the null,
+    so the regularization strength ``alpha`` is a dimensionless,
+    problem-independent parameter.
     """
-    w, l, sd, m_jc, _ = _penalty_geometry(widths, centers, sigma, mask, k)
-    return sparse.diags(m_jc / sd) @ l @ sparse.diags(1.0 / w)
+    w, l, sd, m_jc, _, = _penalty_geometry(widths, centers, sigma, mask, k)
+    # Rows with mask 0 (the window padding) are exactly zero rows; the
+    # 0/0 of m_jc/sd there must stay 0, not NaN.
+    row_w = np.divide(m_jc, sd, out=np.zeros_like(sd), where=sd > 0.0)
+    return sparse.diags(row_w) @ l @ sparse.diags(1.0 / w)
 
 
 def penalty_operator_grad(widths: np.ndarray, centers: np.ndarray,
@@ -218,8 +227,10 @@ def penalty_operator_grad(widths: np.ndarray, centers: np.ndarray,
     dl2 = dl.multiply(l) + l.multiply(dl)
     dsd2 = dl2 @ sigma_rho2 + l.multiply(l) @ (sigma_rho2 * (-2.0 * dw / w))
     dsd = 0.5 * dsd2 / sd
+    dsd = np.where(sd > 0.0, dsd, 0.0)
 
-    row_w = m_jc / sd
-    return (sparse.diags(-m_jc * dsd / sd ** 2) @ l @ sparse.diags(1.0 / w)
+    row_w = np.where(sd > 0.0, m_jc / sd, 0.0)
+    first = np.where(sd > 0.0, -m_jc * dsd / sd ** 2, 0.0)
+    return (sparse.diags(first) @ l @ sparse.diags(1.0 / w)
             + sparse.diags(row_w) @ dl @ sparse.diags(1.0 / w)
             + sparse.diags(row_w) @ l @ sparse.diags(-dw / w ** 2))

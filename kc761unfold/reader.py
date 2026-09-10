@@ -1,14 +1,13 @@
-"""Load and validate kc761calib exports (and kc761sim composite files) for
+"""Load and validate kc761calib exports (and kc761sim simulation files) for
 kc761unfold.
 
 Delegates the raw reading and geometry validation to
-:func:`kc761util.calibfile.load_calib_file` (which accepts both channel
-matrix object names and treats the energy axis as the axis the matrix maps
-from), then applies the unfold-side policies: the dense matrix is
-thresholded to a CSR matrix (relative 1e-12 per column) and undetermined
-calibration parameters (NaN covariance rows) are treated as fixed.
-:func:`slice_calibration` produces the working subrange view without
-re-reading the file.
+:func:`kc761util.calibfile.load_calib_file` and
+:func:`kc761util.simfile.load_sim_file`, then applies the
+unfold-side policies: the dense matrix is thresholded to a CSR matrix
+(relative 1e-12 per column) and undetermined calibration parameters (NaN
+covariance rows) are treated as fixed.  :func:`slice_calibration`
+produces the working subrange view without re-reading the file.
 
 Both :func:`load_calibration` and :func:`slice_calibration` are cached
 session-locally (the calibration snapshot is immutable), so batch
@@ -25,7 +24,9 @@ import numba
 import numpy as np
 from scipy import sparse
 
+from kc761calib.response import RESOL_E_REF
 from kc761util.calibfile import load_calib_file
+from kc761util.simfile import SimFile, load_sim_file
 
 from .types import CalibrationFile
 
@@ -78,6 +79,13 @@ def _load_calibration_uncached(path: str) -> CalibrationFile:
 
     data = load_calib_file(path)
 
+    if float(data.resol_e_ref) != float(RESOL_E_REF):
+        raise ValueError(
+            f"calibration resolution reference energy {data.resol_e_ref} "
+            f"does not match the toolkit constant {RESOL_E_REF}; the "
+            f"resolution model and the padding/penalty geometry assume "
+            f"the same reference")
+
     # kc761calib marks undetermined parameters with all-NaN rows/columns;
     # treat them as zero-variance (fixed) directions instead of rejecting
     # the export.
@@ -98,8 +106,6 @@ def _load_calibration_uncached(path: str) -> CalibrationFile:
         centers=0.5 * (data.energy_edges[:-1] + data.energy_edges[1:]),
         widths=np.diff(data.energy_edges),
         to_channel=threshold_matrix(data.to_channel),
-        primary_to_deposition=(None if data.primary_to_deposition is None
-                               else threshold_matrix(data.primary_to_deposition)),
         calib_coeffs=data.calib_coeffs,
         resol_params=data.resol_params,
         param_cov=cov,
@@ -131,6 +137,78 @@ def _load_cached(path: str, mtime_ns: int, ctime_ns: int,
     return _load_calibration_uncached(path)
 
 
+def load_sim(path: str | Path) -> SimFile:
+    """Read and validate a kc761sim matrix-mode simulation file, cached per file.
+
+    The session-local cache keys on ``(path, mtime_ns, ctime_ns, size)``
+    exactly like :func:`load_calibration`, so an in-place rewrite cannot
+    serve a stale snapshot.
+    """
+    path = Path(path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"simulation file not found: {path}")
+    stat = path.stat()
+    return _load_sim_cached(str(path), stat.st_mtime_ns, stat.st_ctime_ns,
+                          stat.st_size)
+
+
+@lru_cache(maxsize=8)
+def _load_sim_cached(path: str, mtime_ns: int, ctime_ns: int,
+                   size: int) -> SimFile:
+    return load_sim_file(path)
+
+
+def validate_sim_against_calib(sim: SimFile,
+                             calib: CalibrationFile) -> None:
+    """Assert the simulation axes equal the calibration deposition-energy edges.
+
+    The primary-to-deposition histogram's both axes must reuse the calibration file's
+    deposition-energy edges exactly (the composition ``R = C @ G`` is
+    defined on the shared binning); the comparison is bin-wise with a
+    tight tolerance.
+    """
+    if sim.n_bins != calib.n_channels:
+        raise ValueError(
+            f"simulation matrix covers {sim.n_bins} bins but the calibration "
+            f"file has {calib.n_channels} channels; mismatched binning")
+    if not np.allclose(sim.energy_edges, calib.energy_edges_full,
+                       atol=1e-9, rtol=0.0):
+        raise ValueError(
+            "simulation matrix energy edges do not match the calibration file's "
+            "deposition-energy edges; the simulation file must reuse the "
+            "calibration binning exactly")
+
+
+def slice_sim(sim: SimFile, channel_low: int,
+                   channel_high: int) -> SimFile:
+    """Restrict a full-range simulation file to a channel subrange (square slice).
+
+    Both axes are sliced identically (the composition R = C @ G works on
+    the shared deposition binning), as is the efficiency vector.
+    """
+    n = sim.n_bins
+    if channel_low < 0 or channel_high >= n or channel_low > channel_high:
+        raise ValueError(
+            f"channel range [{channel_low}, {channel_high}] must satisfy "
+            f"0 <= chlo <= chhi < {n}")
+    sl = slice(channel_low, channel_high + 1)
+    return SimFile(
+        n_bins=channel_high - channel_low + 1,
+        energy_edges=sim.energy_edges[channel_low:channel_high + 2],
+        counts=sim.counts[sl, sl].copy(),
+        variances=(None if sim.variances is None
+                     else sim.variances[sl, sl].copy()),
+        efficiency=sim.efficiency[sl].copy(),
+        mode=sim.mode,
+        mode_name=sim.mode_name,
+        geometry_name=sim.geometry_name,
+        geometry_param=sim.geometry_param,
+        seed=sim.seed,
+        n_events=sim.n_events,
+        calib_binning_source=sim.calib_binning_source,
+    )
+
+
 def slice_calibration(calib: CalibrationFile, channel_low: int,
                       channel_high: int) -> CalibrationFile:
     """Restrict a full-range calibration to a channel subrange, cached.
@@ -152,12 +230,6 @@ def slice_calibration(calib: CalibrationFile, channel_low: int,
         return cached
     sub = calib.to_channel[channel_low:channel_high + 1,
                            channel_low:channel_high + 1].toarray()
-    if calib.primary_to_deposition is not None:
-        p_sub = calib.primary_to_deposition[
-            channel_low:channel_high + 1,
-            channel_low:channel_high + 1].toarray()
-    else:
-        p_sub = None
     result = CalibrationFile(
         n_channels=n,
         channel_low=channel_low,
@@ -167,8 +239,6 @@ def slice_calibration(calib: CalibrationFile, channel_low: int,
         centers=calib.centers[channel_low:channel_high + 1],
         widths=calib.widths[channel_low:channel_high + 1],
         to_channel=threshold_matrix(sub),
-        primary_to_deposition=(
-            None if p_sub is None else threshold_matrix(p_sub)),
         calib_coeffs=calib.calib_coeffs,
         resol_params=calib.resol_params,
         param_cov=calib.param_cov,

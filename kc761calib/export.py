@@ -12,13 +12,14 @@ ROOT file.
 
 The convention matches :mod:`kc761calib.folding` (``matrix[i, j]`` is the
 probability that a count in energy bin ``j`` is detected in channel
-``i``); unlike the fit's sparse matrix, the export is dense over the full
-channel range, keeps the full Gaussian (no kernel-support cutoff) and does
-not renormalize the columns, so the probability beyond the detector range
-is truncated, not redistributed.  The response depends only on the 7 core
-parameters ``(c0, k1, k2, k3, b0, b1, b2)``; the per-element 1-sigma
-uncertainties are the linear propagation ``G^T cov G`` (``G_p =
-dR/dq_p``) of the fit's core covariance, matching the reported parameter
+``i``); the exported matrix is built with the same 5-sigma kernel-support
+cutoff and column renormalization as the fit's sparse matrix (the
+renormalization is now an export choice too: the probability beyond the
+detector range is redistributed, not truncated).  The response depends
+only on the 7 core parameters ``(c0, k1, k2, k3, b0, b1, b2)``; the
+per-element 1-sigma uncertainties are the linear propagation ``G^T cov G``
+(``G_p = dR/dq_p``, including the column-renormalization factor's
+derivative) of the fit's core covariance, matching the reported parameter
 uncertainties.  Undetermined parameters (all-NaN covariance rows/columns)
 are treated as fixed for the matrix uncertainties while the stored
 covariance keeps their
@@ -29,7 +30,7 @@ Temporary-file layout (native byte order; the file is produced and
 consumed on the same machine):
 
 ========  =====================================================
-line 1    magic ``"kc761calib-export-v2\\n"``
+line 1    magic ``"kc761calib-export-v3\\n"``
 line 2    calibration formula text + ``"\\n"``
 line 3    resolution formula text + ``"\\n"``
 binary    int64 n_calib; float64 calib_coeffs[n_calib] (c0..c3)
@@ -48,31 +49,34 @@ binary    float64 matrix_uncertainties[n_channels * n_channels]
 
 from __future__ import annotations
 
-import os
-import tempfile
+import warnings
 from dataclasses import dataclass
 
 import numba
 import numpy as np
 
+from kc761util.binexport import ExportWriter
+
+from .folding import N_SIGMA
 from .response import (CALIB_FORMULA, N_CALIB, N_RESOL, RESOL_E_REF,
                        RESOL_FORMULA, calib_model, c0k1k2k3_to_c0c1c2c3,
-                       gaussian_pdf, jac_c0k1k2k3, poly_basis,
-                       reported_core_cov, resol_sigma_model,
+                       count_variance_clamps, gaussian_pdf, jac_c0k1k2k3,
+                       poly_basis, reported_core_cov, resol_sigma_model,
                        resol_sigma_model_grad)
 from .types import FitResult
 
-_MAGIC = b"kc761calib-export-v2\n"
+_MAGIC = b"kc761calib-export-v3\n"
 
 
 @dataclass
 class FullResponse:
-    """Complete dense response on the full channel range (module docstring
+    """Complete response on the full channel range (module docstring
     for conventions and uncertainty/covariance semantics)."""
 
     n_channels: int
     energy_edges: np.ndarray  # n_channels + 1; energy-deposition bin edges
-    matrix: np.ndarray  # (n_channels, n_channels) float64
+    matrix: np.ndarray  # (n_channels, n_channels) float64, column-normalized
+    raw_col_sums: np.ndarray  # pre-renormalization column sums (diagnostics)
     matrix_uncertainties: np.ndarray  # (n_channels, n_channels) float64
     calib_coeffs: np.ndarray  # c0..c3 cubic calibration coefficients
     resol_params: np.ndarray  # b0..b2 resolution parameters (keV)
@@ -80,38 +84,100 @@ class FullResponse:
 
 
 @numba.njit(parallel=True, cache=True)
+def _build_export_matrix(centers, widths, sigma, n_sigma):
+    """Fit-consistent response matrix: 5-sigma cutoff + column renorm.
+
+    ``out[i, j]`` is the Gaussian density at ``centers[i]`` of column
+    ``j`` times the channel width, kept only inside the kernel support
+    and then divided by the raw column sum (the same construction as
+    :func:`kc761calib.folding.build_response_matrix`, so the exported
+    matrix and the fit's matrix are the same operator).  Returns
+    ``(matrix, raw_col_sums)``; columns clipped by the detector range
+    edges have raw sums below 1 and are renormalized up (the truncated
+    tail is redistributed, not lost).
+    """
+    n = centers.shape[0]
+    out = np.zeros((n, n), dtype=np.float64)
+    raw_sums = np.empty(n, dtype=np.float64)
+    for j in numba.prange(n):
+        c_j = centers[j]
+        s_j = sigma[j]
+        support = n_sigma * s_j
+        lo = np.searchsorted(centers, c_j - support)
+        hi = np.searchsorted(centers, c_j + support, side="right")
+        col_sum = 0.0
+        for i in range(lo, hi):
+            v = gaussian_pdf(centers[i] - c_j, s_j) * widths[i]
+            out[i, j] = v
+            col_sum += v
+        raw_sums[j] = col_sum
+        if col_sum > 0.0:
+            for i in range(lo, hi):
+                out[i, j] /= col_sum
+    return out, raw_sums
+
+
+@numba.njit(parallel=True, cache=True)
 def _matrix_uncertainty_variance(centers, widths, sigma, ds_dE, ds_db,
-                                 center_grad, width_grad, cov):
+                                 center_grad, width_grad, cov, col_sums,
+                                 n_sigma):
     """Squared 1-sigma uncertainty of each response-matrix element.
 
     ``err2[i, j] = G[i, j]^T cov G[i, j]`` with ``G_p[i, j] = dR[i, j]/dq_p``
     and ``q = (c0, k1, k2, k3, b0, b1, b2)`` (internal basis; ``cov`` is the
     NaN-free core covariance -- undetermined parameters are treated as
-    fixed).  Column-parallel: column ``j`` uses only the shared per-bin
-    arrays and its own per-column scalars, so every ``(i, j)`` entry is
-    written exactly once.
+    fixed).  The gradient includes the column-renormalization factor's
+    derivative, ``dM = (dF - M * dS_j) / S_j`` with ``S_j`` the raw column
+    sum (``col_sums``), evaluated on the fixed kernel support of the
+    stored matrix; entries outside the support are exactly zero.
+    Column-parallel: column ``j`` uses only the shared per-bin arrays and
+    its own per-column scalars, so every ``(i, j)`` entry is written
+    exactly once.
     """
     n = centers.shape[0]
-    out = np.empty((n, n), dtype=np.float64)
+    out = np.zeros((n, n), dtype=np.float64)
     for j in numba.prange(n):
         c_j = centers[j]
         s_j = sigma[j]
         s2 = s_j * s_j
         ds_dE_j = ds_dE[j]
-        grad = np.empty(7, dtype=np.float64)
-        for i in range(n):
+        S_j = col_sums[j]
+        support = n_sigma * s_j  # matches _build_export_matrix's support
+        lo = np.searchsorted(centers, c_j - support)
+        hi = np.searchsorted(centers, c_j + support, side="right")
+        grad_sum = np.zeros(7, dtype=np.float64)
+        for i in range(lo, hi):
             d = centers[i] - c_j
             pdf = gaussian_pdf(d, s_j)
             dg_dd = -d / s2 * pdf
             dg_ds = pdf * (d * d / s2 - 1.0) / s_j
             width_i = widths[i]
             for p in range(4):
-                grad[p] = (dg_dd * (center_grad[i, p] - center_grad[j, p])
-                           * width_i
-                           + pdf * width_grad[i, p]
-                           + dg_ds * ds_dE_j * center_grad[j, p] * width_i)
+                grad_sum[p] += (
+                    dg_dd * (center_grad[i, p] - center_grad[j, p]) * width_i
+                    + pdf * width_grad[i, p]
+                    + dg_ds * ds_dE_j * center_grad[j, p] * width_i)
             for p in range(4, 7):
-                grad[p] = dg_ds * ds_db[j, p - 4] * width_i
+                grad_sum[p] += dg_ds * ds_db[j, p - 4] * width_i
+        if S_j <= 0.0:
+            continue
+        for i in range(lo, hi):
+            d = centers[i] - c_j
+            pdf = gaussian_pdf(d, s_j)
+            dg_dd = -d / s2 * pdf
+            dg_ds = pdf * (d * d / s2 - 1.0) / s_j
+            width_i = widths[i]
+            m_ij = pdf * width_i / S_j
+            grad = np.empty(7, dtype=np.float64)
+            for p in range(4):
+                grad[p] = ((dg_dd * (center_grad[i, p] - center_grad[j, p])
+                            * width_i
+                            + pdf * width_grad[i, p]
+                            + dg_ds * ds_dE_j * center_grad[j, p] * width_i)
+                           - m_ij * grad_sum[p]) / S_j
+            for p in range(4, 7):
+                grad[p] = (dg_ds * ds_db[j, p - 4] * width_i
+                           - m_ij * grad_sum[p]) / S_j
             acc = 0.0
             for p in range(7):
                 gp = grad[p]
@@ -165,10 +231,18 @@ def build_full_response(result: FitResult, channel_max: float,
     widths = np.diff(energy_edges)
     sigma = resol_sigma_model(resol_params, centers)
 
+    n_clamps = count_variance_clamps(resol_params, centers)
+    if n_clamps:
+        warnings.warn(
+            f"resolution model variance is clamped to MIN_SIGMA at "
+            f"{n_clamps} energy point(s); the fitted parameters drive the "
+            f"Bernstein polynomial negative (a correct fit should not "
+            f"trigger this)", RuntimeWarning, stacklevel=2)
+
     # Midpoint quadrature of the Gaussian integral over each channel
-    # (same kernel as the fit); full Gaussian, no column renormalization.
-    matrix = (gaussian_pdf(centers[:, None] - centers[None, :],
-                           sigma[None, :]) * widths[:, None])
+    # (same kernel and cutoff/renormalization as the fit's sparse matrix).
+    matrix, raw_col_sums = _build_export_matrix(centers, widths, sigma,
+                                                N_SIGMA)
 
     # Per-element 1-sigma uncertainties: linear propagation of the core
     # covariance through the analytic Jacobian of R.
@@ -184,7 +258,7 @@ def build_full_response(result: FitResult, channel_max: float,
         cov_work = np.where(np.isnan(core_cov), 0.0, core_cov)
         var = _matrix_uncertainty_variance(
             centers, widths, sigma, ds_dE, ds_db,
-            center_grad, width_grad, cov_work)
+            center_grad, width_grad, cov_work, raw_col_sums, N_SIGMA)
         # Clamp and sqrt in place (tolerate tiny negative round-off of the
         # quadratic form) to avoid extra full-matrix temporaries.
         np.maximum(var, 0.0, out=var)
@@ -195,19 +269,12 @@ def build_full_response(result: FitResult, channel_max: float,
         n_channels=n,
         energy_edges=np.asarray(energy_edges, dtype=float),
         matrix=np.asarray(matrix, dtype=float),
+        raw_col_sums=np.asarray(raw_col_sums, dtype=float),
         matrix_uncertainties=np.asarray(matrix_uncertainties, dtype=float),
         calib_coeffs=c0k1k2k3_to_c0c1c2c3(calib_params, channel_max),
         resol_params=np.asarray(resol_params, dtype=float),
         param_cov=reported_core_cov(core_cov, channel_max),
     )
-
-
-def _put_i64(fh, value: int) -> None:
-    fh.write(np.int64(value).tobytes())
-
-
-def _put_f64(fh, values) -> None:
-    fh.write(np.asarray(values, dtype=np.float64).tobytes())
 
 
 def write_export_file(response: FullResponse) -> str:
@@ -217,24 +284,19 @@ def write_export_file(response: FullResponse) -> str:
     writer (:file:`kc761calib/calib2root.cxx`) deletes it after a
     successful conversion, and callers keep it on failure for inspection.
     """
-    fd, path = tempfile.mkstemp(prefix="kc761calib-export-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(_MAGIC)
-            fh.write(CALIB_FORMULA.encode("ascii") + b"\n")
-            fh.write(RESOL_FORMULA.encode("ascii") + b"\n")
-            _put_i64(fh, response.calib_coeffs.size)
-            _put_f64(fh, response.calib_coeffs)
-            _put_i64(fh, response.resol_params.size)
-            _put_f64(fh, response.resol_params)
-            _put_f64(fh, RESOL_E_REF)
-            _put_i64(fh, response.param_cov.shape[0])
-            _put_f64(fh, response.param_cov.ravel())
-            _put_i64(fh, response.n_channels)
-            _put_f64(fh, response.energy_edges)
-            _put_f64(fh, response.matrix.ravel())
-            _put_f64(fh, response.matrix_uncertainties.ravel())
-    except BaseException:
-        os.unlink(path)
-        raise
-    return path
+    writer = ExportWriter("kc761calib-export-", _MAGIC)
+    with writer:
+        writer.put_text(CALIB_FORMULA)
+        writer.put_text(RESOL_FORMULA)
+        writer.put_i64(response.calib_coeffs.size)
+        writer.put_f64(response.calib_coeffs)
+        writer.put_i64(response.resol_params.size)
+        writer.put_f64(response.resol_params)
+        writer.put_f64(RESOL_E_REF)
+        writer.put_i64(response.param_cov.shape[0])
+        writer.put_f64(response.param_cov.ravel())
+        writer.put_i64(response.n_channels)
+        writer.put_f64(response.energy_edges)
+        writer.put_f64(response.matrix.ravel())
+        writer.put_f64(response.matrix_uncertainties.ravel())
+    return writer.path

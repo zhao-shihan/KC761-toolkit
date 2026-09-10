@@ -30,8 +30,8 @@ from geant4_pybind import (
 from .config import SourceSpec
 from .generator import GammaEventState, make_gamma_generator
 from .paths import (
-    MATRIX_G_HIST_NAME,
-    MATRIX_ZERO_HIST_NAME,
+    PRIMARY_TO_DEPOSITION_HIST_NAME,
+    ZERO_DEPOSITION_HIST_NAME,
     NTUPLE_COLUMNS,
     NTUPLE_NAME,
     SPECTRUM_HIST_NAME,
@@ -141,13 +141,13 @@ class MatrixRunAction(_AnalysisRunAction):
         # energy in MeV).
         edges = G4doubleVector([float(e) for e in self.edges])
         am.CreateH2(
-            MATRIX_G_HIST_NAME,
+            PRIMARY_TO_DEPOSITION_HIST_NAME,
             "Primary-to-deposition matrix (counts)",
             edges,
             edges,
         )
         am.CreateH1(
-            MATRIX_ZERO_HIST_NAME,
+            ZERO_DEPOSITION_HIST_NAME,
             "Zero-deposition events per primary-energy bin",
             edges,
         )

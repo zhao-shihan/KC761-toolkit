@@ -10,13 +10,14 @@ from kc761util.spectrum import SPECTRUM_HIST_NAME  # noqa: F401 (re-export)
 
 NTUPLE_NAME = "kc761_data"
 
-# Worker/merged histogram name of the matrix modes' primary-to-deposition
-# matrix G (x = energy deposition, y = primary energy).
-MATRIX_G_HIST_NAME = "primary_to_deposition"
+# Worker/merged histogram name of the primary-to-deposition matrix
+# (x = energy deposition, y = primary energy); the final-file contract
+# lives in kc761util.simfile, re-exported here for the sim-side workers.
+from kc761util.simfile import PRIMARY_TO_DEPOSITION_HIST_NAME  # noqa: F401
 
 # Worker/merged histogram name of the matrix modes' per-primary-column
 # zero-deposition counts.
-MATRIX_ZERO_HIST_NAME = "zero_deposition_counts"
+ZERO_DEPOSITION_HIST_NAME = "zero_deposition_counts"
 
 # Ntuple column order and dtypes; written by actions.RunAction and
 # re-created by runner.merge_root_files when combining worker files.

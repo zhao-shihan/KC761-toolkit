@@ -32,6 +32,16 @@ dg_ds = (d^2/sigma_j^2 - 1)/sigma_j * pdf, and the sigma derivatives from
 (both clamps of sigma(E) carry exact one-sided derivatives through
 :func:`kc761calib.response.resol_sigma_model_grad`).
 
+The stored matrix uses the fit's construction: a 5-sigma kernel-support
+cutoff plus column renormalization, so the kernel evaluates the raw
+entries F only inside the support, then applies the renormalization
+factor's derivative on the fixed support set,
+
+    dC = (dF - C * dS_j) / S_j,   S_j = sum_a F[a,j] (raw column sum),
+
+entries outside the support being exactly zero (the discrete cutoff
+boundary is treated as frozen, matching the stored matrix).
+
 Note on the stored per-element uncertainties: kc761calib computes them in
 its internal basis; the reported-basis quadratic form here is the same
 value up to floating-point rounding (a constant, invertible change of
@@ -50,18 +60,21 @@ from __future__ import annotations
 import numba
 import numpy as np
 
+from .folding import N_SIGMA
 from .response import gaussian_pdf, resol_sigma_model, resol_sigma_model_grad
 
 N_PARAMS = 7  # reported basis (c0..c3, b0..b2)
 
 
 @numba.njit(parallel=True, cache=True)
-def _jacobian_kernel(ch, centers, widths, sigma, ds_dE, ds_db):
+def _jacobian_kernel(ch, centers, widths, sigma, ds_dE, ds_db, n_sigma):
     """Per-element gradient of C w.r.t. the reported basis (module docstring).
 
     Column-parallel: each ``(i, j)`` entry is written exactly once.  The
     row-dependent calibration derivatives ``dm``/``dw`` are precomputed
-    once per row (they would otherwise be recomputed per column).
+    once per row (they would otherwise be recomputed per column).  Only
+    the kernel-support entries are nonzero; the column-renormalization
+    factor's derivative is applied on the fixed support set.
     """
     n = centers.shape[0]
     dm = np.empty((n, 4), dtype=np.float64)  # d(center_i)/dc_p
@@ -71,7 +84,7 @@ def _jacobian_kernel(ch, centers, widths, sigma, ds_dE, ds_db):
         for p in range(4):
             dm[i, p] = 0.5 * ((ch_i + 0.5) ** p + (ch_i - 0.5) ** p)
             dw[i, p] = (ch_i + 0.5) ** p - (ch_i - 0.5) ** p
-    jac = np.empty((n, n, N_PARAMS), dtype=np.float64)
+    jac = np.zeros((n, n, N_PARAMS), dtype=np.float64)
     for j in numba.prange(n):
         c_j = centers[j]
         s_j = sigma[j]
@@ -81,31 +94,59 @@ def _jacobian_kernel(ch, centers, widths, sigma, ds_dE, ds_db):
         dm_j = np.empty(4, dtype=np.float64)
         for p in range(4):
             dm_j[p] = 0.5 * ((ch_j + 0.5) ** p + (ch_j - 0.5) ** p)
-        for i in range(n):
+        support = n_sigma * s_j
+        lo = np.searchsorted(centers, c_j - support)
+        hi = np.searchsorted(centers, c_j + support, side="right")
+        col_sum = 0.0
+        for i in range(lo, hi):
+            col_sum += gaussian_pdf(centers[i] - c_j, s_j) * widths[i]
+        if col_sum <= 0.0:
+            continue
+        grad_sum = np.zeros(N_PARAMS, dtype=np.float64)
+        for i in range(lo, hi):
             d = centers[i] - c_j
             pdf = gaussian_pdf(d, s_j)
             dg_dd = -d / s2 * pdf
             dg_ds = pdf * (d * d / s2 - 1.0) / s_j
             width_i = widths[i]
             for p in range(4):
-                jac[i, j, p] = (
+                grad_sum[p] += (
                     (dg_dd * (dm[i, p] - dm_j[p]) + dg_ds * ds_dE_j * dm_j[p])
                     * width_i
-                    + pdf * dw[i, p]
-                )
+                    + pdf * dw[i, p])
             for p in range(4, 7):
-                jac[i, j, p] = dg_ds * ds_db[j, p - 4] * width_i
+                grad_sum[p] += dg_ds * ds_db[j, p - 4] * width_i
+        for i in range(lo, hi):
+            d = centers[i] - c_j
+            pdf = gaussian_pdf(d, s_j)
+            dg_dd = -d / s2 * pdf
+            dg_ds = pdf * (d * d / s2 - 1.0) / s_j
+            width_i = widths[i]
+            m_ij = pdf * width_i / col_sum
+            for p in range(4):
+                g = ((dg_dd * (dm[i, p] - dm_j[p])
+                      + dg_ds * ds_dE_j * dm_j[p]) * width_i
+                     + pdf * dw[i, p])
+                jac[i, j, p] = (g - m_ij * grad_sum[p]) / col_sum
+            for p in range(4, 7):
+                g = dg_ds * ds_db[j, p - 4] * width_i
+                jac[i, j, p] = (g - m_ij * grad_sum[p]) / col_sum
     return jac
 
 
 def build_matrix_jacobian(energy_edges, calib_coeffs,
-                          resol_params) -> np.ndarray:
+                          resol_params, n_sigma: float = N_SIGMA,
+                          channel_offset: int = 0) -> np.ndarray:
     """(n, n, 7) gradient of C w.r.t. (c0..c3, b0..b2).
 
     ``energy_edges`` are the stored deposition-energy edges (keV, length
     n + 1, strictly increasing); ``calib_coeffs`` = (c0..c3) and
     ``resol_params`` = (b0..b2) are the stored parameters.  The returned
-    tensor is J[i, j, p] = dC[i, j]/dq_p in the reported basis.
+    tensor is J[i, j, p] = dC[i, j]/dq_p in the reported basis, including
+    the column-renormalization factor's derivative (see the module
+    docstring).  ``channel_offset`` is the absolute channel index of the
+    first edge entry (0 for the full calibration range); the bin-geometry
+    derivatives depend on the absolute channel number.
     """
     edges = np.asarray(energy_edges, dtype=float)
     calib = np.asarray(calib_coeffs, dtype=float)
@@ -128,7 +169,8 @@ def build_matrix_jacobian(energy_edges, calib_coeffs,
     # at the stored edges reproduces the file's matrix up to fp rounding.
     centers = 0.5 * (edges[:-1] + edges[1:])
     widths = np.diff(edges)
-    ch = np.arange(n, dtype=np.float64)
+    ch = np.arange(channel_offset, channel_offset + n, dtype=np.float64)
     sigma = resol_sigma_model(resol, centers)
     ds_dE, ds_db = resol_sigma_model_grad(resol, centers)
-    return _jacobian_kernel(ch, centers, widths, sigma, ds_dE, ds_db)
+    return _jacobian_kernel(ch, centers, widths, sigma, ds_dE, ds_db,
+                            n_sigma)

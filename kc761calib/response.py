@@ -257,3 +257,20 @@ def resol_sigma_model(resol_params, energy):
     array.
     """
     return _sigma_intermediates(resol_params, energy)[3]
+
+
+def count_variance_clamps(resol_params, energies) -> int:
+    """Number of energies where the model variance is clamped to MIN_SIGMA.
+
+    Pure-Python diagnostic mirror of the numba kernel's clamp in
+    :func:`_sigma_intermediates`: a healthy fit never drives the
+    Bernstein variance negative, so a non-zero count here (the
+    polynomial runs negative and the variance collapses onto the
+    numerical floor) is a warning-worthy sign.
+    """
+    e = np.asarray(energies, dtype=np.float64)
+    b_sq = np.asarray(resol_params, dtype=np.float64) ** 2
+    t = np.clip(e, 0.0, np.inf) / RESOL_E_REF
+    basis = _bernstein_basis(t, 2)
+    var = np.dot(basis, b_sq)
+    return int(np.sum(var < MIN_SIGMA ** 2))

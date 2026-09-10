@@ -10,19 +10,31 @@ import sys
 import time
 
 from _bootstrap import APP_DIR, REPO_ROOT
+from kc761sim.config import SOURCES
 from kc761sim.paths import (NTUPLE_NAME, count_label, output_stem,
                             temp_work_dir)
 
 SIM = os.path.join(APP_DIR, "sim.py")
 OUT_DIR = os.path.join(REPO_ROOT, "out", "sim")
 
-RUNS: dict[str, int] = {
+# Event budget per source key.  The key set is derived from
+# kc761sim.config.SOURCES (unshielded variants are excluded by their
+# absence from this map), so RUNS can never drift from the source registry
+# again: a renamed or removed source fails loudly instead of silently
+# diverging.
+_EVENTS: dict[str, int] = {
     "am241": 3_000_000,
     "k40": 1_000_000_000,
     "lu176": 20_000_000,
     "ra226": 100_000_000,
     "th232": 200_000_000,
 }
+RUNS: dict[str, int] = {}
+for _key, _events in _EVENTS.items():
+    if _key not in SOURCES:
+        raise RuntimeError(
+            f"runsim source {_key!r} is not in kc761sim.config.SOURCES")
+    RUNS[_key] = _events
 
 
 def output_path(key: str, n: int) -> str:

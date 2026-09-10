@@ -67,4 +67,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="stage-1 optimizer iterations (default 1000)")
     parser.add_argument("--stage2-maxiter", type=int, default=100000,
                         help="stage-2 optimizer iterations (default 100000)")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.syst is not None and any(s < 0 for s in args.syst):
+        parser.error("--syst must be non-negative")
+    if args.stage1_maxiter < 1:
+        parser.error("--stage1-maxiter must be >= 1")
+    if args.stage2_maxiter < 1:
+        parser.error("--stage2-maxiter must be >= 1")
+    return args

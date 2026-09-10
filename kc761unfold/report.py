@@ -28,10 +28,21 @@ def print_summary(result: UnfoldResult, data_path: str,
               f"{np.max(result.sigma_stat):.4g}, calibration vertical max "
               f"{np.max(result.sigma_calib):.4g}")
         return
-    print(f"[unfold] chi2 = {result.chi2:.2f}, ndof = {result.ndof}, "
-          f"chi2/ndof = {result.chi2 / result.ndof:.2f}, "
+    print(f"[unfold] chi2 = {result.chi2:.2f}, ndof = {result.ndof} "
+          f"(effective), chi2/ndof = {result.chi2 / max(result.ndof, 1):.2f}, "
           f"penalty = {result.pen_cost:.4g} "
-          f"({result.n_iter} iterations)")
+          f"({result.n_iter} iterations, converged={result.converged})")
+    if result.refolded is not None and result.fit_sigma is not None:
+        # The pull denominator is the fit sigma (the chi-square
+        # denominator), not the reported total band: the latter includes
+        # the simulation Monte Carlo term, which would deflate the pulls
+        # and hide model mismatch.
+        sig = np.asarray(result.fit_sigma, dtype=float)
+        ok = (sig > 0) & np.isfinite(sig)
+        pulls = ((np.asarray(result.data_counts, dtype=float)
+                  - np.asarray(result.refolded, dtype=float))[ok] / sig[ok])
+        print(f"[unfold] pulls (fit sigma): mean={np.mean(pulls):+.3f}, "
+              f"rms={np.std(pulls):.3f} (n={int(ok.sum())}/{len(sig)} bins)")
     total_in = float(np.sum(result.data_counts))
     total_out = float(np.sum(result.counts))
     print(f"[unfold] counts: data {total_in:.1f} -> unfolded "

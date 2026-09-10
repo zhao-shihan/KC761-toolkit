@@ -38,8 +38,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
-    sig = args.signal.expanduser().resolve()
-    bkg = args.background.expanduser().resolve()
+    sig = args.sig.expanduser().resolve()
+    bkg = args.bkg.expanduser().resolve()
     for label, path in (("signal", sig), ("background", bkg)):
         if not path.is_file():
             print(
