@@ -21,6 +21,7 @@ Frozen decisions (docs/plan.md):
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
@@ -38,6 +39,22 @@ ENERGY_UNIT_KEV = "kev"
 
 MAX_CHANNELS = 4096
 """Validated support limit (D-52); W1 may lower it with a measured justification."""
+
+SOURCE_MODE_DEPOSITION_MAX_KEV: Final = 4096.0
+SOURCE_MODE_DEPOSITION_BINS: Final = 4096
+"""Fixed uniform source-mode Monte-Carlo axis: ``0..4096 keV / 4096 bins``.
+
+The source-mode spectrum (D-33) and the matrix-mode primary grid (D-101/D-121)
+are the same axis, so it lives here once and is imported by ``kc761.sim`` and
+``kc761.calib`` (the former ``calib.model.FIXED_DEPOSITION_*`` are aliases).
+"""
+
+
+def source_mode_deposition_edges_kev() -> NDArray[np.float64]:
+    """Return the fixed uniform source-mode deposition edges in keV (D-121)."""
+    return np.linspace(
+        0.0, SOURCE_MODE_DEPOSITION_MAX_KEV, SOURCE_MODE_DEPOSITION_BINS + 1
+    )
 
 
 @dataclass(frozen=True)

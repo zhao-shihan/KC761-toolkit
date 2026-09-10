@@ -56,7 +56,7 @@ from kc761.errors import (
     ValidationError,
 )
 from kc761.schema import _uproot
-from kc761.schema.axes import Axis, check_same_edges
+from kc761.schema.axes import UNIT_KEV, Axis, check_same_edges
 from kc761.schema.products import (
     META_ANGULAR_DISTRIBUTION,
     META_ARGUMENTS_JSON,
@@ -91,8 +91,10 @@ from kc761.schema.products import (
     META_SCALES_JSON,
     META_SEED,
     META_SOURCE_FILE,
+    META_SOURCE_KEY,
     META_WORKERS,
     OBJ_DEPOSITION_TO_CHANNEL,
+    OBJ_MC_SPECTRUM,
     OBJ_PARAM_COV,
     OBJ_PRIMARY_COLUMN_TOTALS,
     OBJ_PRIMARY_EFFICIENCY,
@@ -115,6 +117,7 @@ from kc761.schema.products import (
     Histogram1D,
     Histogram2D,
     InputFingerprint,
+    McSpectrumProduct,
     Product,
     Provenance,
     SimProduct,
@@ -148,6 +151,7 @@ _OBJECT_KIND: Mapping[str, str] = {
     OBJ_SPECTRUM_REFOLDED: "th1",
     OBJ_SPECTRUM_CALIBRATED: "th1",
     OBJ_SPECTRUM: "th1",
+    OBJ_MC_SPECTRUM: "th1",
     META_NTUPLE_NAME: "rntuple",
 }
 
@@ -160,6 +164,7 @@ _REQUIRED_VARIANCE: Mapping[str, frozenset[str]] = {
     ),
     "unfold_calib_only": frozenset(),
     "spectrum": frozenset({OBJ_SPECTRUM}),
+    "mc_spectrum": frozenset({OBJ_MC_SPECTRUM}),
 }
 
 
@@ -446,6 +451,15 @@ def _encode_meta(product: Product, dispatch: str) -> dict[str, float | int | str
         assert isinstance(product, SpectrumProduct)
         meta[META_DAQ_TIME_S] = float(product.daq_time_s)
         meta[META_SOURCE_FILE] = product.source_file
+    elif dispatch == "mc_spectrum":
+        assert isinstance(product, McSpectrumProduct)
+        meta[META_SOURCE_KEY] = product.source_key
+        meta[META_MODE_NAME] = product.mode_name
+        meta[META_GEOMETRY_NAME] = product.geometry_name
+        meta[META_GEOMETRY_PARAM_MM] = float(product.geometry_param_mm)
+        meta[META_N_EVENTS] = int(product.n_events)
+        meta[META_SEED] = int(product.seed)
+        meta[META_WORKERS] = int(product.workers)
     return meta
 
 
@@ -743,6 +757,22 @@ def _check_product_bodies(product: Product) -> None:
             product.spectrum,
             require_variance=OBJ_SPECTRUM in _REQUIRED_VARIANCE["spectrum"],
         )
+    elif dispatch == "mc_spectrum":
+        assert isinstance(product, McSpectrumProduct)
+        if not product.source_key:
+            raise SchemaError("mc_spectrum: source_key must be non-empty")
+        if product.geometry_name == "":
+            raise SchemaError("mc_spectrum: geometry_name must be non-empty")
+        if product.spectrum.axis.unit != UNIT_KEV:
+            raise SchemaError(
+                f"mc_spectrum: energy axis unit must be {UNIT_KEV!r}, "
+                f"got {product.spectrum.axis.unit!r}"
+            )
+        _check_hist1d(
+            OBJ_MC_SPECTRUM,
+            product.spectrum,
+            require_variance=OBJ_MC_SPECTRUM in _REQUIRED_VARIANCE["mc_spectrum"],
+        )
 
 
 # --------------------------------------------------------------------------
@@ -929,6 +959,32 @@ def _certify_spectrum(product: SpectrumProduct) -> None:
         raise CertificateError("F-IO-1", "spectrum fSumw2 must be non-negative")
 
 
+def _certify_mc_spectrum(product: McSpectrumProduct) -> None:
+    """F-SIM-2 source variant (D-127/D-128): ``fSumw2 = c (1 - c/P)``."""
+    values = np.asarray(product.spectrum.values, dtype=np.float64)
+    variances = product.spectrum.variances
+    if variances is None:
+        raise CertificateError("F-SIM-2", "mc_spectrum has no fSumw2 buffer")
+    variances = np.asarray(variances, dtype=np.float64)
+    if np.any(values < 0.0):
+        raise CertificateError("F-SIM-2", "mc_spectrum counts must be non-negative")
+    if np.any(variances < 0.0):
+        raise CertificateError("F-SIM-2", "mc_spectrum fSumw2 must be non-negative")
+    total = float(values.sum())
+    expected = np.zeros_like(values) if total == 0.0 else values * (1.0 - values / total)
+    if np.any(np.abs(variances - expected) > _CERT_RTOL * np.maximum(1.0, expected)):
+        raise CertificateError(
+            "F-SIM-2",
+            "mc_spectrum fSumw2 does not match c (1 - c/P) with P = sum(counts)",
+        )
+    if product.n_events < 0:
+        raise CertificateError("F-SIM-1", "mc_spectrum n_events must be non-negative")
+    if product.workers < 1:
+        raise CertificateError("F-SIM-1", "mc_spectrum workers must be >= 1")
+    if not np.isfinite(product.geometry_param_mm):
+        raise CertificateError("F-SIM-1", "mc_spectrum geometry_param_mm must be finite")
+
+
 def _run_certificates(product: Product, dispatch: str) -> None:
     if dispatch == "calib":
         assert isinstance(product, CalibProduct)
@@ -948,6 +1004,9 @@ def _run_certificates(product: Product, dispatch: str) -> None:
     elif dispatch == "spectrum":
         assert isinstance(product, SpectrumProduct)
         _certify_spectrum(product)
+    elif dispatch == "mc_spectrum":
+        assert isinstance(product, McSpectrumProduct)
+        _certify_mc_spectrum(product)
 
 
 def _check_product(product: Product, *, strict: bool) -> None:
@@ -979,6 +1038,14 @@ def _strict_file_checks(path: str | Path, dispatch: str) -> None:
             raw = np.asarray(hist.member("fSumw2"), dtype=np.float64)
             if np.any(raw < 0.0):
                 raise CertificateError("F-IO-1", "raw spectrum fSumw2 has negative entries")
+    elif dispatch == "mc_spectrum":
+        with uproot.open(path) as file:
+            hist = file[OBJ_MC_SPECTRUM]
+            if not _uproot.histogram_has_variance(hist):
+                raise CertificateError("F-SIM-2", "mc_spectrum has no fSumw2 buffer")
+            raw = np.asarray(hist.member("fSumw2"), dtype=np.float64)
+            if np.any(raw < 0.0):
+                raise CertificateError("F-SIM-2", "raw mc_spectrum fSumw2 is negative")
 
 
 # --------------------------------------------------------------------------
@@ -1090,6 +1157,19 @@ def _build_product(file: Any, dispatch: str, meta: Mapping[str, Any]) -> Product
             source_file=str(meta[META_SOURCE_FILE]),
             provenance=provenance,
         )
+    if dispatch == "mc_spectrum":
+        return McSpectrumProduct(
+            format_version=format_version,
+            spectrum=_uproot.read_hist1d(file, OBJ_MC_SPECTRUM),
+            source_key=str(meta[META_SOURCE_KEY]),
+            mode_name=str(meta[META_MODE_NAME]),
+            geometry_name=str(meta[META_GEOMETRY_NAME]),
+            geometry_param_mm=float(meta[META_GEOMETRY_PARAM_MM]),
+            n_events=int(meta[META_N_EVENTS]),
+            seed=int(meta[META_SEED]),
+            workers=int(meta[META_WORKERS]),
+            provenance=provenance,
+        )
     raise SchemaError(f"unsupported dispatch key {dispatch!r}")  # pragma: no cover
 
 
@@ -1165,6 +1245,9 @@ def _write_objects(file: Any, product: Product, dispatch: str) -> None:
     elif dispatch == "spectrum":
         assert isinstance(product, SpectrumProduct)
         _uproot.write_hist1d(file, OBJ_SPECTRUM, product.spectrum)
+    elif dispatch == "mc_spectrum":
+        assert isinstance(product, McSpectrumProduct)
+        _uproot.write_hist1d(file, OBJ_MC_SPECTRUM, product.spectrum)
     _uproot.write_meta_tree(file, _encode_meta(product, dispatch))
 
 

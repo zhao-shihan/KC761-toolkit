@@ -44,7 +44,12 @@ from kc761.calib.scaling import (
 )
 from kc761.calib.types import DatasetSpec, FitSettings
 from kc761.core._checks import as_float_array
-from kc761.core.binning import ChannelGrid
+from kc761.core.binning import (
+    SOURCE_MODE_DEPOSITION_BINS,
+    SOURCE_MODE_DEPOSITION_MAX_KEV,
+    ChannelGrid,
+    source_mode_deposition_edges_kev,
+)
 from kc761.core.model import (
     InternalCalibration,
     energy_kev,
@@ -59,9 +64,13 @@ from kc761.errors import SolverError, ValidationError
 N_CORE: Final = 7
 """Fit-basis core ``(c0, k1, k2, k3, b0, b1, b2)`` (F-MODEL-2)."""
 
-FIXED_DEPOSITION_MAX_KEV: Final = 4096.0
-FIXED_DEPOSITION_BINS: Final = 4096
-"""Fixed source-mode deposition axis (D-33/D-101)."""
+# ``FIXED_DEPOSITION_*`` and ``fixed_deposition_edges_kev`` are aliases of the
+# single source in ``kc761.core.binning`` (D-121); the fit-time response uses
+# that fixed uniform axis (D-101). They stay as module attributes for the
+# public ``kc761.calib`` surface, but are not a second implementation.
+FIXED_DEPOSITION_BINS = SOURCE_MODE_DEPOSITION_BINS
+FIXED_DEPOSITION_MAX_KEV = SOURCE_MODE_DEPOSITION_MAX_KEV
+fixed_deposition_edges_kev = source_mode_deposition_edges_kev
 
 INIT_CALIB: Final[tuple[float, float, float, float]] = (-180.0, 1.5, 2.5, 3.5)
 BOUNDS_CALIB: Final[tuple[tuple[float, float], ...]] = (
@@ -81,11 +90,6 @@ BOUNDS_RESOL: Final[tuple[tuple[float, float], ...]] = (
 The bounds keep ``E(ch)`` monotone (F-MODEL-3) and contain the resolution
 parameters used by the pre-rewrite fits (docs/plan.md D-103).
 """
-
-
-def fixed_deposition_edges_kev() -> NDArray[np.float64]:
-    """The fixed uniform source-mode deposition axis (D-33/D-101)."""
-    return np.linspace(0.0, FIXED_DEPOSITION_MAX_KEV, FIXED_DEPOSITION_BINS + 1)
 
 
 def core_bounds() -> tuple[tuple[float, float], ...]:

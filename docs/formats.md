@@ -41,6 +41,7 @@ with `SchemaError`.
 | unfold | `kc761_spectrum_unfolded`; `sigma_statistical`; `sigma_systematic`; `sigma_total`; `kc761_spectrum_refolded`; `meta` |
 | unfold (calib-only) | `kc761_spectrum_calibrated`; `meta` (with `mode = calib_only`) |
 | spectrum | `kc761_spectrum` TH1D; `meta` |
+| mc_spectrum | `kc761_mc_spectrum` TH1D; `meta` |
 
 Notes:
 
@@ -58,9 +59,15 @@ Notes:
   column has an exactly-zero C column (F-RESP-1 allows one; D-99).
 * sigma bands: `content = sigma`, `fSumw2 = sigma**2` (D-15), so `values()`
   and `errors()` both return the 1-sigma band.
+* `mc_spectrum` is the source-mode simulated pulse spectrum (D-120): a TH1D on
+  the fixed uniform energy axis `0..4096 keV / 4096 bins`
+  (`core.binning.source_mode_deposition_edges_kev()`), with the required
+  conditional-binomial `fSumw2 = c (1 - c/P)` where `P = sum(counts)` is the
+  recorded pulse total (D-128). It is a distinct product kind from the measured
+  `spectrum`; W6 connects `calib --sim` to it.
 * Required variance buffers (always-on check, D-98): `primary_to_deposition`,
-  `sigma_statistical`, `sigma_systematic`, `sigma_total` and `kc761_spectrum`.
-  All other variance buffers are optional.
+  `sigma_statistical`, `sigma_systematic`, `sigma_total`, `kc761_spectrum` and
+  `kc761_mc_spectrum`. All other variance buffers are optional.
 
 ## 4. `meta` RNTuple
 
@@ -106,6 +113,9 @@ no missing and no extra field (`SchemaError` otherwise). The complete list:
   `covariance_scale` is fixed to `1.0` (the analytic F-UNC-1/F-UNC-2 bands are
   never rescaled).
 * spectrum: `daq_time_s` (float), `source_file` (str).
+* mc_spectrum: `source_key` (str), `mode_name` (str), `geometry_name` (str),
+  `geometry_param_mm` (float), `n_events` (int), `seed` (int), `workers` (int)
+  (D-120).
 
 The former `calib_sha256`/`sim_sha256` fields are removed (D-89). Every input
 fingerprint is in `inputs_json`; `kc761/schema/io.py` exposes `fingerprint_for`

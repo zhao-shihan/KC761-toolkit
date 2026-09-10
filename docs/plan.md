@@ -177,6 +177,20 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-118 | Unfold diagnostics (F-UNF-4): `chi2` is the weighted residual sum of squares over the fit rows; `dof = n_fit_rows - n_active` with `n_active` the number of strictly positive solution entries; `covariance_scale = 1.0` (the analytic propagation is not rescaled). |
 | D-119 | F-UNC-2 core repair (found in W4, user-approved): `simulation_mc_variance` used a rank-one half-gradient derivative `d_js e_s^T` that dropped the `(R^T W C_j) mu_s` vector term and only broadcast for square `n_primary == n_deposition`. The exact multinomial propagation (full-vector derivative, non-centred `sum_j p X^2 - Xbar^2` form so the unrecorded zero-deposition category is included, reduced free-set inverse) replaces it; the F-UNC-2 derivation is corrected and an FD regression is added. |
 
+### 1.11 W5 contract decisions (2026-09-10, user-approved)
+
+| ID | Decision |
+|----|----------|
+| D-120 | New additive product kind `mc_spectrum` (source-mode simulated spectrum), separate from the measured `spectrum` kind. It carries one `kc761_mc_spectrum` TH1D (energy axis in keV, counts, required `fSumw2`) plus common meta and the fields `source_key`, `mode_name`, `geometry_name`, `geometry_param_mm`, `n_events`, `seed`, `workers`. W6 connects `calib --sim` to it; the calib library only consumes a `Histogram1D`. |
+| D-121 | The matrix-mode **primary** grid is the fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins` (D-33/D-101), single-sourced as `core.binning.source_mode_deposition_edges_kev()`. The matrix **deposition** axis is the calibration product's `C.y`, bitwise (D-114). `kc761/calib` imports the same core axis; its former local `FIXED_DEPOSITION_*` names become aliases of the core source. |
+| D-122 | `kc761/sim` owns the final source registry: the seven legacy keys `k40`, `lu176`, `am241`, `th232`, `th232-unshielded`, `ra226`, `ra226-unshielded`, carried verbatim with per-entry provenance notes; source geometry, container, shield and material values are unchanged (D-34). Appendix A item 6 is resolved by this decision. |
+| D-123 | Simulation randomness is worker-count and worker-order independent. Matrix mode derives an independent RNG stream per active primary column from `(base seed, column index)`; source mode derives one stream per fixed event block from `(base seed, block index)`. Both derivations are the single formula F-SIM-7. The default base seed is the legacy value `908136382`. |
+| D-124 | The worker count is estimated from available memory and the per-worker footprint (histograms plus a documented Geant4 baseline), and the estimate is logged with its reason; an explicit `threads` argument overrides it. `MAX_CHANNELS` (D-52) still bounds the deposition axis. |
+| D-125 | Each worker writes only the minimal raw ROOT histograms (spectrum, or G plus zero-deposition counts). Merging is done in Python with `uproot` (D-11): axis arrays are checked bitwise and contents summed; the final `mc_spectrum`/`SimProduct` is written through `schema.write_product` (atomic, refuse-overwrite, provenance). Temporary worker files are removed on success and on failure; no `.part` file is left behind. |
+| D-126 | The source-mode interactive/visualization path is kept. The Geant4 macros move into `kc761/sim` and the interactive macro enables `/tracking/storeTrajectory 1`; the repository-root `G4History.macro` is deleted in W7. The per-event ntuple remains deleted (D-30). |
+| D-127 | Physical-layer certificates owned by W5: F-SIM-1 event accounting (`sum_deposition + zero_j = N_j`, `sum_j N_j = n_events`), F-SIM-2 exact stored variance (matrix: `N_j p (1-p)`; source spectrum: `c (1 - c/P)` with `P` the recorded pulse total), F-SIM-3 `eta in [0, 1]` with `eta_j = column_sum_j / N_j`, and the new F-SIM-6 physical boundary (any G entry whose deposition-bin lower edge exceeds its primary-column upper edge is exactly zero). F-SIM-6 runs in strict mode and fails with its formula ID. |
+| D-128 | The source-mode spectrum variance uses the conditional-binomial convention of D-127 with the recorded pulse total `P = sum(counts)` as the fixed total; the derivation documents this as a plug-in approximation to the multinomial over pulses. |
+
 ## 2. Target architecture
 
 ```
@@ -244,6 +258,7 @@ unless `--force` is given.
 | compose | `response_matrix` (TH2D, R), `deposition_to_channel` and `primary_to_deposition` copies, `primary_column_totals`, `primary_efficiency` (derived convenience), `meta` | Inspection artifact for `R = C . p_tilde . diag(eta)`. |
 | unfold | `kc761_spectrum_unfolded`, `sigma_statistical`, `sigma_systematic`, `sigma_total` (bands, content = sigma, fSumw2 = sigma**2), `kc761_spectrum_refolded`, `meta` | Calibration-only mode uses `kc761_spectrum_calibrated` and marks the mode in `meta`. |
 | spectrum | `kc761_spectrum` (TH1D, counts, fSumw2), `meta` | Produced by `csv2root` and `subbkg`; carries `daq_time_s`. |
+| mc_spectrum | `kc761_mc_spectrum` (TH1D, energy axis keV, counts, required fSumw2), `meta` | Source-mode simulated pulse spectrum (D-120); variance `c (1 - c/P)` (D-128). W6 connects `calib --sim` to it. |
 
 Units live in key names (`energy_kev`, `daq_time_s`) and axis titles; matrix
 axes follow D-20.
@@ -265,6 +280,8 @@ in `kc761/schema/products.py` (`meta_field_types`).
   `energy_high_kev`, `channel_low`, `channel_high`, `pad_nsigma`, `syst_frac`,
   `chi2`, `dof`, `covariance_scale`; calib-only carries only `mode`.
 * spectrum adds: `daq_time_s`, `source_file`.
+* mc_spectrum adds: `source_key`, `mode_name`, `geometry_name`,
+  `geometry_param_mm`, `n_events`, `seed`, `workers` (D-120).
 
 Input sha256 digests live only in the common `inputs_json` provenance field
 (D-89); the former `calib_sha256`/`sim_sha256` fields are removed. Changes to
@@ -285,6 +302,7 @@ carry the derivation, its approximations, and the certificate that guards it.
 | F-BIN-1 | channel axis `-0.5 .. n-0.5`; variable energy axis in keV with strictly increasing edges |
 | F-BIN-2 | parameter-independent evaluation geometry: full deposition axis x requested channel rows, no bin selection (D-79) |
 | F-BIN-3 | working window `[chlo - pad, chhi + pad]`, pad in local resolution widths converted to channels; reported window `[chlo, chhi]` |
+| F-BIN-4 | fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins`, shared by the source spectrum and the matrix primary grid (D-33/D-101/D-121) |
 | F-KERN-1 | `P(i|j) = Phi((e_{i+1}-c_j)/sigma_j) - Phi((e_i-c_j)/sigma_j)` exact bin integral |
 | F-KERN-2 | smoothstep support taper (D-76) and exact column renormalization; empty columns are exactly zero |
 | F-KERN-3 | sparse triple assembly with exact-zero pruning beyond `n_sigma sigma` |
@@ -308,9 +326,11 @@ carry the derivation, its approximations, and the certificate that guards it.
 | F-CAL-2 | per-dataset quadratic Bezier scale |
 | F-SIM-1 | fixed per-column sampling and uniform energy draw |
 | F-SIM-2 | binomial/multinomial variance and `fSumw2` |
-| F-SIM-3 | detection efficiency `eta = 1 - zero/N` |
+| F-SIM-3 | detection efficiency `eta = column_sum/N = 1 - zero/N` |
 | F-SIM-4 | plane/sphere source sampling (Lambertian) |
 | F-SIM-5 | 10 us pulse merging |
+| F-SIM-6 | physical boundary certificate: deposition-bin lower edge above a primary-column upper edge is exactly zero (strict) |
+| F-SIM-7 | worker-count-independent seed derivation for matrix columns and source event blocks (D-123) |
 | F-IO-1 | atomic write / reopen validation protocol |
 
 Numerical decisions already frozen elsewhere in this document are normative;
@@ -418,9 +438,9 @@ A module is complete when, simultaneously:
 5. **Optimizer controls.** D-47 fixes a single quasi-Newton stage; the CLI
    flags for iteration limits/tolerances are not decided (legacy had
    `--stage1-maxiter` / `--stage2-maxiter`).
-6. **Source key registry.** `kc761/sim/__init__.py` mirrors the seven legacy
-   source keys so the CLI is stable; W5 owns the final physics registry and
-   may add/rename entries via the contract-change process.
+6. **Source key registry.** Resolved by D-122 (2026-09-10): the seven legacy
+   keys are frozen in the W5 registry with per-entry provenance; additions or
+   renames require a new contract decision.
 7. **Format version numbering.** Resolved by D-78 (2026-09-10): the new
    products start at `format_version = 1`, independent of the legacy
    calibration version 3.

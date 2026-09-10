@@ -35,6 +35,7 @@ PRODUCT_KIND_SIM: Final = "sim"
 PRODUCT_KIND_COMPOSE: Final = "compose"
 PRODUCT_KIND_UNFOLD: Final = "unfold"
 PRODUCT_KIND_SPECTRUM: Final = "spectrum"
+PRODUCT_KIND_MC_SPECTRUM: Final = "mc_spectrum"
 
 PRODUCT_KINDS: Final[tuple[str, ...]] = (
     PRODUCT_KIND_CALIB,
@@ -42,6 +43,7 @@ PRODUCT_KINDS: Final[tuple[str, ...]] = (
     PRODUCT_KIND_COMPOSE,
     PRODUCT_KIND_UNFOLD,
     PRODUCT_KIND_SPECTRUM,
+    PRODUCT_KIND_MC_SPECTRUM,
 )
 
 #: Full unfolding versus calibration-only relabeling; they share one product
@@ -64,6 +66,7 @@ OBJ_SIGMA_TOTAL: Final = "sigma_total"
 OBJ_SPECTRUM_REFOLDED: Final = "kc761_spectrum_refolded"
 OBJ_SPECTRUM_CALIBRATED: Final = "kc761_spectrum_calibrated"
 OBJ_SPECTRUM: Final = "kc761_spectrum"
+OBJ_MC_SPECTRUM: Final = "kc761_mc_spectrum"
 
 #: Object collection per dispatch key. The set on disk must match exactly
 #: (no extra, no missing object; W2 decision 6).
@@ -88,6 +91,7 @@ OBJECT_NAMES: Final[dict[str, tuple[str, ...]]] = {
     ),
     "unfold_calib_only": (OBJ_SPECTRUM_CALIBRATED, META_NTUPLE_NAME),
     "spectrum": (OBJ_SPECTRUM, META_NTUPLE_NAME),
+    "mc_spectrum": (OBJ_MC_SPECTRUM, META_NTUPLE_NAME),
 }
 
 #: ``product_kind`` value written for each dispatch key.
@@ -98,6 +102,7 @@ PRODUCT_KIND_FOR_DISPATCH: Final[dict[str, str]] = {
     "unfold": PRODUCT_KIND_UNFOLD,
     "unfold_calib_only": PRODUCT_KIND_UNFOLD,
     "spectrum": PRODUCT_KIND_SPECTRUM,
+    "mc_spectrum": PRODUCT_KIND_MC_SPECTRUM,
 }
 
 # --- meta field names (single source) -------------------------------------
@@ -149,6 +154,7 @@ META_COVARIANCE_SCALE: Final = "covariance_scale"
 
 META_DAQ_TIME_S: Final = "daq_time_s"
 META_SOURCE_FILE: Final = "source_file"
+META_SOURCE_KEY: Final = "source_key"
 
 #: Ordered dependency list whose versions are recorded in provenance (D-18).
 #: W5 passes Geant4 through ``extra_dependencies``.
@@ -222,6 +228,19 @@ _SPECTRUM_META_TYPES: Final[dict[str, type]] = {
     META_SOURCE_FILE: str,
 }
 
+#: Source-mode simulated spectrum (D-120). It shares the geometry/seed/worker
+#: fields with the sim product but identifies its source by ``source_key`` and
+#: carries no ``mode``/``angular_distribution``.
+_MC_SPECTRUM_META_TYPES: Final[dict[str, type]] = {
+    META_SOURCE_KEY: str,
+    META_MODE_NAME: str,
+    META_GEOMETRY_NAME: str,
+    META_GEOMETRY_PARAM_MM: float,
+    META_N_EVENTS: int,
+    META_SEED: int,
+    META_WORKERS: int,
+}
+
 _EXTRA_META_TYPES: Final[dict[str, dict[str, type]]] = {
     "calib": _CALIB_META_TYPES,
     "sim": _SIM_META_TYPES,
@@ -229,6 +248,7 @@ _EXTRA_META_TYPES: Final[dict[str, dict[str, type]]] = {
     "unfold": {META_MODE: str, **UNFOLD_SETTING_TYPES},
     "unfold_calib_only": {META_MODE: str},
     "spectrum": _SPECTRUM_META_TYPES,
+    "mc_spectrum": _MC_SPECTRUM_META_TYPES,
 }
 
 
@@ -402,12 +422,33 @@ class SpectrumProduct:
     provenance: Provenance
 
 
+@dataclass(frozen=True)
+class McSpectrumProduct:
+    """Source-mode simulated pulse spectrum (D-120).
+
+    The histogram is a TH1D on the fixed source-mode energy axis (keV) with a
+    required ``fSumw2`` carrying the D-128 conditional-binomial variance.
+    """
+
+    format_version: int
+    spectrum: Histogram1D
+    source_key: str
+    mode_name: str
+    geometry_name: str
+    geometry_param_mm: float
+    n_events: int
+    seed: int
+    workers: int
+    provenance: Provenance
+
+
 Product = (
     CalibProduct
     | SimProduct
     | ComposeProduct
     | UnfoldProduct
     | SpectrumProduct
+    | McSpectrumProduct
 )
 
 
@@ -421,6 +462,8 @@ def dispatch_key_for(product: Product) -> str:
         return "compose"
     if isinstance(product, SpectrumProduct):
         return "spectrum"
+    if isinstance(product, McSpectrumProduct):
+        return "mc_spectrum"
     if isinstance(product, UnfoldProduct):
         if product.mode not in UNFOLD_MODES:
             raise SchemaError(

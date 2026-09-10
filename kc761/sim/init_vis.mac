@@ -1,0 +1,12 @@
+# Macro for initializing the kc761 interactive (visualization) session (D-126).
+#
+# Verbosity is controlled by the sim command's --verbose option (with
+# /tracking/verbose left at its default 0), so no /run/verbose is forced here.
+# The visualization commands live in vis.mac; the application executes this
+# file and vis.mac with absolute paths, so this file must not reference vis.mac
+# with a relative path when the application starts from another directory.
+
+/control/saveHistory
+#
+# Initialize the kernel (no-op if the run manager is already initialized)
+/run/initialize

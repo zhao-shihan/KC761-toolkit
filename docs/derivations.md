@@ -16,6 +16,7 @@ append-only; derivations may gain detail but must never contradict
 | F-BIN-1 | channel axis `-0.5 .. n-0.5`; variable energy axis in keV | `core/binning.py` | implemented (W1) |
 | F-BIN-2 | parameter-independent evaluation geometry: full deposition axis x requested channel rows, no bin selection (D-79) | `core/binning.py` | implemented (W1, D-79) |
 | F-BIN-3 | working window and pad from the local resolution width | `core/binning.py` | implemented (W1) |
+| F-BIN-4 | fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins`, shared by the source spectrum and the matrix primary grid (D-33/D-101/D-121) | `core/binning.py` | implemented (W5) |
 | F-KERN-1 | exact Gaussian bin integral `Phi((e_{i+1}-c_j)/s_j) - Phi((e_i-c_j)/s_j)` | `core/kernel.py` | implemented (W1) |
 | F-KERN-2 | smoothstep support taper (D-76) and exact column renormalization; empty columns are zero | `core/kernel.py` | implemented (W1) |
 | F-KERN-3 | sparse triple assembly of C from the kernel | `core/kernel.py` | implemented (W1) |
@@ -40,11 +41,13 @@ append-only; derivations may gain detail but must never contradict
 | F-CAL-3 | fit parameter start values and bounds (specification reference, D-103) | `calib/model.py` | implemented (W3) |
 | F-CAL-4 | calibration prediction Jacobian and exact chi-square gradient (chain through F-RESP-4) | `calib/model.py` | implemented (W3) |
 | F-CAL-5 | calibration covariance: Fisher inverse, scale marginalization, reported-basis transform, `s**2` scaling (D-105) | `calib/covariance.py` | implemented (W3) |
-| F-SIM-1 | fixed per-column sampling, uniform energy draw within the column | `sim/` | planned |
-| F-SIM-2 | binomial/multinomial variance stored in `fSumw2` | `sim/` | planned |
-| F-SIM-3 | detection efficiency `eta_j = 1 - zero_j / N_j` | `sim/` | planned |
-| F-SIM-4 | plane and circumscribed-sphere source sampling (Lambertian) | `sim/` | planned |
-| F-SIM-5 | 10 us pulse merging for the source mode | `sim/` | planned |
+| F-SIM-1 | fixed per-column sampling, uniform energy draw within the column, exact event accounting `sum(counts) + zero = N_j` | `sim/sources.py`, `sim/certificates.py` | implemented (W5) |
+| F-SIM-2 | exact fixed-total variance in `fSumw2`: `N_j p (1-p)` (matrix) and `c (1 - c/P)` (source spectrum) | `sim/certificates.py` | implemented (W5) |
+| F-SIM-3 | detection efficiency `eta_j = column_sum_j / N_j` (equivalently `1 - zero_j/N_j`) | `sim/certificates.py` | implemented (W5) |
+| F-SIM-4 | plane and circumscribed-sphere source sampling (Lambertian) | `sim/generator.py` | implemented (W5) |
+| F-SIM-5 | 10 us pulse merging for the source mode | `sim/actions.py` | implemented (W5) |
+| F-SIM-6 | physical boundary certificate: deposition-bin lower edge above a primary-column upper edge is exactly zero | `sim/certificates.py` | implemented (W5) |
+| F-SIM-7 | worker-count-independent seed derivation: `column_seed(seed, column)` and `block_seed(seed, block)` | `sim/generator.py` | implemented (W5) |
 | F-IO-1 | atomic write, reopen validation and provenance protocol | `schema/io.py` | implemented (W2) |
 | F-UNF-1 | energy window -> channel/primary selection from `E(ch)` at channel centres (D-111) | `unfold/selection.py` | implemented (W4) |
 | F-UNF-2 | unfold fit weights `sigma_fit**2 = max(stat, 1) + (syst_frac*data)**2`, data-side only (D-112) | `unfold/selection.py` | implemented (W4) |
@@ -77,6 +80,10 @@ append-only; derivations may gain detail but must never contradict
 | KKT | F-SOLVE-3 | `mu >= 0`, scaled reduced gradient and complementarity `<= KKT_TOL` | `solver.solve_nonnegative(strict=True)`, `solver.verify_kkt` |
 | Covariance PSD | F-COV-1/F-COV-2 | symmetric, smallest eigenvalue `>= -tol` | `covariance.verify_covariance_psd` |
 | Band decomposition | F-UNC-3 | `total**2 = stat**2 + syst**2` within `1e-9` relative | `uncertainty.verify_band_decomposition` |
+| Event accounting | F-SIM-1 | per column `sum(counts) + zero = N_j`; `sum(N_j) = n_events` | `sim.certificates.verify_event_accounting` |
+| Simulation variance | F-SIM-2 | stored `fSumw2` equals `N_j p (1-p)` (matrix) or `c (1-c/P)` (source spectrum) | `sim.certificates.verify_binomial_variance`, `sim.certificates.verify_source_spectrum_variance`, `schema.io` strict |
+| Efficiency bounds | F-SIM-3 | derived `eta_j = column_sum_j / N_j` lies in `[0, 1]` | `sim.certificates.verify_efficiency` |
+| Physical boundary | F-SIM-6 | G entries whose deposition-bin lower edge exceeds the primary-column upper edge are exactly 0 (strict only) | `sim.certificates.verify_physical_boundary` |
 | Finiteness | all | no NaN/Inf; shape and unit checks run in every mode | `kc761.core._checks` |
 
 ## 4. Derivations
@@ -202,6 +209,22 @@ channel width from the calibration. The result is clipped to
 
 **Limits.** A non-monotone calibration fails validation; `pad_nsigma = 0`
 is allowed and disables padding.
+
+### F-BIN-4 - fixed source-mode Monte-Carlo axis
+
+**Definition.** `SOURCE_MODE_DEPOSITION_MAX_KEV = 4096.0` and
+`SOURCE_MODE_DEPOSITION_BINS = 4096`, i.e. uniform edges `e_k = k` keV for `k = 0..4096`.
+This is the frozen source-mode pulse-spectrum axis (D-33) and the matrix primary
+grid (D-101/D-121). It has a single implementation
+(`core.binning.source_mode_deposition_edges_kev`): `calib.model` imports it as its
+`FIXED_DEPOSITION_*` aliases for the parameter-independent fit-time `C_fit`, and `sim`
+uses it for both the `mc_spectrum` axis and the matrix `G.y`. A column is active when
+its upper edge is `> 0`; all 4096 columns are active here.
+
+**Why uniform.** The fit-time response must not depend on the fitted parameters (D-79),
+so its deposition axis is fixed; reusing the same fixed axis as the matrix primary grid
+means one Monte-Carlo histogram definition serves both. The exported `C.y`/`G.x`
+deposition axis is separate and channel-derived (D-101).
 
 ### F-KERN-1 - exact Gaussian bin integral
 
@@ -454,6 +477,86 @@ estimator string recorded with the product is
 algebraically identical to taking the core block of the full inverse, which is
 verified in the tests with a well-conditioned Fisher.
 
+### F-SIM-1 - fixed per-column sampling and event accounting
+
+**Sampling.** The matrix primary axis has `n_active` active columns. `n_events` is split as
+`base, rem = divmod(n_events, n_active)`; the active columns in ascending order receive
+`base + 1` for the first `rem` and `base` otherwise. In column `j`, `N_j` events are generated;
+each event's primary energy is `E = lo_j + u (hi_j - lo_j)` with `u` uniform in `[0, 1)` and
+`[lo_j, hi_j] = [max(edge_j, 0), edge_{j+1}]`. This is exactly the legacy round-robin
+assignment `active[(offset + event) mod n_active]` as a count vector.
+
+**Accounting.** Every event either deposits a positive total in the crystal (filling `G` in
+exactly one (deposition, primary) cell) or deposits nothing (counted in `zero_j`). Hence
+`sum_d G[d, j] + zero_j = N_j` and `sum_j N_j = n_events`. A positive deposit that left the
+deposition axis would break the first identity rather than being silently lost, which is why
+`verify_event_accounting` raises F-SIM-1.
+
+### F-SIM-2 - exact fixed-total variance
+
+**Matrix.** Conditional on the fixed column total `N_j`, the deposition-bin counts are
+multinomial with probabilities `p_dj`; the binomial marginal is
+`Var(G[d, j]) = N_j p (1 - p)` with `p = G[d, j] / N_j`, stored in `fSumw2`. Within a column the
+bins are negatively correlated and the correlations are reconstructed downstream from counts and
+`N_j`; a Poisson `counts` variance would overstate the high-probability bins.
+
+**Source spectrum.** The source mode fills one entry per merged pulse, so the pulse total `P` is
+itself random. Conditional on the recorded `P = sum(counts)`, the per-bin counts are multinomial
+and the plug-in marginal is `Var(c) = c (1 - c / P)`. This is the D-127/D-128 convention; it is an
+approximation to the full pulse-count distribution and is documented as such.
+
+### F-SIM-3 - detection efficiency
+
+`eta_j = sum_d G[d, j] / N_j`, with `eta_j = 0` for a zero-total column. Because every event is
+either detected or counted as zero, this equals `1 - zero_j / N_j` and lies in `[0, 1]`; the
+certificate checks the bound.
+
+### F-SIM-4 - plane and sphere surface sampling
+
+**Plane.** The position is uniform on the crystal-face-sized square (`x = (2 u_x - 1) h_x`,
+`y = (2 u_y - 1) h_y`, `z = z_plane`). The direction is Lambertian about the inward normal
+`-z`: `cos(theta) = sqrt(u_cos)`, `phi = 2 pi u_phi`, and
+`direction = (-sin t cos phi, -sin t sin phi, -cos t)`, a unit vector.
+
+**Sphere.** A uniform point on the sphere of radius `R` uses `cos(theta0) = 2 u1 - 1`,
+`phi0 = 2 pi u2`, the inward normal `n = (-sin t0 cos phi0, -sin t0 sin phi0, -cos t0)` and
+`position = -R n`. A local orthonormal frame `e1 = n x z_hat` (falling back to `(1, 0, 0)` at the
+poles) and `e2 = n x e1` carries the same Lambertian direction
+`e1 sin t cos phi + e2 sin t sin phi + n cos t`, a unit vector with positive projection on the
+inward normal.
+
+### F-SIM-5 - pulse merging
+
+Crystal deposits carry their Geant4 global time. Sorting by time, a pulse is the group
+`[t0, t0 + 10 us)`; its energy is the sum of the group's deposits, and groups are cut before the
+first deposit outside the window (half-open). Only the source mode merges pulses; the matrix mode
+scores one gamma per event.
+
+### F-SIM-6 - physical boundary certificate
+
+A gamma cannot deposit more energy than it carries, so on the binned axes a necessary condition
+is `G[d, j] = 0` whenever `deposition_edges[d] > primary_edges[j+1]` (the deposition bin starts
+above the primary column's top edge). The check is one vectorized mask and runs in strict mode; a
+violation is `CertificateError("F-SIM-6")`. It complements the always-on F-SIM-1 accounting,
+which catches deposits that leave the deposition axis entirely.
+
+### F-SIM-7 - worker-count-independent seed derivation
+
+Each matrix primary column has an independent stream seeded by `column_seed(seed, j)`; each
+source-mode event block by `block_seed(seed, b)`. Both use a SplitMix64 mixer of `(seed + tag)`
+and the index, reduced to `[0, 2**63)`:
+
+    def _stream_seed(base_seed, tag, index):
+        mixed = splitmix64((base_seed + tag) & (2**64 - 1))
+        mixed = splitmix64((mixed + index) & (2**64 - 1))
+        return mixed % (2**63)
+
+with `tag = 0x01` for columns and `0x02` for blocks. The worker partition therefore chooses only
+which process evaluates a stream, never the stream itself, so merging the summed histograms
+reproduces the single-process result bit-for-bit (counts are integer-valued). Source-mode blocks
+have the fixed size `SOURCE_MODE_EVENT_BLOCK` and are never split across workers, so each block's
+reseed point is global and worker-independent.
+
 ### F-SOLVE-1 - Tikhonov objective and its normalization
 
 **Objective.** Minimize `chi2 + alpha * ||D_tilde mu||^2` over `mu >= 0`,
@@ -605,10 +708,13 @@ required variance buffers exist, and the `meta` field set matches the frozen
 type table with length-1 entries. Strict-only product certificates
 (`strict=True`, D-61): F-RESP-1/F-RESP-2 (C/R column sums, composition and
 efficiency identities), F-COV-2 (param_cov symmetry, PSD and bin labels),
-F-SIM-1/F-SIM-2 (count/accounting bounds and `fSumw2 = N_j p (1 - p)`),
+F-SIM-1/F-SIM-2 (count/accounting bounds and `fSumw2 = N_j p (1 - p)`;
+`mc_spectrum` uses the source variant `c (1 - c/P)`, D-128),
 F-UNC-3 (band decomposition), D-15 band storage (`fSumw2 = sigma**2`) and
-F-IO-1 (positive `daq_time_s`, non-negative raw `fSumw2`). Every failure is a
-`CertificateError` carrying the formula ID and the offending value.
+F-IO-1 (positive `daq_time_s`, non-negative raw `fSumw2`). The physical-layer
+F-SIM-6 boundary certificate is owned by `kc761/sim` and runs under strict mode
+when a matrix product is produced. Every failure is a `CertificateError`
+carrying the formula ID and the offending value.
 
 **Provenance.** `build_provenance` records the git revision and dirty flag,
 Python version, the versions of an ordered, single-source dependency list,
