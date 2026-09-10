@@ -35,8 +35,11 @@ append-only; derivations may gain detail but must never contradict
 | F-UNC-1 | statistical covariance propagation through the reduced free-set system `H_FF**-1` (D-86) | `core/uncertainty.py` | implemented (W1) |
 | F-UNC-2 | systematic propagation (calibration covariance, simulation MC, data-side term) | `core/uncertainty.py` | implemented (W1) |
 | F-UNC-3 | strict band decomposition `total**2 = stat**2 + syst**2` | `core/uncertainty.py` | implemented (W1) |
-| F-CAL-1 | fit weights `var = max(stat, 1) + (syst_frac * data)**2 + MC` | `calib/` | planned |
-| F-CAL-2 | per-dataset quadratic Bezier scale model | `calib/` | planned |
+| F-CAL-1 | fit weights `var = max(stat, 1) + (syst_frac * data)**2 + MC` and the folded-prediction MC term (D-102) | `calib/model.py` | implemented (W3) |
+| F-CAL-2 | per-dataset quadratic Bezier scale model (fixed middle control channel `s0`), value and derivatives | `calib/scaling.py` | implemented (W3) |
+| F-CAL-3 | fit parameter start values and bounds (specification reference, D-103) | `calib/model.py` | implemented (W3) |
+| F-CAL-4 | calibration prediction Jacobian and exact chi-square gradient (chain through F-RESP-4) | `calib/model.py` | implemented (W3) |
+| F-CAL-5 | calibration covariance: Fisher inverse, scale marginalization, reported-basis transform, `s**2` scaling (D-105) | `calib/covariance.py` | implemented (W3) |
 | F-SIM-1 | fixed per-column sampling, uniform energy draw within the column | `sim/` | planned |
 | F-SIM-2 | binomial/multinomial variance stored in `fSumw2` | `sim/` | planned |
 | F-SIM-3 | detection efficiency `eta_j = 1 - zero_j / N_j` | `sim/` | planned |
@@ -329,6 +332,121 @@ sparse CSR weights.
 Values project as `W v` (mass conserving); independent variances project as
 `W**2 Var`. For identical binnings `W = I`, so the projection is idempotent.
 Covariances between source bins are not modelled (documented limitation).
+
+### F-CAL-1 - calibration fit weights and folded-prediction MC variance
+
+**Model (D-100).** For dataset `d`, with the shared internal core
+`q = (c0, k1, k2, k3, b0, b1, b2)`, the deposition-to-channel matrix
+`C_fit(q)` and the per-dataset scale `s_d(ch)` (F-CAL-2),
+
+    prediction_d = s_d . (C_fit(q) @ mc_d),
+    data_d ~= prediction_d + noise.
+
+`C_fit` is evaluated on the fixed uniform deposition axis `0..4096 keV /
+4096 bins` (D-33/D-101); the fit only contracts it with `mc_d` and its
+variance, so the implementation builds it on the contiguous hull of the
+non-zero MC bins, which is exactly the corresponding sub-matrix of the fixed
+axis (each column's kernel and renormalization depend on that column alone).
+
+**Weights (D-48).** With `stat` the data variance `fSumw2`, `syst_frac` the
+per-dataset fractional systematic and `MC` the folded prediction's MC
+variance,
+
+    var_d = max(stat_d, 1) + (syst_frac_d * data_d)**2 + MC_d,
+    MC_d = (s_d * sqrt((C_fit**2) @ var_mc_d))**2.
+
+The `max(stat, 1)` floor is the frozen weight convention: bins with fewer than
+one unit of variance are treated as unit variance. With no MC `fSumw2` the
+source variance falls back to `max(mc, 0)` (Poisson).
+
+**Limitations.** The floor is a documented approximation: for Poisson data
+with `pred < 1` the realised `(data - pred)**2 / max(data, 1)` has expectation
+below `pred`, so `chi2/dof` can sit below one on low-count spectra. The
+covariance is defined for the weights actually used (F-CAL-5).
+
+### F-CAL-2 - per-dataset quadratic Bezier scale
+
+With `x` the channel and `[x_lo, x_hi]` the fit window, the scale is the
+quadratic Bezier with control abscissae `(x_lo, s0, x_hi)` and ordinates
+`(s1, s2, s3)`:
+
+    x(t) = x_lo + 2 (s0 - x_lo) t + (x_lo - 2 s0 + x_hi) t^2,
+    s(t) = (1-t)^2 s1 + 2 (1-t) t s2 + t^2 s3,
+    t(x) = d / (a + sqrt(a^2 + c d)),  a = s0 - x_lo, c = x_lo - 2 s0 + x_hi, d = x - x_lo.
+
+`x(t)` is strictly increasing for `s0` strictly inside the window, so `t` is
+the unique in-interval root; the rationalized form is exact at both endpoints
+and free of cancellation.
+
+**Derivatives.** `dx/dt = 2(s0 - x_lo) + 2(x_lo - 2 s0 + x_hi) t`,
+`ds/dt = 2(s2 - s1) + 2(s1 - 2 s2 + s3) t`, and
+
+    ds/ds0 = (ds/dt) * (-2 t (1-t) / (dx/dt)),
+    ds/ds1 = (1-t)^2,  ds/ds2 = 2(1-t)t,  ds/ds3 = t^2.
+
+**Parameter structure (D-103).** For a constant scale (`s1 = s2 = s3`) the
+derivative with respect to `s0` vanishes identically; at
+`s0 = (x_lo + x_hi)/2` the abscissa parametrization becomes linear and the
+four-parameter family collapses onto the three-parameter quadratic-polynomial
+subfamily (the degree-2 Bernstein basis), so the `s0` direction is an exact
+gauge. For any other `s0` the family is a genuine parabola and the four
+parameters are locally independent (rank 4). `s0` is therefore kept free, and
+the model is seeded with a non-constant scale so the fit does not start on the
+gauge plateau (F-CAL-3); the scale block is marginalized stably in F-CAL-5.
+
+### F-CAL-3 - fit start values and bounds
+
+The internal core starts at `(-180, 1.5, 2.5, 3.5, 2, 20, 40)` with bounds
+`c0 in (-300, -100)`, `k1 in (1, 2)`, `k2 in (2, 3)`, `k3 in (3, 4)`,
+`b0 in (0, 10)`, `b1 in (0, 80)`, `b2 in (0, 100)`; these are the pre-rewrite
+ranges (specification reference, D-103) and keep `E(ch)` monotone (F-MODEL-3).
+The scale values are bounded to `[0.01, 3]` times the dataset's overall
+normalization `sum(data) / sum(model)`; `s0` is bounded strictly inside the
+window (F-CAL-2). A constant scale makes `ds/ds0` vanish, so the seed is
+non-constant: the data/model ratio is averaged over the lower, middle and
+upper thirds of the window (weighted by `model**2 / var`) to give `(s1, s2,
+s3)`, with `s0` at the midpoint. The fit then moves `s0` along the genuine
+parabola family.
+
+### F-CAL-4 - calibration prediction Jacobian and gradient
+
+Differentiating F-CAL-1, with `C_k = dC/dq_k` from F-RESP-4 (chained into the
+internal basis through the F-MODEL-2 Jacobian) and `d s / d s_p` from
+F-CAL-2:
+
+    d prediction_d / d q_k = s_d . (C_k[window] @ mc_d),
+    d prediction_d / d s_p = (d s_d / d s_p) . (C_fit[window] @ mc_d).
+
+The exact chi-square gradient (the variance depends on the parameters) is
+
+    d chi2 / d theta = -2 J^T ((data - p)/v) - (dv/dtheta)^T ((data - p)^2 / v^2),
+    dv/dq_k = s_d^2 * [2 (C_fit . C_k)[window] @ var_mc_d],
+    dv/ds_p = 2 s_d (d s_d/d s_p) * [(C_fit^2)[window] @ var_mc_d].
+
+All derivatives are analytic; no finite differences enter production. The
+optimizer uses the residual `r = (data - p)/sigma` and its Jacobian
+`dr/dtheta = -J/sigma - r * (dv/dtheta)/(2 v)`, so its gradient is the exact
+gradient of the objective it minimizes.
+
+### F-CAL-5 - calibration covariance extraction
+
+With the full-parameter prediction Jacobian `J` (core and scale columns,
+F-CAL-4) and `W = diag(1/v)` (F-CAL-1), let `F = J^T W J` and split its
+parameters into the reported core `c = (c0..c3, b0..b2)` and the scale `s`:
+
+    cov_core = (chi2/dof) * (F_cc - F_cs F_ss^+ F_sc)^-1,
+    cov_reported = T cov_core T^T,  T = diag(internal_jacobian(channel_max), I_3).
+
+The Schur complement is the `(c, c)` block of `F^-1` (the scale marginalized);
+`F_ss^+` is the Moore-Penrose inverse of the scale block, which projects out
+the `s0` gauge when the fitted scale is (nearly) polynomial. Jacobi
+(diagonal) preconditioning is applied before the factorization. `chi2/dof` is
+the single global scale (F-COV-2). A non-positive-definite core Schur
+complement is a hard failure (no pseudo-inverse fallback for the core); the
+estimator string recorded with the product is
+`fisher-x2dof-marginalized-reported`. For an invertible `F_ss` this is
+algebraically identical to taking the core block of the full inverse, which is
+verified in the tests with a well-conditioned Fisher.
 
 ### F-SOLVE-1 - Tikhonov objective and its normalization
 

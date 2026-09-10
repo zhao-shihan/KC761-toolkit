@@ -116,6 +116,15 @@ META_INPUTS_JSON: Final = "inputs_json"
 META_CHANNEL_MAX: Final = "channel_max"
 META_PARAMS_REPORTED_JSON: Final = "params_reported_json"
 META_RESOL_PARAMS_JSON: Final = "resol_params_json"
+#: W3 calibration fit diagnostics (D-49/D-106). ``chi2``/``dof`` and
+#: ``covariance_scale`` are shared with the unfold settings; the remaining
+#: fields are calib-only.
+META_FIT_STATUS: Final = "fit_status"
+META_SCALES_JSON: Final = "scales_json"
+META_SCALE_BOUND_FLAGS_JSON: Final = "scale_bound_flags_json"
+META_RESOL_CLAMP_COUNT: Final = "resol_clamp_count"
+META_RESOL_CLAMP_ENERGY_LOW_KEV: Final = "resol_clamp_energy_low_kev"
+META_RESOL_CLAMP_ENERGY_HIGH_KEV: Final = "resol_clamp_energy_high_kev"
 
 META_MODE: Final = "mode"
 META_MODE_NAME: Final = "mode_name"
@@ -197,6 +206,15 @@ _CALIB_META_TYPES: Final[dict[str, type]] = {
     META_CHANNEL_MAX: float,
     META_PARAMS_REPORTED_JSON: str,
     META_RESOL_PARAMS_JSON: str,
+    META_CHI2: float,
+    META_DOF: int,
+    META_COVARIANCE_SCALE: float,
+    META_FIT_STATUS: str,
+    META_SCALES_JSON: str,
+    META_SCALE_BOUND_FLAGS_JSON: str,
+    META_RESOL_CLAMP_COUNT: int,
+    META_RESOL_CLAMP_ENERGY_LOW_KEV: float,
+    META_RESOL_CLAMP_ENERGY_HIGH_KEV: float,
 }
 
 _SPECTRUM_META_TYPES: Final[dict[str, type]] = {
@@ -314,6 +332,17 @@ class CalibProduct:
     resol_params: tuple[float, float, float]
     channel_max: float
     provenance: Provenance
+    #: W3 fit diagnostics (D-49/D-106). Defaulted so pre-W3 synthetic fixtures
+    #: and the W2 round-trip tests keep constructing valid products.
+    chi2: float = 0.0
+    dof: int = 0
+    covariance_scale: float = 1.0
+    fit_status: str = "unknown"
+    scales: tuple[tuple[str, tuple[float, float, float, float]], ...] = ()
+    scale_bound_flags: tuple[tuple[str, tuple[bool, bool, bool, bool]], ...] = ()
+    resol_clamp_count: int = 0
+    resol_clamp_energy_low_kev: float = 0.0
+    resol_clamp_energy_high_kev: float = 0.0
 
 
 @dataclass(frozen=True)

@@ -61,10 +61,14 @@ from kc761.schema.products import (
     META_ANGULAR_DISTRIBUTION,
     META_ARGUMENTS_JSON,
     META_CHANNEL_MAX,
+    META_CHI2,
     META_COMMAND,
+    META_COVARIANCE_SCALE,
     META_CREATED_UTC,
     META_DAQ_TIME_S,
     META_DEPENDENCY_VERSIONS,
+    META_DOF,
+    META_FIT_STATUS,
     META_FORMAT_VERSION,
     META_GEOMETRY_NAME,
     META_GEOMETRY_PARAM_MM,
@@ -79,7 +83,12 @@ from kc761.schema.products import (
     META_PRODUCER,
     META_PRODUCT_KIND,
     META_PYTHON_VERSION,
+    META_RESOL_CLAMP_COUNT,
+    META_RESOL_CLAMP_ENERGY_HIGH_KEV,
+    META_RESOL_CLAMP_ENERGY_LOW_KEV,
     META_RESOL_PARAMS_JSON,
+    META_SCALE_BOUND_FLAGS_JSON,
+    META_SCALES_JSON,
     META_SEED,
     META_SOURCE_FILE,
     META_WORKERS,
@@ -388,6 +397,25 @@ def _encode_meta(product: Product, dispatch: str) -> dict[str, float | int | str
         meta[META_RESOL_PARAMS_JSON] = _json_dumps(
             [float(value) for value in product.resol_params]
         )
+        meta[META_CHI2] = float(product.chi2)
+        meta[META_DOF] = int(product.dof)
+        meta[META_COVARIANCE_SCALE] = float(product.covariance_scale)
+        meta[META_FIT_STATUS] = product.fit_status
+        meta[META_SCALES_JSON] = _json_dumps(
+            [
+                [str(label), [float(value) for value in params]]
+                for label, params in product.scales
+            ]
+        )
+        meta[META_SCALE_BOUND_FLAGS_JSON] = _json_dumps(
+            [
+                [str(label), [int(flag) for flag in flags]]
+                for label, flags in product.scale_bound_flags
+            ]
+        )
+        meta[META_RESOL_CLAMP_COUNT] = int(product.resol_clamp_count)
+        meta[META_RESOL_CLAMP_ENERGY_LOW_KEV] = float(product.resol_clamp_energy_low_kev)
+        meta[META_RESOL_CLAMP_ENERGY_HIGH_KEV] = float(product.resol_clamp_energy_high_kev)
     elif dispatch == "sim":
         assert isinstance(product, SimProduct)
         meta[META_MODE] = int(product.mode)
@@ -433,6 +461,62 @@ def _decode_float_list(meta: Mapping[str, Any], field: str, length: int) -> tupl
             raise SchemaError(f"meta field {field!r} contains a non-numeric entry")
         values.append(float(item))
     return tuple(values)
+
+
+def _decode_scales(
+    meta: Mapping[str, Any], field: str
+) -> tuple[tuple[str, tuple[float, float, float, float]], ...]:
+    """Decode the calib ``scales_json`` field into labelled Bezier parameters."""
+    raw = _json_loads(meta[field], field)
+    if not isinstance(raw, list):
+        raise SchemaError(f"meta field {field!r} must be a JSON list")
+    scales: list[tuple[str, tuple[float, float, float, float]]] = []
+    for entry in raw:
+        if not isinstance(entry, list) or len(entry) != 2:
+            raise SchemaError(
+                f"meta field {field!r} entries must be [label, [s0, s1, s2, s3]]"
+            )
+        label, params = entry
+        if not isinstance(label, str) or not label:
+            raise SchemaError(f"meta field {field!r} has a non-string or empty label")
+        if not isinstance(params, list) or len(params) != 4:
+            raise SchemaError(
+                f"meta field {field!r} label {label!r} must carry four s parameters"
+            )
+        values: list[float] = []
+        for item in params:
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
+                raise SchemaError(
+                    f"meta field {field!r} label {label!r} has a non-numeric s parameter"
+                )
+            values.append(float(item))
+        scales.append((label, (values[0], values[1], values[2], values[3])))
+    return tuple(scales)
+
+
+def _decode_scale_flags(
+    meta: Mapping[str, Any], field: str
+) -> tuple[tuple[str, tuple[bool, bool, bool, bool]], ...]:
+    """Decode the calib ``scale_bound_flags_json`` field (bound-hit flags)."""
+    raw = _json_loads(meta[field], field)
+    if not isinstance(raw, list):
+        raise SchemaError(f"meta field {field!r} must be a JSON list")
+    flags: list[tuple[str, tuple[bool, bool, bool, bool]]] = []
+    for entry in raw:
+        if not isinstance(entry, list) or len(entry) != 2:
+            raise SchemaError(
+                f"meta field {field!r} entries must be [label, [f0, f1, f2, f3]]"
+            )
+        label, values = entry
+        if not isinstance(label, str) or not label:
+            raise SchemaError(f"meta field {field!r} has a non-string or empty label")
+        if not isinstance(values, list) or len(values) != 4:
+            raise SchemaError(
+                f"meta field {field!r} label {label!r} must carry four flags"
+            )
+        parsed = tuple(bool(value) for value in values)
+        flags.append((label, (parsed[0], parsed[1], parsed[2], parsed[3])))
+    return tuple(flags)
 
 
 def _decode_provenance(meta: Mapping[str, Any]) -> Provenance:
@@ -682,6 +766,21 @@ def _certify_calib(product: CalibProduct) -> None:
         raise CertificateError("F-MODEL-4", "resolution parameters must be finite (3 values)")
     if not np.isfinite(product.channel_max) or product.channel_max <= 0.0:
         raise CertificateError("F-MODEL-1", "channel_max must be positive and finite")
+    if not np.isfinite(product.chi2) or product.chi2 < 0.0:
+        raise CertificateError("F-CAL-1", "chi2 must be finite and non-negative")
+    if product.dof < 0:
+        raise CertificateError("F-CAL-1", "dof must be non-negative")
+    if not np.isfinite(product.covariance_scale) or product.covariance_scale <= 0.0:
+        raise CertificateError("F-COV-2", "covariance_scale must be positive and finite")
+    if product.resol_clamp_count < 0:
+        raise CertificateError("F-MODEL-5", "resol_clamp_count must be non-negative")
+    for label, params in product.scales:
+        if not label:
+            raise CertificateError("F-CAL-2", "scale labels must be non-empty")
+        if len(params) != 4 or not np.isfinite(np.asarray(params, dtype=np.float64)).all():
+            raise CertificateError(
+                "F-CAL-2", f"scale parameters for {label!r} must be four finite numbers"
+            )
 
     matrix = sparse.csr_matrix(np.asarray(product.deposition_to_channel.values, dtype=np.float64))
     response = ResponseMatrix(
@@ -923,6 +1022,15 @@ def _build_product(file: Any, dispatch: str, meta: Mapping[str, Any]) -> Product
             resol_params=_decode_float_list(meta, META_RESOL_PARAMS_JSON, 3),
             channel_max=float(meta[META_CHANNEL_MAX]),
             provenance=provenance,
+            chi2=float(meta[META_CHI2]),
+            dof=int(meta[META_DOF]),
+            covariance_scale=float(meta[META_COVARIANCE_SCALE]),
+            fit_status=str(meta[META_FIT_STATUS]),
+            scales=_decode_scales(meta, META_SCALES_JSON),
+            scale_bound_flags=_decode_scale_flags(meta, META_SCALE_BOUND_FLAGS_JSON),
+            resol_clamp_count=int(meta[META_RESOL_CLAMP_COUNT]),
+            resol_clamp_energy_low_kev=float(meta[META_RESOL_CLAMP_ENERGY_LOW_KEV]),
+            resol_clamp_energy_high_kev=float(meta[META_RESOL_CLAMP_ENERGY_HIGH_KEV]),
         )
     if dispatch == "sim":
         return SimProduct(

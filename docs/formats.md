@@ -81,7 +81,14 @@ no missing and no extra field (`SchemaError` otherwise). The complete list:
   `{"path": ..., "sha256": ...}`).
 * calib: `channel_max` (float), `params_reported_json` (str, JSON list of 4 in
   the `c0..c3` order), `resol_params_json` (str, JSON list of 3 in the
-  `b0..b2` order).
+  `b0..b2` order), `chi2` (float), `dof` (int), `covariance_scale` (float),
+  `fit_status` (str, `converged` or `stopped-early`), `scales_json` (str, JSON
+  list of `[label, [s0, s1, s2, s3]]`), `scale_bound_flags_json` (str, JSON
+  list of `[label, [f0, f1, f2, f3]]` with 0/1 flags marking scale parameters
+  sitting on a fit bound, e.g. the `s0` polynomial-stratum limit; D-103),
+  `resol_clamp_count` (int),
+  `resol_clamp_energy_low_kev`, `resol_clamp_energy_high_kev` (float; both 0
+  when the count is 0). These are the W3 fit diagnostics of D-49/D-105/D-106.
 * sim: `mode` (int), `mode_name` (str), `geometry_name` (str),
   `geometry_param_mm` (float), `angular_distribution` (str), `seed` (int),
   `n_events` (int), `workers` (int). There is no per-file `calib_sha256`: the

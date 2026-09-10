@@ -50,7 +50,14 @@ Rules:
 | `schema/products.py` | product containers, `product_kind` dispatch, object names, meta field/type tables, provenance | F-IO-1 |
 | `schema/io.py` | atomic write, reopen validation, overwrite policy, provenance assembly, product certificates | F-IO-1 |
 | `schema/_uproot.py` | verified low-level uproot helpers (spike): variance buffers, axis titles/units, bin labels, meta RNTuple | F-IO-1 |
-| `calib/` | fit orchestration, Bezier scaling, covariance, report, plots | F-CAL-1..2 |
+| `calib/model.py` | global calibration objective over datasets: fixed-axis `C_fit`, F-CAL-1 weights, start values/bounds, analytic prediction Jacobian and exact gradient | F-CAL-1/F-CAL-3/F-CAL-4 |
+| `calib/scaling.py` | per-dataset quadratic-Bezier scale with the fixed middle control channel and analytic derivatives | F-CAL-2 |
+| `calib/covariance.py` | full-parameter Fisher inverse, scale marginalization, reported-basis transform, `s**2` scaling | F-CAL-5 |
+| `calib/fit.py` | single bounded trust-region Gauss-Newton stage, certificates, product write, figure; public `run_fit` | F-CAL-1..5 |
+| `calib/product.py` | export `C` on the channel-derived axis `E(i +- 1/2)` (D-101), reported parameters, clamp record | F-RESP-1/F-IO-1 |
+| `calib/report.py` | text report of chi2/dof, parameters, scales and clamp statistics | - |
+| `calib/plot.py` | calibration figure on the shared plotting style | - |
+| `plotting/` | shared style, palette and atomic figure saving (leaf) | D-70 |
 | `unfold/` | window/pad orchestration, uncertainty bands, report, plots | F-SOLVE/F-UNC |
 | `sim/` | geometry, materials, sources, detector, physics, actions, runner | F-SIM-1..5 |
 | `cli/` | argument parsing, logging, strict mode, exit codes | - |
