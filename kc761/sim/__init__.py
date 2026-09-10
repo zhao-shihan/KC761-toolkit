@@ -16,6 +16,12 @@ Entry points for W6 live in :mod:`kc761.sim.runner`
 from __future__ import annotations
 
 from kc761.sim.config import DEFAULT_SEED
-from kc761.sim.sources import SOURCE_KEYS, SOURCES, get_source
+from kc761.sim.sources import MATRIX_MODE_NAMES, SOURCE_KEYS, SOURCES, get_source
 
-__all__ = ["DEFAULT_SEED", "SOURCES", "SOURCE_KEYS", "get_source"]
+__all__ = [
+    "DEFAULT_SEED",
+    "MATRIX_MODE_NAMES",
+    "SOURCES",
+    "SOURCE_KEYS",
+    "get_source",
+]

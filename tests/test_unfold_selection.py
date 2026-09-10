@@ -66,6 +66,23 @@ def test_window_at_the_acquisition_edge_is_clipped() -> None:
     )
 
 
+def test_window_entirely_above_channel_range_is_rejected() -> None:
+    """D-146: no silent degenerate fit on the top channel."""
+    calib = make_calib_product()
+    wide_primary = np.linspace(0.0, 1.0e4, 101)
+    with pytest.raises(ValidationError, match="outside the channel energy range"):
+        select_window(
+            calibration=calibration(calib),
+            resol_params=np.asarray(calib.resol_params),
+            channel_max=calib.channel_max,
+            n_channels=N_CHANNELS,
+            primary_edges_kev=wide_primary,
+            energy_low_kev=9000.0,
+            energy_high_kev=9500.0,
+            pad_nsigma=5.0,
+        )
+
+
 def test_fit_sigma_matches_documented_data_side_formula() -> None:
     stat = np.array([0.0, 4.0, 9.0])
     data = np.array([10.0, 20.0, 30.0])

@@ -94,7 +94,7 @@ def test_calib_parameter_finiteness_certificate(tmp_path: Path) -> None:
     _expect_strict_failure(_write_normal(bad, tmp_path / "c.root"), "F-MODEL-2")
 
 
-def test_calib_parameter_labels_certificate(tmp_path: Path) -> None:
+def test_calib_parameter_labels_are_always_on(tmp_path: Path) -> None:
     product = synthetic.make_calib_product()
     path = tmp_path / "c.root"
     _write_calib_raw(
@@ -102,7 +102,10 @@ def test_calib_parameter_labels_certificate(tmp_path: Path) -> None:
         product,
         x_labels=("wrong",) * len(PARAM_NAMES_REPORTED),
     )
-    _expect_strict_failure(path, "F-COV-2")
+    with pytest.raises(SchemaError, match="param_cov bin labels"):
+        io.verify_product(path, strict=False)
+    with pytest.raises(SchemaError, match="param_cov bin labels"):
+        io.verify_product(path, strict=True)
 
 
 # --------------------------------------------------------------------------

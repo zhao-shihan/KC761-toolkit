@@ -10,7 +10,7 @@ from kc761.cli.config import (
     load_sim_config,
     load_unfold_config,
 )
-from kc761.sim import SOURCE_KEYS
+from kc761.sim import MATRIX_MODE_NAMES, SOURCE_KEYS
 from kc761.sim.config import DEFAULT_SEED
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
@@ -18,11 +18,14 @@ EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
 def test_sim_example_parses() -> None:
     config = load_sim_config(
-        EXAMPLES / "sim.toml", source_keys=SOURCE_KEYS, default_seed=DEFAULT_SEED
+        EXAMPLES / "sim.toml",
+        source_keys=SOURCE_KEYS,
+        default_seed=DEFAULT_SEED,
+        matrix_modes=MATRIX_MODE_NAMES,
     )
     assert len(config.runs) == 3
     assert [run.source_key for run in config.runs] == ["am241", "lu176", None]
-    assert config.runs[2].matrix_mode == "plane_front_gamma"
+    assert config.runs[2].matrix_mode == "plane-front-gamma"
     assert config.runs[2].calib is not None
     assert config.resume is True
 

@@ -97,7 +97,7 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-67 | Logging uses stdlib `logging` with the format `[kc761.<command>] level: message`; errors use the `Kc761Error` hierarchy and a uniform `[kc761.<command>] error:` prefix. |
 | D-68 | Exit codes: 0 success, 1 runtime failure, 2 usage error. |
 | D-69 | The static quality gate is **ruff only** (no separate type checker); CI runs ruff and the auxiliary tests. |
-| D-70 | Plots keep the current visual style; the plotting code is shared, not duplicated. |
+| D-70 | Plots keep the pre-rewrite visual style. The "shared plotting code" clause is superseded by D-153 (per-package, legacy-faithful figure modules). |
 | D-71 | No hard wall-clock performance target. The implementation must still apply reasonable optimizations (sparse-first, no dense `n**2` intermediates, no redundant recomputation). |
 | D-72 | Legacy ROOT products are not read; the input CSV files will be provided by the user and re-imported through the new `csv2root` strict parser. |
 
@@ -181,7 +181,7 @@ suite defines "correct"; tests are auxiliary (Section 5).
 
 | ID | Decision |
 |----|----------|
-| D-120 | New additive product kind `mc_spectrum` (source-mode simulated spectrum), separate from the measured `spectrum` kind. It carries one `kc761_mc_spectrum` TH1D (energy axis in keV, counts, required `fSumw2`) plus common meta and the fields `source_key`, `mode_name`, `geometry_name`, `geometry_param_mm`, `n_events`, `seed`, `workers`. W6 connects `calib --sim` to it; the calib library only consumes a `Histogram1D`. |
+| D-120 | New additive product kind `mc_spectrum` (source-mode simulated spectrum), separate from the measured `spectrum` kind. It carries one `kc761_mc_spectrum` TH1D (energy axis in keV, counts, required `fSumw2`) plus common meta and the fields `source_key`, `mode_name`, `geometry_name`, `geometry_param_mm`, `n_events`, `seed`, `workers`. W6 connects `calib --mc` to it; the calib library only consumes a `Histogram1D`. |
 | D-121 | (revised in R1) The matrix-mode **primary** and **deposition** axes are both the calibration product's `C.y` (channel-derived, legacy square layout), bitwise (D-114); `G` has shape `(n_deposition, n_primary)` with equal axes. The fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins` (D-33) is used only by the source-mode `mc_spectrum` and the parameter-independent fit-time `C_fit` (D-101); `kc761/calib` imports it and its former local `FIXED_DEPOSITION_*` names are aliases. |
 | D-122 | `kc761/sim` owns the final source registry: the seven legacy keys `k40`, `lu176`, `am241`, `th232`, `th232-unshielded`, `ra226`, `ra226-unshielded`, carried verbatim with per-entry provenance notes; source geometry, container, shield and material values are unchanged (D-34). Appendix A item 6 is resolved by this decision. |
 | D-123 | (R1 revision) Simulation randomness is deterministic for a fixed base seed **and a fixed worker count/order**: the same invocation reproduces bit-for-bit. Matrix mode derives an independent RNG stream per active primary column from `(base seed, column index)`; source mode derives one stream per fixed event block from `(base seed, block index)`. Both derivations are the single formula F-SIM-7. Bit-for-bit equivalence across *different* worker counts is not part of the contract. The default base seed is the legacy value `908136382`. |
@@ -200,7 +200,7 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-131 | Every config file declares `config_version = 1`; a missing or different value is a usage error. Any key outside the frozen schema is an error (fail loud; no silent ignore). |
 | D-132 | Relative paths in a config file resolve against the directory containing that file (`~` is expanded); absolute paths are used as-is. |
 | D-133 | Products written in config mode record the config file path and sha256 in `provenance.inputs` (D-18) and the fully resolved settings in their existing settings/meta fields. |
-| D-134 | `[sim]` replaces the legacy `runsim` batch runner: it carries batch options (`resume`, `force`, `dry_run`) and a list of `[[sim.runs]]` single-run specs. A run specifies a source key XOR one matrix mode (`plane_front_gamma`/`sphere_gamma`) plus `calib`; `events` is required (interactive runs are not part of config mode); `threads`, `seed`, `verbose` and `output` are optional. Runs execute sequentially (run-level parallelism is not part of the contract). |
+| D-134 | `[sim]` replaces the legacy `runsim` batch runner: it carries batch options (`resume`, `force`, `dry_run`) and a list of `[[sim.runs]]` single-run specs. A run specifies a source key XOR one matrix mode (`plane-front-gamma`/`sphere-gamma`) plus `calib`; `events` is required (interactive runs are not part of config mode); `threads`, `seed`, `verbose` and `output` are optional. Runs execute sequentially (run-level parallelism is not part of the contract). |
 | D-135 | Each sim run executes in a fresh child process by re-invoking `sys.executable -m kc761 sim ...` in single-run mode; the parent process never imports Geant4. This is required because a `G4RunManager` can be initialized only once per process. |
 | D-136 | sim batch failure policy: a failed run is recorded and the batch continues; the process returns 1 if any run failed and 0 only when all succeeded. |
 | D-137 | sim resume: `resume = true` (default) skips a run whose target exists and passes schema validation, and fails loudly when an existing target is invalid (never delete or overwrite another product); `resume = false` applies the D-17 refuse-overwrite rule. |
@@ -209,6 +209,22 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-140 | Business options `force`, `no_plot`, `dry_run` and `resume` may appear in config files; `strict` and `log_level` stay CLI-only and apply to the whole invocation. English-commented `examples/*.toml` are shipped for the four config-capable subcommands. |
 | D-141 | Config parsing and validation live in `kc761/cli/config.py` as strict, frozen dataclasses; the module imports no Geant4 and no numerics. The sim batch driver only validates, expands argv, manages resume and subprocesses, and aggregates the exit code. |
 | D-142 | The plot CLI surface (Appendix A item 4) is resolved as a single `--no-plot` switch (plots on by default) for `calib` and `unfold`, with `no_plot` as the config key; `compose` and `sim` produce no plots and redirecting plots to another directory is not supported. |
+
+### 1.13 R2 review and consolidation (2026-09-10, user-approved)
+
+| ID | Decision |
+|----|----------|
+| D-143 | Canonical matrix-mode tokens are the hyphen strings `plane-front-gamma` and `sphere-gamma`, single-sourced in `kc761.sim.sources` (`MODE_NAME_PLANE`, `MODE_NAME_SPHERE`, `MATRIX_MODE_NAMES`). They are used for the CLI flags, the config `mode` value, the default file-name token and the sim `mode_name`; underscore and short aliases are rejected (the runner accepts only the canonical name or the integer mode). |
+| D-144 | The calibration simulated-spectrum option is `calib --mc` (no `--sim` alias) and the config key in `[[calib.datasets]]` is `mc`; docs, examples and help text use it. `compose`/`unfold` keep `--sim`/`sim` for the matrix simulation product. |
+| D-145 | Appendix A item 5 is closed: `calib --max-iter N` and `calib --tolerance T` are part of the frozen CLI, mapping to `FitSettings(maxiter, ftol=xtol=gtol=T)`; both default to the library `FitSettings`. |
+| D-146 | Revises D-111: `select_window` raises `ValidationError` when the requested energy window lies entirely outside the channel energy range; it never degenerates to a single top channel. Windows that merely extend beyond the acquisition are still clipped as before. |
+| D-147 | Cross-package error taxonomy: argument/config misuse raises `UsageError` (CLI) or `ValidationError` (library inputs), product/schema violations raise `SchemaError`, and solver/covariance failures raise `SolverError`; the CLI maps `UsageError` to exit 2 and every other `Kc761Error` to exit 1. |
+| D-148 | `param_cov` axis bin labels are an always-on structural part of the calib product contract and are validated on every read (previously strict-only). |
+| D-149 | R2 updates `README.md` to the current implementation state. Any large-scale real end-to-end run (real CSV data, full source-mode simulation campaigns) requires prior user confirmation of parameters/budget; products are written under `out/` and are never deleted by tooling. |
+| D-150 | `core.solver.solve_nonnegative` gains an optional keyword-only `normal=(H, b, penalty_scale)` injection; the unfolding layer builds `normal_equations` once and passes it, so the solver no longer rebuilds the identical half-Hessian that F-UNC already needs. Behaviour is unchanged. |
+| D-151 | `uncertainty.simulation_mc_variance` keeps the exact free-set inverse `H_FF**-1` materialization (D-119). This is documented as a scale limitation: it is acceptable for the supported 2048-channel window (~32 MiB) but a band-only solve path is deferred to a later perf pass; no correctness shortcut is taken. |
+| D-152 | Audit-only fields are retained deliberately and documented as such: `SpectrumProduct.source_file` (originating path), the unfold setting values recorded in the product meta, and the generator manifest `formula_ids`. They are provenance/audit records, not inputs to any numeric path; removing them would lose traceability. |
+| D-153 | Supersedes the "shared plotting code" clause of D-70: each figure module (`kc761/calib/plot.py`, `kc761/unfold/plot.py`) is a self-contained, legacy-faithful port of the pre-rewrite figure (same geometry, palette, log axes, legends, bands, output-format inference). The shared `kc761/plotting/` package is removed; the `DatasetDetail` gained plotting-only raw-MC/scale fields (`raw_mc_counts`, `raw_mc_uncertainties`, `scale_params`) populated in diagnostics, never in the fit. |
 
 ## 2. Target architecture
 
@@ -236,7 +252,6 @@ kc761/
   calib/                      # fit orchestration, Bezier scaling, report, plots
   unfold/                     # window/pad orchestration, report, plots
   sim/                        # geometry, materials, sources, detector, physics, actions, runner
-  plotting/                   # shared style and panel helpers
   cli/                        # argparse tree, subcommand modules and config parsing (D-141)
 tests/                        # auxiliary tests and deterministic fixtures
 docs/                         # plan, architecture, formats, derivations
@@ -247,11 +262,11 @@ Dependency rules:
 
 * `core` imports only the standard library, numpy, scipy (and numba/sympy in the
   generated kernel modules). It must not import `schema`, `calib`, `unfold`,
-  `sim`, `plotting`, `cli`, uproot, matplotlib or Geant4.
+  `sim`, `cli`, uproot, matplotlib or Geant4.
 * `schema` imports `core` only for type contracts where unavoidable; it owns
   uproot and file IO.
 * `calib`, `unfold` and `sim` import `core` and `schema`.
-* `cli` imports everything; `plotting` is dependency-light and shared.
+* `cli` imports everything; each figure module owns its own matplotlib style (D-153).
 * Nothing imports Geant4 except `kc761/sim` (lazily, inside functions), so the
   contract layer stays importable in a no-G4/no-ROOT environment.
 
@@ -278,7 +293,7 @@ unless `--force` is given.
 | compose | `response_matrix` (TH2D, R), `deposition_to_channel` and `primary_to_deposition` copies, `primary_column_totals`, `primary_efficiency` (derived convenience), `meta` | Inspection artifact for `R = C . p_tilde . diag(eta)`. |
 | unfold | `kc761_spectrum_unfolded`, `sigma_statistical`, `sigma_systematic`, `sigma_total` (bands, content = sigma, fSumw2 = sigma**2), `kc761_spectrum_refolded`, `meta` | Calibration-only mode uses `kc761_spectrum_calibrated` and marks the mode in `meta`. |
 | spectrum | `kc761_spectrum` (TH1D, counts, fSumw2), `meta` | Produced by `csv2root` and `subbkg`; carries `daq_time_s`. |
-| mc_spectrum | `kc761_mc_spectrum` (TH1D, energy axis keV, counts, required fSumw2), `meta` | Source-mode simulated pulse spectrum (D-120); variance `c (1 - c/P)` (D-128). W6 connects `calib --sim` to it. |
+| mc_spectrum | `kc761_mc_spectrum` (TH1D, energy axis keV, counts, required fSumw2), `meta` | Source-mode simulated pulse spectrum (D-120); variance `c (1 - c/P)` (D-128). The CLI connects `calib --mc` to it (D-144). |
 
 Units live in key names (`energy_kev`, `daq_time_s`) and axis titles; matrix
 axes follow D-20.
@@ -461,9 +476,9 @@ A module is complete when, simultaneously:
    are W1 contract points.
 2. **SNIP peak masking.** Resolved by D-74 (2026-09-10): the mask is removed
    entirely; `D` is only the normalized finite-difference operator.
-3. **`calib --sim` naming.** The data-fitting spectrum option is currently
-   `--sim`, which collides conceptually with `unfold --sim` (the matrix-mode
-   simulation file). Renaming (e.g. `--mc`) was proposed but not decided.
+3. **`calib --sim` naming.** Resolved by D-144 (2026-09-10): the option is
+   `calib --mc` with no alias, and the `[[calib.datasets]]` key is `mc`;
+   `compose`/`unfold` keep `--sim`/`sim` for the matrix simulation product.
 4. **Plot CLI surface.** Resolved by D-142 (2026-09-10): a single `--no-plot`
    switch (plots on by default) for `calib` and `unfold`, `no_plot` as the
    config key; `compose`/`sim` produce no plots and redirecting plots is not
@@ -485,7 +500,7 @@ A module is complete when, simultaneously:
 ## Appendix B. W0 deliverables
 
 * `kc761.py`, `kc761/__main__.py`, package skeleton with `core/`, `schema/`,
-  `calib/`, `unfold/`, `sim/`, `plotting/`, `cli/`.
+  `calib/`, `unfold/`, `sim/`, `cli/`.
 * Frozen signatures with docstrings, formula IDs and `NotImplementedError`
   bodies for all `core` and `schema` contracts listed in the W0 brief.
 * `errors.py` hierarchy and `runtime.py` (logging + strict-mode resolution).

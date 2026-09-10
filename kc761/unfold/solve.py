@@ -128,11 +128,20 @@ def solve_window(
     sigma_fit = fit_sigma(stat, y, syst_frac)
 
     # The half-Hessian fed to F-UNC-1/F-UNC-2 is the same construction the
-    # solver uses internally (normal_equations on the reduced matrix); the
-    # solver recomputes it, but the inputs are identical, so the value and the
-    # bands share one definition (requirement C, D-84).
-    hessian, _, _ = normal_equations(reduced, y, sigma_fit, regularization)
-    solution = solve_nonnegative(reduced, y, sigma_fit, regularization, strict=strict)
+    # solver uses; it is built once here and injected into the solver (D-150),
+    # so the value and the bands share one definition with no double
+    # factorization (requirement C, D-84).
+    hessian, gradient, penalty_scale = normal_equations(
+        reduced, y, sigma_fit, regularization
+    )
+    solution = solve_nonnegative(
+        reduced,
+        y,
+        sigma_fit,
+        regularization,
+        strict=strict,
+        normal=(hessian, gradient, penalty_scale),
+    )
     mu = solution.mu
     residual = (np.asarray(reduced @ mu, dtype=np.float64) - y) / sigma_fit
     chi2 = float(residual @ residual)

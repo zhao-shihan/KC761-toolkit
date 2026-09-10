@@ -32,6 +32,26 @@ def test_solution_is_nonnegative_with_valid_kkt() -> None:
     assert np.isfinite(solution.objective)
 
 
+def test_injected_normal_equations_match_internal_build() -> None:
+    """D-150: injecting (H, b, penalty_scale) must not change the solution."""
+    response, spectrum, sigma = _problem(seed=11)
+    spec = solver.RegularizationSpec(alpha=0.05)
+    hessian, gradient, penalty_scale = solver.normal_equations(
+        response, spectrum, sigma, spec
+    )
+    internal = solver.solve_nonnegative(response, spectrum, sigma, spec, strict=True)
+    injected = solver.solve_nonnegative(
+        response,
+        spectrum,
+        sigma,
+        spec,
+        strict=True,
+        normal=(hessian, gradient, penalty_scale),
+    )
+    assert np.array_equal(internal.mu, injected.mu)
+    assert internal.objective == injected.objective
+
+
 def test_matches_reference_minimizer() -> None:
     response, spectrum, sigma = _problem(seed=4)
     spec = solver.RegularizationSpec(alpha=0.2)

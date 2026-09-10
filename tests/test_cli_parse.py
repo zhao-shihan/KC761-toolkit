@@ -44,6 +44,56 @@ def test_sim_without_selection_is_usage_error() -> None:
     assert run_cli(["sim"]) == 2
 
 
+def test_calib_legacy_sim_flag_is_not_accepted() -> None:
+    """D-144: the calibration simulation option is --mc, with no --sim alias."""
+    assert (
+        run_cli(
+            [
+                "calib",
+                "--data",
+                "d.root",
+                "--sim",
+                "m.root",
+                "--label",
+                "am241",
+            ]
+        )
+        == 2
+    )
+
+
+def test_calib_mc_flag_parses_dry_run(capsys: Any) -> None:
+    code = run_cli(
+        [
+            "calib",
+            "--data",
+            "d.root",
+            "--mc",
+            "m.root",
+            "--label",
+            "am241",
+            "--channel-low",
+            "0",
+            "--channel-high",
+            "10",
+            "--dry-run",
+        ]
+    )
+    assert code == 0
+    assert "mc=m.root" in capsys.readouterr().out
+
+
+def test_calib_optimizer_flags_map_to_fit_settings() -> None:
+    from kc761.calib.types import FitSettings
+    from kc761.cli.calib import _settings
+
+    assert _settings(None, None) is None
+    custom = _settings(123, 1e-4)
+    assert isinstance(custom, FitSettings)
+    assert custom.maxiter == 123
+    assert (custom.ftol, custom.xtol, custom.gtol) == (1e-4, 1e-4, 1e-4)
+
+
 def test_unfold_full_without_alpha_is_usage_error() -> None:
     assert (
         run_cli(

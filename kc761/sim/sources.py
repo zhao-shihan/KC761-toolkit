@@ -464,11 +464,19 @@ def get_source(key: str) -> SourceSpec:
 MODE_PLANE: Final = 1
 MODE_SPHERE: Final = 2
 
+#: Canonical external matrix-mode tokens (D-143/D-2). They are the single source
+#: for the CLI flag spelling, the config ``mode`` value, the default file-name
+#: token and the ``mode_name`` recorded in the sim product. No underscore or
+#: legacy alias is accepted anywhere.
+MODE_NAME_PLANE: Final = "plane-front-gamma"
+MODE_NAME_SPHERE: Final = "sphere-gamma"
+MATRIX_MODE_NAMES: Final[tuple[str, str]] = (MODE_NAME_PLANE, MODE_NAME_SPHERE)
+
 #: ``mode -> (mode_name, geometry_name)`` for the matrix products (D-120-style
 #: meta fields shared with the sim product).
 MODE_METADATA: Final[dict[int, tuple[str, str]]] = {
-    MODE_PLANE: ("plane_front_gamma", "plane"),
-    MODE_SPHERE: ("sphere_circumscribed_gamma", "sphere"),
+    MODE_PLANE: (MODE_NAME_PLANE, "plane"),
+    MODE_SPHERE: (MODE_NAME_SPHERE, "sphere"),
 }
 
 
@@ -703,7 +711,10 @@ class ColumnSlice:
 
 __all__ = [
     "BETA_SHIELD",
+    "MATRIX_MODE_NAMES",
     "MODE_METADATA",
+    "MODE_NAME_PLANE",
+    "MODE_NAME_SPHERE",
     "MODE_PLANE",
     "MODE_SPHERE",
     "SOURCES",

@@ -179,10 +179,38 @@ def test_column_and_block_seeds_are_stable_distinct_and_in_range() -> None:
 def test_mode_metadata_labels() -> None:
     plane = build_plane_gamma_source()
     sphere = build_sphere_gamma_source()
-    assert sources.mode_metadata(plane) == (1, "plane_front_gamma", "plane", plane.z_mm)
+    assert sources.mode_metadata(plane) == (1, "plane-front-gamma", "plane", plane.z_mm)
     assert sources.mode_metadata(sphere) == (
         2,
-        "sphere_circumscribed_gamma",
+        "sphere-gamma",
         "sphere",
         sphere.radius_mm,
     )
+
+
+def test_every_source_material_is_resolvable() -> None:
+    """R2 regression: Ra226/Th232 shields use the prebuilt R4600 material.
+
+    Without this invariant the shielded sources failed at Geant4 build time
+    with "unknown custom source material 'R4600'".
+    """
+    from kc761.sim import materials
+
+    def material_names(spec: sources.SourceSpec):
+        yield spec.material
+        geometry = spec.geometry
+        if hasattr(geometry, "layers"):
+            for layer in geometry.layers:
+                yield layer.material
+        if spec.container is not None:
+            yield spec.container.material
+        if spec.shield is not None:
+            yield spec.shield.material
+
+    for key, spec in sources.SOURCES.items():
+        for name in material_names(spec):
+            assert (
+                name.startswith("G4_")
+                or name in materials.PREBUILT_MATERIALS
+                or name in materials.CUSTOM_MATERIAL_ATOMS
+            ), f"{key}: unresolved material {name!r}"

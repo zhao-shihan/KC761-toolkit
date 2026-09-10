@@ -67,6 +67,8 @@ from kc761.sim.config import (
 )
 from kc761.sim.detector import build_plane_gamma_source, build_sphere_gamma_source
 from kc761.sim.sources import (
+    MODE_NAME_PLANE,
+    MODE_NAME_SPHERE,
     MODE_PLANE,
     MODE_SPHERE,
     ColumnSchedule,
@@ -503,12 +505,13 @@ def run_matrix(
 
 
 def _matrix_source(mode: str | int) -> MatrixSource:
-    if mode in (MODE_PLANE, "plane", "plane-front-gamma"):
+    # Canonical hyphen tokens only (D-143/D-2); no underscore or short aliases.
+    if mode in (MODE_PLANE, MODE_NAME_PLANE):
         return build_plane_gamma_source()
-    if mode in (MODE_SPHERE, "sphere", "sphere-gamma"):
+    if mode in (MODE_SPHERE, MODE_NAME_SPHERE):
         return build_sphere_gamma_source()
     raise UsageError(
-        f"unknown matrix mode {mode!r}; expected plane-front-gamma or sphere-gamma"
+        f"unknown matrix mode {mode!r}; expected {MODE_NAME_PLANE} or {MODE_NAME_SPHERE}"
     )
 
 

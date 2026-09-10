@@ -32,19 +32,14 @@ from kc761.cli.config import SimRunSpec, load_sim_config
 from kc761.errors import Kc761Error, UsageError
 from kc761.runtime import configure_logging
 from kc761.schema.io import verify_product
-from kc761.sim import SOURCE_KEYS
+from kc761.sim import MATRIX_MODE_NAMES, SOURCE_KEYS
 from kc761.sim.config import DEFAULT_SEED
 
 _MATRIX_FLAGS: dict[str, str] = {
-    "plane_front_gamma": "--plane-front-gamma",
-    "sphere_gamma": "--sphere-gamma",
+    "plane-front-gamma": "--plane-front-gamma",
+    "sphere-gamma": "--sphere-gamma",
 }
-
-_MODE_TOKENS: dict[str, str] = {
-    "plane_front_gamma": "plane-front-gamma",
-    "sphere_gamma": "sphere-gamma",
-}
-"""Canonical file-name token per config mode key (matches the CLI flag)."""
+"""Canonical matrix-mode token -> CLI flag (D-143/D-2)."""
 
 _RUN_ARG_DEFAULTS: dict[str, object] = {
     "source_key": None,
@@ -271,7 +266,10 @@ def _run_interactive(args: argparse.Namespace) -> None:
 # --------------------------------------------------------------------------
 def _run_batch(args: argparse.Namespace, *, strict: bool, logger) -> int:
     config = load_sim_config(
-        args.config, source_keys=SOURCE_KEYS, default_seed=DEFAULT_SEED
+        args.config,
+        source_keys=SOURCE_KEYS,
+        default_seed=DEFAULT_SEED,
+        matrix_modes=MATRIX_MODE_NAMES,
     )
     effective_force = bool(args.force or config.force)
     dry_run = bool(args.dry_run or config.dry_run)
@@ -320,7 +318,7 @@ def _run_output(run: SimRunSpec) -> Path:
     assert run.matrix_mode is not None
     return default_output(
         "sim",
-        f"{run.calib.stem}-{_MODE_TOKENS[run.matrix_mode]}-n{run.events}-s{run.seed}.root",
+        f"{run.calib.stem}-{run.matrix_mode}-n{run.events}-s{run.seed}.root",
     )
 
 

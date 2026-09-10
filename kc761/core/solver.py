@@ -146,6 +146,8 @@ def solve_nonnegative(
     regularization: RegularizationSpec,
     *,
     strict: bool = False,
+    normal: tuple[sparse.csr_matrix, NDArray[np.float64], NDArray[np.float64]]
+    | None = None,
 ) -> UnfoldSolution:
     """Solve the non-negative Tikhonov problem (F-SOLVE-2).
 
@@ -153,8 +155,24 @@ def solve_nonnegative(
     :class:`kc761.errors.CertificateError` on failure; basic shape and
     finiteness validation runs in every mode. A non-converged active set is a
     :class:`kc761.errors.SolverError` in every mode.
+
+    ``normal`` optionally injects the tuple returned by
+    :func:`normal_equations` (D-150): the unfolding layer already needs that
+    half-Hessian for F-UNC, so passing it here avoids a second identical
+    factorization. When omitted, the equations are built internally.
     """
-    hessian, gradient, penalty_scale = normal_equations(response, spectrum, sigma, regularization)
+    if normal is None:
+        hessian, gradient, penalty_scale = normal_equations(
+            response, spectrum, sigma, regularization
+        )
+    else:
+        hessian, gradient, penalty_scale = normal
+        checked = check_response_matrix(response)
+        y = as_float_array("spectrum", spectrum, ndim=1)
+        if y.size != checked.shape[0] or gradient.size != checked.shape[1]:
+            raise ValidationError(
+                "injected normal equations do not match the response/spectrum"
+            )
     n_bins = gradient.size
     mu, iterations, converged = _active_set(hessian, gradient, n_bins)
     certificate = _certificate(hessian, gradient, mu, iterations, converged)

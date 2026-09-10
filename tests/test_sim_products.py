@@ -38,8 +38,9 @@ def _provenance() -> Provenance:
 
 
 def _mc_spectrum_product() -> McSpectrumProduct:
-    edges = np.linspace(0.0, 400.0, 9)
-    values = np.array([10.0, 4.0, 0.0, 1.0, 6.0, 0.0, 0.0, 2.0])
+    edges = binning.source_mode_deposition_edges_kev()
+    values = np.zeros(edges.size - 1, dtype=np.float64)
+    values[:8] = [10.0, 4.0, 0.0, 1.0, 6.0, 0.0, 0.0, 2.0]
     return McSpectrumProduct(
         format_version=SCHEMA_VERSION,
         spectrum=Histogram1D(
@@ -93,13 +94,28 @@ def test_mc_spectrum_axis_must_be_energy(tmp_path: Path) -> None:
     bad = replace(
         product,
         spectrum=Histogram1D(
-            axis=channel_axis(8),
+            axis=channel_axis(product.spectrum.axis.n_bins),
             values=product.spectrum.values,
             variances=product.spectrum.variances,
         ),
     )
     with pytest.raises(errors.SchemaError, match="energy axis unit"):
         io.write_product(bad, tmp_path / "bad.root", strict=True)
+
+
+def test_mc_spectrum_axis_must_be_the_canonical_source_mode_axis(tmp_path: Path) -> None:
+    """D-148-adjacent D6: the fixed source-mode axis is always-on enforced."""
+    product = _mc_spectrum_product()
+    bad = replace(
+        product,
+        spectrum=Histogram1D(
+            axis=energy_axis(np.linspace(0.0, 4000.0, product.spectrum.axis.n_bins + 1)),
+            values=product.spectrum.values,
+            variances=product.spectrum.variances,
+        ),
+    )
+    with pytest.raises(errors.SchemaError, match="fixed source-mode axis"):
+        io.write_product(bad, tmp_path / "bad.root")
 
 
 def test_sim_product_strict_roundtrip_carries_exact_variance(tmp_path: Path) -> None:

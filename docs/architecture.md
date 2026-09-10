@@ -7,7 +7,7 @@ code must keep.
 ## Layering
 
 ```
-cli  ->  calib / unfold / sim / plotting
+cli  ->  calib / unfold / sim
            |        |        |
            v        v        v
         schema  (products, axes, uproot IO)
@@ -23,10 +23,10 @@ Rules:
    `uproot`, `matplotlib`, Geant4, or any other `kc761` subpackage.
 2. `kc761/schema` owns all file IO (`uproot`) and the product contracts. It
    may import `core` for elementary types but never `calib`, `unfold`, `sim`,
-   `plotting` or `cli`.
+   `cli`.
 3. `kc761/calib`, `kc761/unfold` and `kc761/sim` contain orchestration and
    physics/fit logic. They import `core` and `schema`.
-4. `kc761/plotting` and `kc761/cli` are leaves. `plotting` must not duplicate
+4. `kc761/cli` is a leaf.
    style helpers across callers (single shared implementation).
 5. `kc761/sim` is the only place allowed to import Geant4, and only lazily
    inside functions, so that the contract layer imports in a no-G4
@@ -57,14 +57,13 @@ Rules:
 | `calib/fit.py` | single bounded trust-region Gauss-Newton stage, certificates, product write, figure; public `run_fit` | F-CAL-1..5 |
 | `calib/product.py` | export `C` on the channel-derived axis `E(i +- 1/2)` (D-101), reported parameters, clamp record | F-RESP-1/F-IO-1 |
 | `calib/report.py` | text report of chi2/dof, parameters, scales and clamp statistics | - |
-| `calib/plot.py` | calibration figure on the shared plotting style | - |
-| `plotting/` | shared style, palette and atomic figure saving (leaf) | D-70 |
+| `calib/plot.py` | calibration figure, legacy-faithful self-contained port | D-153 |
 | `unfold/inputs.py` | product loading, axis bitwise checks, upstream provenance checks | D-114 |
 | `unfold/compose.py` | `run_compose`: full-axis composition and compose artifact | F-RESP-2/F-RESP-3 |
 | `unfold/selection.py` | energy window to channel/primary selection and data-side fit weights | F-UNF-1/F-UNF-2 |
 | `unfold/solve.py` | exact-zero pruning, non-negative solve, strict uncertainty bands, diagnostics | F-UNF-3/F-UNF-4 |
 | `unfold/unfold.py` | `run_unfold`: full and `calib_only` orchestration, product assembly | F-UNF-5/F-UNF-6 |
-| `unfold/report.py`, `unfold/plot.py` | text report and figure on the shared plotting style | D-70 |
+| `unfold/report.py`, `unfold/plot.py` | text report and legacy-faithful figure | D-70/D-153 |
 | `sim/config.py` | run defaults: base seed, event-block size, raw histogram names, memory budget | F-SIM-7/D-123/D-124 |
 | `sim/geometry.py` | frozen detector geometry dataclass with per-field provenance | D-34 |
 | `sim/materials.py` | material compositions/densities and the lazy Geant4 builder | D-32/D-34 |
@@ -76,7 +75,7 @@ Rules:
 | `sim/certificates.py` | physical-layer certificates: accounting, variance, efficiency, boundary | F-SIM-1/F-SIM-2/F-SIM-3/F-SIM-6 |
 | `sim/runner.py` | memory-budgeted workers, uproot merge, product output, interactive entry | F-SIM-7/D-120/D-121/D-124/D-125 |
 | `cli/` | one command with six subcommand modules, output/provenance plumbing and the `sim` batch driver | D-66/D-67/D-68/D-134 |
-| `cli/config.py` | strict TOML parsing (stdlib `tomllib` only; no Geant4, no numerics) for `sim`/`calib`/`compose`/`unfold` | D-129..D-141 |
+| `cli/config.py` | strict TOML parsing (stdlib `tomllib` only; no Geant4, no numerics) for `sim`/`calib`/`compose`/`unfold` | D-129..D-144 |
 
 ## CLI orchestration (W6)
 
@@ -145,7 +144,7 @@ See `docs/plan.md` Appendix A. Items 4 (plot CLI surface) and 8 (csv2root
 strict grammar) are resolved by W6 (D-142; `docs/formats.md` section 7). Item 5
 (optimizer controls) is addressed by the W6 `calib --max-iter/--tolerance`
 flags, which map onto `FitSettings` and keep the D-107 defaults when omitted.
-Item 3 (`calib --sim` naming) remains open: the W6 surface keeps `--sim`,
-which reads an `mc_spectrum` product. The non-strict resolution clamp (D-73)
+Item 3 (`calib --sim` naming) is resolved by D-144: the option is
+`calib --mc` (no alias) and the config key is `mc`. The non-strict resolution clamp (D-73)
 and the removal of the SNIP peak mask (D-74) are decided and implemented in
 `kc761/core/`.

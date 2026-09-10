@@ -1,64 +1,111 @@
-# KC761 toolkit (rewrite)
+# KC761 toolkit
 
 Simulation, calibration and unfolding toolkit for the MEASALL KC761x/KC761
-gamma spectrometer.
+gamma spectrometer. Pure-Python plus `geant4-pybind`: Geant4 source and matrix
+simulations, an energy/resolution calibration with a statistical response
+matrix, and non-negative regularized spectrum unfolding with propagated
+uncertainties.
 
-**Status: W0 contract skeleton.** The rewrite is specified in
-[docs/plan.md](docs/plan.md). The frozen signatures live under `kc761/` and
-raise `NotImplementedError` until their workstream (W1-W6) lands. The legacy
-packages (`kc761calib/`, `kc761sim/`, `kc761unfold/`, `kc761util/`, `app/`)
-are untouched until W7 and are not part of the new contract.
+**Status: implemented.** The W0-W6 rewrite and the R1/R2 review passes are in
+place; the contract and decision register live in [docs/plan.md](docs/plan.md),
+the product schemas in [docs/formats.md](docs/formats.md) and the formulas in
+[docs/derivations.md](docs/derivations.md). The pre-rewrite packages
+(`kc761calib/`, `kc761sim/`, `kc761unfold/`, `kc761util/`, `app/` and the C++
+sources) are still present for reference and are deleted in W7; the new code
+does not import them.
 
 ## Requirements
 
 * Python >= 3.12.
-* Core contract: `numpy`, `scipy`, `uproot`.
-* Later workstreams: `numba` and `sympy` (generated kernels, W1),
-  `matplotlib` (plots, W3/W4), `geant4-pybind` (simulation, W5).
+* Runtime: `numpy`, `scipy`, `uproot`, `numba`, `sympy`, `matplotlib`.
+* Simulation: `geant4-pybind`.
 * Development: `ruff`, `pytest`, `hypothesis`.
+
+Packaging is intentionally not provided (D-7); install the dependencies in a
+virtual environment and run from the repository root.
 
 ## Running
 
-Packaging is intentionally not provided (decision D-7). The two supported
-entry points are:
+The two supported entry points are:
 
 ```bash
 python kc761.py --help
 python -m kc761 --help
 ```
 
-Subcommands: `calib`, `unfold`, `sim`, `compose`, `csv2root`, `subbkg`.
+| Subcommand | Purpose |
+|------------|---------|
+| `csv2root` | parse a raw spectrometer CSV into a `spectrum` product |
+| `subbkg`   | scale and subtract a background spectrum |
+| `sim`      | Geant4 source-mode (`mc_spectrum`) or matrix-mode (`sim`) simulation |
+| `calib`    | fit energy/resolution and export the calibration product |
+| `compose`  | compose the full response `R = C p diag(eta)` for inspection |
+| `unfold`   | unfold a measured spectrum (full or `--calib-only`) |
 
-Strict mode (runtime certificates, decision D-61) is enabled per invocation:
+A typical chain is `csv2root -> subbkg -> sim` (source mode) `-> calib ->
+sim` (matrix mode) `-> compose -> unfold`: the calibration consumes measured
+and source-mode simulated spectra, and the matrix simulation and unfolding
+consume the calibration product that supplies their energy axes.
+
+Strict mode runs every runtime certificate (D-61) and fails fast:
 
 ```bash
 python kc761.py unfold --strict ...
 KC761_STRICT=1 python kc761.py unfold ...
 ```
 
+## Configuration files
+
+`sim`, `calib`, `compose` and `unfold` accept `-c/--config FILE`, a TOML file
+read with the standard library (`config_version = 1`). One file may hold the
+`[sim]`, `[calib]`, `[compose]` and `[unfold]` tables; each subcommand reads
+only its own table. `[sim]` is a serial batch of `[[sim.runs]]`, each executed
+in a fresh child process because a `G4RunManager` can be initialized only once
+per process. Relative paths resolve against the config file's directory.
+
+See [examples/](examples/) for a commented file per subcommand, and
+[docs/plan.md](docs/plan.md) section 1.12 for the full rules.
+
+## Data and outputs
+
+* Raw measurements live in `data/exp/<campaign>/` (for example
+  `data/exp/2609a/`); `data/` is not committed.
+* Default products are written under `out/<subcommand>/`; existing files are
+  refused unless `--force` is passed, and writes are atomic.
+
 ## Development checks
 
 ```bash
 ruff check .
-pytest -m "not g4 and not root"
+pytest -q -m "not g4 and not root"
+pytest -q tests/test_sim_g4.py          # needs geant4-pybind
+python tools/check_single_source.py
+python kc761.py sim --dry-run ...        # print the resolved run, no side effects
 ```
+
+`g4`- and `root`-marked tests are skipped when the corresponding framework is
+unavailable. Tests are auxiliary: correctness is defined by the derivations and
+the runtime certificates, not by stored reference outputs.
 
 ## Repository layout
 
 | Path | Content |
 |------|---------|
 | `kc761.py`, `kc761/__main__.py` | entry points |
-| `kc761/core/` | pure numerics: models, binning, kernels, response, solver, covariance |
-| `kc761/schema/` | product contracts, axes, uproot IO |
-| `kc761/calib/`, `kc761/unfold/`, `kc761/sim/` | workstream packages (W3/W4/W5) |
-| `kc761/plotting/`, `kc761/cli/` | shared plotting and CLI |
+| `kc761/core/` | pure numerics: models, binning, kernels, response, solver, covariance, uncertainty |
+| `kc761/schema/` | product contracts, axes, uproot IO and certificates |
+| `kc761/calib/`, `kc761/unfold/`, `kc761/sim/` | calibration, unfolding and Geant4 packages |
+| `kc761/*/plot.py` | self-contained, legacy-faithful figures (D-153) |
+| `kc761/cli/` | CLI, config-file mode and per-command wiring |
+| `tools/` | sympy kernel generation and the single-source gate |
+| `examples/` | shipped TOML configuration examples |
 | `tests/` | auxiliary tests and deterministic fixtures |
 | `docs/` | plan, architecture, formats, derivations |
 | `AGENTS.md` | hard rules, file ownership, contract-change process |
 
 ## Documentation
 
-* [docs/plan.md](docs/plan.md) - frozen rewrite plan and decision register.
+* [docs/plan.md](docs/plan.md) - frozen plan, decision register and open points.
 * [docs/architecture.md](docs/architecture.md) - layering and module map.
 * [docs/formats.md](docs/formats.md) - product schemas and uproot spike results.
-* [docs/derivations.md](docs/derivations.md) - formula ID registry and derivations.
+* [docs/derivations.md](docs/derivations.md) - formula registry and derivations.

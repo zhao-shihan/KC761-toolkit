@@ -1,9 +1,9 @@
 """``kc761 calib``: energy/resolution calibration (W6).
 
 One or more data/MC dataset pairs are fitted with a shared calibration. The
-measured spectrum is a ``spectrum`` product and ``--sim`` reads an
-``mc_spectrum`` product (D-120); the library consumes only the histogram, so
-the CLI owns product loading and axis checks. Config mode runs a single fit
+measured spectrum is a ``spectrum`` product and ``--mc`` reads an
+``mc_spectrum`` product (D-120/D-144); the library consumes only the histogram,
+so the CLI owns product loading and axis checks. Config mode runs a single fit
 from ``[[calib.datasets]]`` (D-139).
 """
 
@@ -28,7 +28,7 @@ from kc761.runtime import configure_logging
 
 _RUN_ARG_DEFAULTS: dict[str, object] = {
     "data": None,
-    "sim": None,
+    "mc": None,
     "label": None,
     "syst_frac": None,
     "channel_low": None,
@@ -47,7 +47,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         description=(
             "Fit the energy calibration and resolution model to one or more "
             "data/simulation dataset pairs, then export the calibration "
-            "product. Repeat --data/--sim/--label once per dataset. With "
+            "product. Repeat --data/--mc/--label once per dataset. With "
             "-c/--config one fit is described by [[calib.datasets]]."
         ),
     )
@@ -60,8 +60,8 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         help="data spectrum product (kc761_spectrum); repeat once per dataset",
     )
     parser.add_argument(
-        "--sim",
-        dest="sim",
+        "--mc",
+        dest="mc",
         action="append",
         default=None,
         metavar="FILE",
@@ -113,13 +113,13 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
         reject_run_options(args, _RUN_ARG_DEFAULTS, command="calib")
         return _run_config(args, strict=strict)
 
-    if args.data is None or args.sim is None or args.label is None:
-        raise UsageError("--data, --sim and --label are required (repeat per dataset)")
+    if args.data is None or args.mc is None or args.label is None:
+        raise UsageError("--data, --mc and --label are required (repeat per dataset)")
     count = len(args.data)
-    if len(args.sim) != count or len(args.label) != count:
+    if len(args.mc) != count or len(args.label) != count:
         raise UsageError(
-            "--data, --sim and --label must be repeated the same number of times; got "
-            f"{count} data, {len(args.sim)} sim, {len(args.label)} label"
+            "--data, --mc and --label must be repeated the same number of times; got "
+            f"{count} data, {len(args.mc)} mc, {len(args.label)} label"
         )
     if args.channel_low is None or args.channel_high is None:
         raise UsageError("--channel-low and --channel-high are required")
@@ -127,12 +127,12 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     settings = _settings(args.max_iter, args.tolerance)
     output = _output(args.output, list(args.label))
     if args.dry_run:
-        _print_dry_run(args.data, args.sim, args.label, output)
+        _print_dry_run(args.data, args.mc, args.label, output)
         return 0
     specs = tuple(
         _build_spec(
             data_path=args.data[index],
-            mc_path=args.sim[index],
+            mc_path=args.mc[index],
             label=args.label[index],
             channel_low=args.channel_low,
             channel_high=args.channel_high,
@@ -162,7 +162,7 @@ def _run_config(args: argparse.Namespace, *, strict: bool) -> int:
     if args.dry_run or config.dry_run:
         _print_dry_run(
             [str(entry.data) for entry in config.datasets],
-            [str(entry.sim) for entry in config.datasets],
+            [str(entry.mc) for entry in config.datasets],
             [entry.label for entry in config.datasets],
             output,
         )
@@ -170,7 +170,7 @@ def _run_config(args: argparse.Namespace, *, strict: bool) -> int:
     specs = tuple(
         _build_spec(
             data_path=entry.data,
-            mc_path=entry.sim,
+            mc_path=entry.mc,
             label=entry.label,
             channel_low=entry.channel_low,
             channel_high=entry.channel_high,
@@ -274,11 +274,11 @@ def _output(explicit: str | Path | None, labels: list[str]) -> Path:
 
 
 def _print_dry_run(
-    data: list[str], sim: list[str], labels: list[str], output: Path
+    data: list[str], mc: list[str], labels: list[str], output: Path
 ) -> None:
     print("kc761 calib (dry-run):")
-    for label, data_path, sim_path in zip(labels, data, sim, strict=True):
-        print(f"  dataset {label}: data={data_path} sim={sim_path}")
+    for label, data_path, mc_path in zip(labels, data, mc, strict=True):
+        print(f"  dataset {label}: data={data_path} mc={mc_path}")
     print(f"  output={output}")
 
 

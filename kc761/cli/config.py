@@ -27,8 +27,8 @@ CONFIG_VERSION = 1
 CONFIG_TABLES = ("sim", "calib", "compose", "unfold")
 """Top-level tables a configuration file may declare (D-129)."""
 
-MATRIX_MODES = ("plane_front_gamma", "sphere_gamma")
-"""Accepted ``mode`` values for a ``[[sim.runs]]`` entry (D-134)."""
+# The accepted matrix-mode tokens are injected by the caller (D-143/D-2) so this
+# module stays free of any ``kc761.sim`` import.
 
 
 @dataclass(frozen=True)
@@ -58,10 +58,10 @@ class SimConfig:
 
 @dataclass(frozen=True)
 class CalibDatasetConfig:
-    """One ``[[calib.datasets]]`` entry (D-139)."""
+    """One ``[[calib.datasets]]`` entry (D-139/D-144)."""
 
     data: Path
-    sim: Path
+    mc: Path
     label: str
     channel_low: int | None
     channel_high: int | None
@@ -259,9 +259,13 @@ def _require_table(
 # Per-command parsers
 # --------------------------------------------------------------------------
 def load_sim_config(
-    path: str | Path, *, source_keys: Sequence[str], default_seed: int
+    path: str | Path,
+    *,
+    source_keys: Sequence[str],
+    default_seed: int,
+    matrix_modes: Sequence[str],
 ) -> SimConfig:
-    """Parse and validate the ``[sim]`` batch table (D-134..D-137)."""
+    """Parse and validate the ``[sim]`` batch table (D-134..D-137, D-143)."""
     table, base, config_path = _config_table(path, "sim")
     _check_keys(
         table,
@@ -319,9 +323,9 @@ def load_sim_config(
             )
             continue
         matrix_mode = _as_str(run, "mode", context)
-        if matrix_mode not in MATRIX_MODES:
+        if matrix_mode not in matrix_modes:
             raise UsageError(
-                f"{context}: 'mode' must be one of {MATRIX_MODES}, got {matrix_mode!r}"
+                f"{context}: 'mode' must be one of {tuple(matrix_modes)}, got {matrix_mode!r}"
             )
         if "calib" not in run:
             raise UsageError(f"{context}: a matrix run requires 'calib'")
@@ -366,7 +370,7 @@ def load_calib_config(path: str | Path, *, default_syst_frac: float) -> CalibCon
         entry = _require_table(
             raw,
             context,
-            required=("data", "sim", "label"),
+            required=("data", "mc", "label"),
             optional=("channel_low", "channel_high", "syst_frac"),
         )
         label = _as_str(entry, "label", context)
@@ -394,7 +398,7 @@ def load_calib_config(path: str | Path, *, default_syst_frac: float) -> CalibCon
         datasets.append(
             CalibDatasetConfig(
                 data=_resolve(base, _as_str(entry, "data", context), context, "data"),
-                sim=_resolve(base, _as_str(entry, "sim", context), context, "sim"),
+                mc=_resolve(base, _as_str(entry, "mc", context), context, "mc"),
                 label=label,
                 channel_low=channel_low,
                 channel_high=channel_high,
@@ -523,7 +527,6 @@ def load_unfold_config(path: str | Path, *, default_syst_frac: float) -> UnfoldC
 __all__ = [
     "CONFIG_TABLES",
     "CONFIG_VERSION",
-    "MATRIX_MODES",
     "CalibConfig",
     "CalibDatasetConfig",
     "ComposeConfig",

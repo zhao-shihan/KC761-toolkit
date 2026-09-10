@@ -27,7 +27,7 @@ output = "out/sim/lu176-custom.root"
 
 # A matrix-mode run: mode plus the calibration product that supplies the axes.
 [[sim.runs]]
-mode = "plane_front_gamma"
+mode = "plane-front-gamma"
 calib = "out/calib/calib-am241.root"
 events = 10000000
 threads = 4

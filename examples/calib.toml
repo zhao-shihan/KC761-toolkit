@@ -1,6 +1,6 @@
-# kc761 calib example (D-139): one shared fit over the listed datasets.
+# kc761 calib example (D-139/D-144): one shared fit over the listed datasets.
 #
-# `data` is a measured spectrum product (kc761_spectrum) and `sim` is a
+# `data` is a measured spectrum product (kc761_spectrum) and `mc` is a
 # source-mode simulation product (kc761_mc_spectrum). channel_low/channel_high
 # are optional (default: the full data axis); syst_frac defaults to 0.10.
 config_version = 1
@@ -11,7 +11,7 @@ no_plot = false
 
 [[calib.datasets]]
 data = "out/csv2root/am241.root"
-sim = "out/sim/am241-n1000000-s908136382.root"
+mc = "out/sim/am241-n1000000-s908136382.root"
 label = "am241"
 channel_low = 0
 channel_high = 2047
@@ -19,6 +19,6 @@ syst_frac = 0.10
 
 [[calib.datasets]]
 data = "out/csv2root/lu176.root"
-sim = "out/sim/lu176-n2000000-s908136382.root"
+mc = "out/sim/lu176-n2000000-s908136382.root"
 label = "lu176"
 syst_frac = 0.05

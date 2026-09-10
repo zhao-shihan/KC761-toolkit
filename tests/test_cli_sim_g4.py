@@ -36,7 +36,7 @@ def test_config_batch_matrix_strict(tmp_path: Path) -> None:
         "[sim]\n"
         "resume = false\n"
         "[[sim.runs]]\n"
-        'mode = "plane_front_gamma"\n'
+        'mode = "plane-front-gamma"\n'
         f'calib = "{calib}"\n'
         "events = 128\n"
         "threads = 1\n"
@@ -46,7 +46,7 @@ def test_config_batch_matrix_strict(tmp_path: Path) -> None:
     assert main(["sim", "-c", str(config), "--strict"]) == 0
     product = read_product(output, strict=True)
     assert isinstance(product, SimProduct)
-    assert product.mode_name == "plane_front_gamma"
+    assert product.mode_name == "plane-front-gamma"
     assert product.n_events == 128
     assert int(product.primary_column_totals.values.sum()) == 128
     # D-133: the child records the configuration file in provenance.inputs.

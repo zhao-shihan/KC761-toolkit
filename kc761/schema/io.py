@@ -39,6 +39,7 @@ from uproot.behaviors.RNTuple import RNTuple
 from uproot.behaviors.TH1 import TH1
 from uproot.behaviors.TH2 import TH2
 
+from kc761.core.binning import source_mode_deposition_edges_kev
 from kc761.core.covariance import CovarianceEstimate, verify_covariance_psd
 from kc761.core.model import PARAM_NAMES_REPORTED
 from kc761.core.response import (
@@ -768,6 +769,16 @@ def _check_product_bodies(product: Product) -> None:
                 f"mc_spectrum: energy axis unit must be {UNIT_KEV!r}, "
                 f"got {product.spectrum.axis.unit!r}"
             )
+        canonical = source_mode_deposition_edges_kev()
+        edges = np.asarray(product.spectrum.axis.edges, dtype=np.float64)
+        if edges.shape != canonical.shape or not np.allclose(
+            edges, canonical, rtol=0.0, atol=1e-9
+        ):
+            raise SchemaError(
+                "mc_spectrum: energy axis must be the fixed source-mode axis "
+                f"({canonical.size - 1} bins over "
+                f"{canonical[0]}..{canonical[-1]} keV), got {edges.size - 1} bins"
+            )
         _check_hist1d(
             OBJ_MC_SPECTRUM,
             product.spectrum,
@@ -1017,20 +1028,8 @@ def _check_product(product: Product, *, strict: bool) -> None:
 
 
 def _strict_file_checks(path: str | Path, dispatch: str) -> None:
-    """Raw-file strict checks that need the on-disk object (labels, fSumw2)."""
-    if dispatch == "calib":
-        with uproot.open(path) as file:
-            hist = file[OBJ_PARAM_COV]
-            expected = tuple(PARAM_NAMES_REPORTED)
-            x_labels = _uproot.axis_labels(hist, 0)
-            y_labels = _uproot.axis_labels(hist, 1)
-            if x_labels != expected or y_labels != expected:
-                raise CertificateError(
-                    "F-COV-2",
-                    f"param_cov bin labels must be {expected}; "
-                    f"got x={x_labels} y={y_labels}",
-                )
-    elif dispatch == "spectrum":
+    """Raw-file strict checks that need the on-disk object (fSumw2 content)."""
+    if dispatch == "spectrum":
         with uproot.open(path) as file:
             hist = file[OBJ_SPECTRUM]
             if not _uproot.histogram_has_variance(hist):
@@ -1075,6 +1074,22 @@ def _check_object_types(file: Any, dispatch: str) -> None:
                 f"{dispatch}: object {name!r} has type {type(obj).__name__}, "
                 f"expected {kind}"
             )
+
+
+def _check_calib_labels(file: Any) -> None:
+    """Always-on structural check of the ``param_cov`` bin labels (D-148).
+
+    The labels are part of the frozen product contract, so they are verified in
+    every read, not only under ``--strict`` (R2 decision 6).
+    """
+    hist = file[OBJ_PARAM_COV]
+    expected = tuple(PARAM_NAMES_REPORTED)
+    x_labels = _uproot.axis_labels(hist, 0)
+    y_labels = _uproot.axis_labels(hist, 1)
+    if x_labels != expected or y_labels != expected:
+        raise SchemaError(
+            f"param_cov bin labels must be {expected}; got x={x_labels} y={y_labels}"
+        )
 
 
 def _build_product(file: Any, dispatch: str, meta: Mapping[str, Any]) -> Product:
@@ -1199,6 +1214,8 @@ def _read(path: str | Path) -> Product:
             _check_object_set(names, dispatch)
             _check_object_types(file, dispatch)
             _check_meta_fields(meta, dispatch)
+            if dispatch == "calib":
+                _check_calib_labels(file)
             return _build_product(file, dispatch, meta)
     except Kc761Error:
         raise

@@ -55,7 +55,6 @@ wins and this file must be fixed in the same change.
 | `kc761/sim/` | W5 | F-SIM |
 | `kc761/cli/`, `kc761.py`, `kc761/__main__.py` | W6 | CLI surface only; no numerics |
 | `kc761/errors.py`, `kc761/runtime.py` | W0 (stable) | change requires a plan update |
-| `kc761/plotting/` | W3/W4 | shared style, no duplicated helpers |
 | `tests/`, `tests/fixtures/synthetic.py` | shared | fixture changes must stay deterministic |
 | `docs/plan.md` | user-approved | edit only to record a new decision |
 | `docs/architecture.md`, `docs/formats.md`, `docs/derivations.md` | owning workstream | update in the same change as the code |

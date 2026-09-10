@@ -44,7 +44,8 @@ class DatasetSpec:
 
 @dataclass(frozen=True)
 class FitSettings:
-    """Fixed, documented optimizer defaults (D-107; CLI exposure is W6).
+    """Fixed, documented optimizer defaults (D-107; exposed by the CLI as
+    ``calib --max-iter/--tolerance`` under D-145).
 
     The fit uses one bounded trust-region (reflective) Gauss-Newton stage with
     the analytic residual Jacobian; ``maxiter`` caps the function evaluations.

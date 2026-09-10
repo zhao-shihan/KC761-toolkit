@@ -124,7 +124,7 @@ def test_matrix_run_uses_mode_flag_and_calib(tmp_path: Path, monkeypatch: Any) -
     config = _config(
         tmp_path,
         "[[sim.runs]]\n"
-        'mode = "sphere_gamma"\n'
+        'mode = "sphere-gamma"\n'
         f'calib = "{calib}"\nevents = 7\nthreads = 2\n'
         f'output = "{output}"\n',
     )
@@ -162,7 +162,7 @@ def test_config_matrix_default_filename_token(
     config = _config(
         tmp_path,
         "[[sim.runs]]\n"
-        'mode = "plane_front_gamma"\n'
+        'mode = "plane-front-gamma"\n'
         f'calib = "{calib}"\nevents = 5\n',
     )
     assert main(["sim", "-c", str(config), "--dry-run"]) == 0

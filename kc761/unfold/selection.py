@@ -77,13 +77,16 @@ def select_window(
         )
     low = int(np.searchsorted(channel_centers, energy_low_kev, side="left"))
     high = int(np.searchsorted(channel_centers, energy_high_kev, side="right")) - 1
-    channel_low = min(max(low, 0), int(n_channels) - 1)
-    channel_high = min(max(high, 0), int(n_channels) - 1)
-    if channel_low > channel_high:
+    if low > high or low >= int(n_channels) or high < 0:
+        # D-146 revision of D-111: a window entirely outside the channel energy
+        # range is an error, never a silent degenerate single-channel fit.
         raise ValidationError(
-            f"energy window [{energy_low_kev!r}, {energy_high_kev!r}] keV contains no "
-            "channel centre"
+            f"energy window [{energy_low_kev!r}, {energy_high_kev!r}] keV lies "
+            f"entirely outside the channel energy range "
+            f"[{channel_centers[0]!r}, {channel_centers[-1]!r}] keV"
         )
+    channel_low = low
+    channel_high = high
 
     solve_low, solve_high = working_window(
         channel_low,

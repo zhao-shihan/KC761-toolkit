@@ -64,7 +64,7 @@ Notes:
   (`core.binning.source_mode_deposition_edges_kev()`), with the required
   conditional-binomial `fSumw2 = c (1 - c/P)` where `P = sum(counts)` is the
   recorded pulse total (D-128). It is a distinct product kind from the measured
-  `spectrum`; W6 connects `calib --sim` to it.
+  `spectrum`; the CLI connects `calib --mc` to it (D-144).
 * Required variance buffers (always-on check, D-98): `primary_to_deposition`,
   `sigma_statistical`, `sigma_systematic`, `sigma_total`, `kc761_spectrum` and
   `kc761_mc_spectrum`. All other variance buffers are optional.

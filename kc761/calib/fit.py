@@ -34,7 +34,7 @@ from kc761.core.model import (
     verify_energy_monotonicity,
     verify_resolution_positivity,
 )
-from kc761.errors import SolverError
+from kc761.errors import SolverError, ValidationError
 from kc761.schema.io import build_provenance, write_product
 
 STATUS_CONVERGED: Final = "converged"
@@ -113,7 +113,7 @@ def run_fit(
     lower = np.asarray([bound[0] for bound in model.bounds], dtype=np.float64)
     upper = np.asarray([bound[1] for bound in model.bounds], dtype=np.float64)
     if np.any(upper - lower <= 0.0):
-        raise SolverError("calibration bounds must satisfy lo < hi for every parameter")
+        raise ValidationError("calibration bounds must satisfy lo < hi for every parameter")
 
     def residual(theta: NDArray[np.float64]) -> NDArray[np.float64]:
         return model.residuals(theta)

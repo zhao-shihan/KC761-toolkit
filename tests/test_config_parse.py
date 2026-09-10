@@ -25,6 +25,7 @@ SOURCES = (
 )
 DEFAULT_SEED = 908136382
 DEFAULT_SYST = 0.10
+MATRIX_MODES = ("plane-front-gamma", "sphere-gamma")
 
 
 def _write(tmp_path: Path, text: str) -> Path:
@@ -34,6 +35,7 @@ def _write(tmp_path: Path, text: str) -> Path:
 
 
 def _sim(path: Path, **kwargs):
+    kwargs.setdefault("matrix_modes", MATRIX_MODES)
     return load_sim_config(path, source_keys=SOURCES, default_seed=DEFAULT_SEED, **kwargs)
 
 
@@ -124,7 +126,7 @@ def test_sim_source_run_is_expanded(tmp_path: Path) -> None:
 def test_sim_matrix_run_requires_calib_and_mode(tmp_path: Path) -> None:
     path = _write(
         tmp_path,
-        'config_version = 1\n[sim]\n[[sim.runs]]\nmode = "plane_front_gamma"\nevents = 5\n',
+        'config_version = 1\n[sim]\n[[sim.runs]]\nmode = "plane-front-gamma"\nevents = 5\n',
     )
     with pytest.raises(UsageError, match="requires 'calib'"):
         _sim(path)
@@ -134,7 +136,7 @@ def test_sim_rejects_source_and_mode_together(tmp_path: Path) -> None:
     path = _write(
         tmp_path,
         'config_version = 1\n[sim]\n[[sim.runs]]\n'
-        'source = "am241"\nmode = "sphere_gamma"\n'
+        'source = "am241"\nmode = "sphere-gamma"\n'
         'calib = "c.root"\nevents = 5\n',
     )
     with pytest.raises(UsageError, match="exactly one"):
@@ -166,7 +168,7 @@ def test_sim_relative_paths_resolve_against_config(tmp_path: Path) -> None:
     path = subdir / "config.toml"
     path.write_text(
         "config_version = 1\n[sim]\n[[sim.runs]]\n"
-        'mode = "sphere_gamma"\ncalib = "calib.root"\nevents = 5\n'
+        'mode = "sphere-gamma"\ncalib = "calib.root"\nevents = 5\n'
         f'output = "{absolute}"\n',
         encoding="utf-8",
     )
@@ -191,6 +193,17 @@ def test_sim_requires_non_empty_runs(tmp_path: Path) -> None:
         _sim(path)
 
 
+def test_sim_rejects_underscore_matrix_mode(tmp_path: Path) -> None:
+    """D-143: only the canonical hyphen tokens are accepted."""
+    path = _write(
+        tmp_path,
+        'config_version = 1\n[sim]\n[[sim.runs]]\nmode = "plane_front_gamma"\n'
+        'calib = "c.root"\nevents = 5\n',
+    )
+    with pytest.raises(UsageError, match="mode"):
+        _sim(path)
+
+
 # --------------------------------------------------------------------------
 # [calib]
 # --------------------------------------------------------------------------
@@ -199,9 +212,9 @@ def test_calib_defaults_and_window(tmp_path: Path) -> None:
         tmp_path,
         "config_version = 1\n[calib]\n"
         "[[calib.datasets]]\n"
-        'data = "d.root"\nsim = "m.root"\nlabel = "am241"\n'
+        'data = "d.root"\nmc = "m.root"\nlabel = "am241"\n'
         "[[calib.datasets]]\n"
-        'data = "d2.root"\nsim = "m2.root"\nlabel = "lu176"\n'
+        'data = "d2.root"\nmc = "m2.root"\nlabel = "lu176"\n'
         "channel_low = 3\nchannel_high = 10\nsyst_frac = 0.25\n",
     )
     config = load_calib_config(path, default_syst_frac=DEFAULT_SYST)
@@ -218,7 +231,7 @@ def test_calib_rejects_half_window(tmp_path: Path) -> None:
     path = _write(
         tmp_path,
         "config_version = 1\n[calib]\n[[calib.datasets]]\n"
-        'data = "d.root"\nsim = "m.root"\nlabel = "x"\nchannel_low = 1\n',
+        'data = "d.root"\nmc = "m.root"\nlabel = "x"\nchannel_low = 1\n',
     )
     with pytest.raises(UsageError, match="together"):
         load_calib_config(path, default_syst_frac=DEFAULT_SYST)

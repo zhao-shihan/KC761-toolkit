@@ -56,7 +56,7 @@ def test_matrix_run_writes_a_strict_product(tmp_path: Path) -> None:
     # D-121 revised: primary and deposition are both C.y, so G is square.
     assert counts.shape == (c_edges.size - 1, c_edges.size - 1)
     assert product.mode == 1
-    assert product.mode_name == "plane_front_gamma"
+    assert product.mode_name == "plane-front-gamma"
     assert product.geometry_name == "plane"
     assert product.n_events == 128
     assert int(product.primary_column_totals.values.sum()) == 128

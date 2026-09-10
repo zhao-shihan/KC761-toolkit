@@ -54,6 +54,11 @@ CUSTOM_MATERIAL_ATOMS: Final[dict[str, tuple[tuple[str, int], ...]]] = {
     "Th(NO3)4-5H2O": (("Th", 1), ("N", 4), ("O", 17), ("H", 10)),
 }
 
+#: Custom materials built unconditionally from mass fractions by
+#: :func:`build_all_materials`; source geometries (containers, shields,
+#: sandwiches) may reference them without supplying a density.
+PREBUILT_MATERIALS: Final[frozenset[str]] = frozenset({"CsI_Tl", "ABS", "R4600"})
+
 MATERIAL_PROVENANCE: Final[dict[str, str]] = {
     "CsI_Tl": "assumed (Tl mole ratio 1/1999; see module docstring)",
     "ABS": "assumed (representative ABS mass fractions)",
@@ -78,6 +83,8 @@ def csi_tl_mass_fractions() -> dict[str, float]:
 
 def _check_material_lookup(name: str) -> None:
     if name.startswith("G4_"):
+        return
+    if name in PREBUILT_MATERIALS:
         return
     if name not in CUSTOM_MATERIAL_ATOMS:
         raise ValidationError(f"unknown custom source material {name!r}")
@@ -128,12 +135,28 @@ def build_all_materials(*specs: SourceSpec):  # noqa: ANN201
         "R4600": resin,
         "G4_AIR": nist.FindOrBuildMaterial("G4_AIR"),
     }
-    densities: dict[str, float] = {}
+    densities: dict[str, float] = {
+        "CsI_Tl": CSI_TL_DENSITY_G_CM3,
+        "ABS": ABS_DENSITY_G_CM3,
+        "R4600": R4600_DENSITY_G_CM3,
+    }
 
     def require(name: str, density: float | None) -> None:
         if name.startswith("G4_"):
             if name not in materials:
                 materials[name] = nist.FindOrBuildMaterial(name)
+            return
+        if name in PREBUILT_MATERIALS:
+            # Built unconditionally above; a source geometry (shield/container)
+            # may reference it without a density (R2: Ra226/Th232 use R4600).
+            if density is not None:
+                value = _require_custom_density(name, density)
+                previous = densities.get(name)
+                if previous is not None and abs(previous - value) > 1e-9:
+                    raise ValidationError(
+                        f"material {name!r} requested with conflicting densities "
+                        f"{previous:.6g} and {value:.6g} g/cm^3"
+                    )
             return
         _check_material_lookup(name)
         value = _require_custom_density(name, density)

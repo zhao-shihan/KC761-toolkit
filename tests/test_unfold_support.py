@@ -129,7 +129,7 @@ def make_sim_product(
         primary_to_deposition=matrix,
         primary_column_totals=Histogram1D(axis=primary_axis(), values=totals),
         mode=0,
-        mode_name="plane_front_gamma",
+        mode_name="plane-front-gamma",
         geometry_name="plane",
         geometry_param_mm=13.7,
         angular_distribution="lambertian",

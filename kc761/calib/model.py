@@ -144,6 +144,13 @@ class DatasetDetail:
     energy_centers_kev: NDArray[np.float64]
     energy_edges_kev: NDArray[np.float64]
     chi2: float
+    #: Rebin of the raw source-mode MC template onto the window energy edges and
+    #: its per-bin uncertainty, plus the fitted Bezier scale parameters; these
+    #: reproduce the legacy "Raw MC (scaled)" figure layer (R2/D-153). They are
+    #: plotting diagnostics only and never enter the fit.
+    raw_mc_counts: NDArray[np.float64]
+    raw_mc_uncertainties: NDArray[np.float64]
+    scale_params: NDArray[np.float64]
 
 
 class CalibrationModel:
@@ -622,6 +629,23 @@ class CalibrationModel:
         return gradient
 
     # ------------------------------------------------------------- diagnostics
+    @staticmethod
+    def _rebin_to_edges(
+        source_edges: NDArray[np.float64],
+        values: NDArray[np.float64],
+        target_edges: NDArray[np.float64],
+    ) -> NDArray[np.float64]:
+        """Rebin a per-bin series onto ``target_edges`` (plot diagnostics only).
+
+        Linear interpolation of the cumulative mass gives the exact fractional
+        overlap for a piecewise-constant source; outside the source range the
+        clamped cumulative yields zero target content. The fit never calls this.
+        """
+        cumulative = np.concatenate(
+            ([0.0], np.cumsum(np.asarray(values, dtype=np.float64)))
+        )
+        return np.diff(np.interp(target_edges, source_edges, cumulative))
+
     def dataset_details(self, theta: NDArray[np.float64]) -> tuple[DatasetDetail, ...]:
         """Report/plot diagnostics with the fitted model at ``theta`` (F-CAL-4)."""
         values = self._check_theta(theta)
@@ -661,6 +685,22 @@ class CalibrationModel:
                     energy_centers_kev=0.5 * (energy_edges[:-1] + energy_edges[1:]),
                     energy_edges_kev=energy_edges,
                     chi2=float(residual @ residual),
+                    raw_mc_counts=self._rebin_to_edges(
+                        self.fixed_edges, self.mc_counts[index], energy_edges
+                    ),
+                    raw_mc_uncertainties=np.sqrt(
+                        np.maximum(
+                            self._rebin_to_edges(
+                                self.fixed_edges,
+                                self.mc_variance_source[index],
+                                energy_edges,
+                            ),
+                            0.0,
+                        )
+                    ),
+                    scale_params=values[
+                        N_CORE + N_SCALE * index : N_CORE + N_SCALE * (index + 1)
+                    ].copy(),
                 )
             )
         return tuple(details)
