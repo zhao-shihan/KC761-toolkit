@@ -1,8 +1,10 @@
 # Product formats
 
-Status: W0 contract skeleton. The functions in `kc761/schema/io.py` that
-implement this document are stubs until W2; the low-level primitives in
-`kc761/schema/_uproot.py` are implemented and verified (spike, section 6).
+Status: **W2 implemented**. The container names and the `meta` field list below
+are the frozen contract implemented by `kc761/schema/products.py` and
+`kc761/schema/io.py`; the low-level primitives in `kc761/schema/_uproot.py`
+were verified by the W0 spike (section 6). Object names and units are single
+sourced in `products.py` / `axes.py` (AGENTS hard rule 11).
 
 ## 1. Envelope
 
@@ -42,16 +44,23 @@ with `SchemaError`.
 
 Notes:
 
-* C columns sum to 1 by construction; per-element C sigma is not stored and is
-  recomputed from `param_cov` and the analytic Jacobian when needed.
+* C columns sum to 1 or are exactly 0 (F-RESP-1); per-element C sigma is not
+  stored and is recomputed from `param_cov` and the analytic Jacobian when
+  needed. `param_cov` is a 7x7 TH2D whose two axes carry the bin labels
+  `c0 c1 c2 c3 b0 b1 b2` (from `PARAM_NAMES_REPORTED`).
 * Simulation counts carry the exact binomial variance in `fSumw2`:
   `N_j p (1 - p)` with `p = counts_j / N_j`. Row/column correlations are
   reconstructed downstream from counts and `N_j`.
 * Detection efficiency is derived: `eta_j = column_sum_j / N_j`. It is not
-  stored in the sim product; the compose product may store it as a derived
-  convenience object.
+  stored in the sim product; the compose product stores it as
+  `primary_efficiency`. `R` full-axis column sums equal the reachable
+  detected mass/N (F-RESP-2), so they equal `eta` only when no deposition
+  column has an exactly-zero C column (F-RESP-1 allows one; D-99).
 * sigma bands: `content = sigma`, `fSumw2 = sigma**2` (D-15), so `values()`
   and `errors()` both return the 1-sigma band.
+* Required variance buffers (always-on check, D-98): `primary_to_deposition`,
+  `sigma_statistical`, `sigma_systematic`, `sigma_total` and `kc761_spectrum`.
+  All other variance buffers are optional.
 
 ## 4. `meta` RNTuple
 
@@ -60,20 +69,35 @@ with `file.mkrntuple("meta", {field: np.array([value])})`, pinning the RNTuple
 type explicitly (D-12 as revised; uproot's dict assignment already defaults to
 RNTuple). Native ROOT reading requires ROOT >= 6.30; uproot is unaffected.
 `keys()` returns fields in name-sorted order, so always look up meta fields by
-name, never by position. Initial field list:
+name, never by position. The reader requires the field set to match exactly:
+no missing and no extra field (`SchemaError` otherwise). The complete list:
 
-* Common: `format_version` (int), `producer` (str), `created_utc` (str),
-  `git_revision` (str), `git_dirty` (int), `python_version` (str),
-  `dependency_versions` (str, JSON), `command` (str),
-  `arguments_json` (str), `inputs_json` (str, path + sha256 list).
+* Common (`product_kind` dispatches the reader; W2 D-87): `format_version`
+  (int, currently 1), `product_kind` (str), `producer` (str), `created_utc`
+  (str), `git_revision` (str), `git_dirty` (int 0/1), `python_version` (str),
+  `dependency_versions` (str, JSON list of `[name, version]` in the frozen
+  dependency order), `command` (str), `arguments_json` (str, JSON ordered list
+  of `[name, value]`), `inputs_json` (str, JSON list of
+  `{"path": ..., "sha256": ...}`).
+* calib: `channel_max` (float), `params_reported_json` (str, JSON list of 4 in
+  the `c0..c3` order), `resol_params_json` (str, JSON list of 3 in the
+  `b0..b2` order).
 * sim: `mode` (int), `mode_name` (str), `geometry_name` (str),
   `geometry_param_mm` (float), `angular_distribution` (str), `seed` (int),
-  `n_events` (int), `workers` (int), `calib_sha256` (str).
-* unfold: `alpha` (float), `difference_order` (int), `energy_low_kev`,
-  `energy_high_kev`, `channel_low`, `channel_high`, `pad_nsigma`,
-  `syst_frac`, `chi2`, `dof`, `covariance_scale`, `calib_sha256`,
-  `sim_sha256`.
+  `n_events` (int), `workers` (int). There is no per-file `calib_sha256`: the
+  calibration input is recorded in `inputs_json`.
+* compose: only the common fields. The calibration and simulation inputs and
+  their sha256 digests live in `inputs_json`.
+* unfold: `mode` (str, `unfold` or `calib_only`), `alpha` (float),
+  `difference_order` (int), `energy_low_kev`, `energy_high_kev` (float),
+  `channel_low`, `channel_high` (int), `pad_nsigma` (float), `syst_frac`
+  (float), `chi2` (float), `dof` (int), `covariance_scale` (float). The
+  `calib_only` variant carries only the common fields plus `mode`.
 * spectrum: `daq_time_s` (float), `source_file` (str).
+
+The former `calib_sha256`/`sim_sha256` fields are removed (D-89). Every input
+fingerprint is in `inputs_json`; `kc761/schema/io.py` exposes `fingerprint_for`
+and `input_sha256` to look a digest up by path.
 
 Array-valued metadata (for example per-column information) must use a
 dedicated histogram object, never a multi-entry RNTuple field (all fields of
@@ -84,7 +108,9 @@ one RNTuple must have equal length).
 Every product records (D-18): git revision and dirty flag, Python version,
 versions of the dependencies actually used, sha256 of every input file, the
 full command line, and a UTC timestamp. Provenance is written into the `meta`
-RNTuple; `kc761/schema/io.py` assembles it in one place.
+RNTuple; `kc761/schema/io.py` assembles it in one place. A non-git working
+directory records `git_revision = "unknown"` and `git_dirty = 0` with one
+warning and does not abort (D-93).
 
 ## 6. uproot spike results (W0)
 
@@ -115,7 +141,14 @@ Verified with `uproot 5.7.6`, `numpy 2.5.3`, Python 3.14.7 (the code targets
    names come from `keys()`; `tree[field].array()` reads the values and
    length-1 arrays are unwrapped. Native ROOT reading of the `meta` object
    requires ROOT >= 6.30 (uproot is unaffected).
+7. TAxis bin labels are writable through
+   `uproot.writing.identify.to_THashList` / `to_TObjString`; `param_cov` uses
+   them for `c0 c1 c2 c3 b0 b1 b2`. Axis name and unit travel in the axis
+   `fTitle` as `"<name> [<unit>]"` and are parsed back by
+   `kc761/schema/_uproot.py`. **Reading variances uses the raw `fSumw2`
+   buffer, not `errors()**2`, so `write -> read` is bit exact.**
 
-Constraints to respect in W2: `meta` fields must all have length 1; variable
-length data must be separate histogram objects; the atomic-write protocol must
-reopen with uproot before renaming.
+Constraints respected in W2: `meta` fields all have length 1; variable length
+data uses separate histogram objects; the atomic-write protocol reopens with
+uproot before renaming; the object set on disk must equal `OBJECT_NAMES` for
+the product kind exactly; duplicate on-disk object versions are rejected.

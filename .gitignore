@@ -3,6 +3,8 @@ __pycache__/
 .DS_Store/
 .ipynb_checkpoints/
 .kilo/
+.pytest_cache/
+.ruff_cache/
 .temp/
 .tmp/
 .venv/

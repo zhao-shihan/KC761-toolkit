@@ -14,6 +14,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from kc761.core.binning import MAX_CHANNELS
+from kc761.core.model import PARAM_NAMES_REPORTED
 from kc761.errors import SchemaError
 
 UNIT_CHANNEL = "channel"
@@ -21,6 +22,9 @@ UNIT_KEV = "kev"
 UNIT_MM = "mm"
 UNIT_COUNTS = "counts"
 UNIT_DIMENSIONLESS = "dimensionless"
+
+PARAM_AXIS_NAME = "reported_parameter"
+"""Axis name of the ``param_cov`` matrix (D-13)."""
 
 UNITS: tuple[str, ...] = (
     UNIT_CHANNEL,
@@ -102,3 +106,9 @@ def channel_axis(n_channels: int) -> Axis:
 def energy_axis(edges_kev: NDArray[np.float64], *, name: str = "energy_kev") -> Axis:
     """Variable energy axis in keV (F-BIN-1)."""
     return Axis(name=name, edges=np.asarray(edges_kev, dtype=np.float64), unit=UNIT_KEV)
+
+
+def reported_parameter_axis() -> Axis:
+    """Index axis of ``param_cov``; bin labels are ``PARAM_NAMES_REPORTED`` (D-13)."""
+    edges = np.arange(-0.5, len(PARAM_NAMES_REPORTED) + 0.5, 1.0)
+    return Axis(name=PARAM_AXIS_NAME, edges=edges, unit=UNIT_DIMENSIONLESS)

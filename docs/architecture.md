@@ -1,6 +1,6 @@
 # Architecture
 
-Status: W0 skeleton. The authoritative specification is
+Status: W0/W1/W2 implemented. The authoritative specification is
 [docs/plan.md](plan.md); this document explains the layering rules that the
 code must keep.
 
@@ -46,10 +46,10 @@ Rules:
 | `core/covariance.py` | Fisher information, `s**2` scaling, optional profile diagnostic | F-COV-1..3 |
 | `core/uncertainty.py` | strict stat/syst propagation, simulation MC term, band combination | F-UNC-1..3 |
 | `core/_gen/` | committed sympy-generated kernels with manifest and import-time freshness check | F-MODEL/F-KERN (D-77) |
-| `schema/axes.py` | `Axis` (edges + unit) and axis constructors | F-BIN-1 |
-| `schema/products.py` | Calib/Sim/Compose/Unfold product containers, object names, provenance | F-IO-1 |
-| `schema/io.py` | atomic write, reopen validation, overwrite policy, provenance assembly | F-IO-1 |
-| `schema/_uproot.py` | verified low-level uproot helpers (spike) | F-IO-1 |
+| `schema/axes.py` | `Axis` (edges + unit), axis constructors and `reported_parameter_axis` | F-BIN-1 |
+| `schema/products.py` | product containers, `product_kind` dispatch, object names, meta field/type tables, provenance | F-IO-1 |
+| `schema/io.py` | atomic write, reopen validation, overwrite policy, provenance assembly, product certificates | F-IO-1 |
+| `schema/_uproot.py` | verified low-level uproot helpers (spike): variance buffers, axis titles/units, bin labels, meta RNTuple | F-IO-1 |
 | `calib/` | fit orchestration, Bezier scaling, covariance, report, plots | F-CAL-1..2 |
 | `unfold/` | window/pad orchestration, uncertainty bands, report, plots | F-SOLVE/F-UNC |
 | `sim/` | geometry, materials, sources, detector, physics, actions, runner | F-SIM-1..5 |
@@ -59,8 +59,18 @@ Rules:
 
 * Public product containers and object names are frozen in
   `schema/products.py`; `schema/io.py` is the only allowed read/write path.
-* The `meta` RNTuple field list is specified in `docs/formats.md`. Adding or
-  renaming a field is a contract change (see `AGENTS.md`).
+  The containers are `CalibProduct`, `SimProduct`, `ComposeProduct`,
+  `UnfoldProduct` and `SpectrumProduct`; `read_product` dispatches on the
+  on-disk `product_kind` (unfold splits into full/`calib_only` by `mode`).
+* The `meta` RNTuple field list is specified in `docs/formats.md` section 4
+  and implemented by `products.meta_field_types`; adding or renaming a field
+  is a contract change (see `AGENTS.md`).
+* `schema/io.py` exposes `build_provenance`, `sha256_file`,
+  `fingerprint_for`/`input_sha256` (input lookup for later workstreams),
+  `write_product`, `read_product` and `verify_product`. The readers/writers
+  take keyword-only `strict: bool = False`: always-on schema/axes/units/shape/
+  finiteness validation runs in both modes, while the product certificates
+  (F-RESP-1/2, F-COV-2, F-SIM-1/2, F-UNC-3, F-IO-1) run only under strict.
 * `core` dataclasses (`InternalCalibration`, `ReportedCalibration`,
   `ResponseMatrix`, `ComposedResponse`, `KktCertificate`, `UnfoldSolution`,
   `CovarianceEstimate`, `UncertaintyBands`, `SparseTriples`,

@@ -125,6 +125,29 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-85 | Derivative generation: the taper derivative uses the clipped smoothstep chain rule with a vanishing prefactor outside the transition band; `verify_energy_monotonicity` checks the exact quadratic vertex of `dE/dch` instead of a sampling grid. |
 | D-86 | F-UNC-1/F-UNC-2 use the **reduced** free-set system at a boundary solution (`H_FF^-1` with active variables fixed at zero), not the full inverse Hessian; using the full inverse would overstate the uncertainty of every free direction whenever a constraint is active. Found in the W1 self-review and verified against finite differences on 200 random problems. |
 
+### 1.8 W2 contract decisions (2026-09-10, user-approved)
+
+| ID | Decision |
+|----|----------|
+| D-87 | `meta` gains an explicit `product_kind` field (`calib` / `sim` / `compose` / `unfold` / `spectrum`); the two unfold variants share `product_kind = unfold` and are separated by `mode` (`unfold` / `calib_only`). `read_product` dispatches on `product_kind` + `mode`. |
+| D-88 | New `SpectrumProduct` container; `SimProduct` gains `mode_name`, `geometry_name`, `geometry_param_mm`, `angular_distribution` and uses `mode: int` with `mode_name: str` (aligned with `docs/formats.md`). |
+| D-89 | The dedicated `calib_sha256`/`sim_sha256` meta fields are removed; every input fingerprint lives in `provenance.inputs` (path + sha256). W2 exposes `fingerprint_for` / `input_sha256` helpers so later workstreams can verify an input path against a recorded digest. |
+| D-90 | `write_product`, `read_product` and `verify_product` take a keyword-only `strict: bool = False`. |
+| D-91 | All product-level strict certificates are implemented in W2 and run under `strict`; physical-layer certificates remain owned by W3/W4/W5. |
+| D-92 | Any object outside the envelope of the product kind is a `SchemaError` (no warning, no ignore); duplicate on-disk object versions are rejected too. |
+| D-93 | Writing in a non-git environment records `git_revision = "unknown"` and `git_dirty = 0`, emits one warning and does not abort. |
+| D-94 | `README.md` is not touched in W2 (owned by W6/W7). |
+
+### 1.8.1 W2 metadata finalization (2026-09-10, user-approved)
+
+| ID | Decision |
+|----|----------|
+| D-95 | Calibration parameters are stored as JSON vectors `params_reported_json` (4, order `c0..c3`) and `resol_params_json` (3, order `b0..b2`) plus the scalar `channel_max`; the single source of parameter names is `core.model.PARAM_NAMES_REPORTED`, and `param_cov` carries them as TAxis bin labels. |
+| D-96 | `compose` meta carries only the common fields; its inputs are recorded in `provenance.inputs`. |
+| D-97 | `unfold` in `calib_only` mode carries only the common fields plus `mode`; the full mode additionally carries the 11 unfold settings. |
+| D-98 | The always-on required `fSumw2` objects are `primary_to_deposition` (sim), `sigma_statistical` / `sigma_systematic` / `sigma_total` (full unfold) and `kc761_spectrum` (spectrum); all other variance buffers are optional. |
+| D-99 | Compose follows the frozen F-RESP-2 derivation: `primary_efficiency` is the detection efficiency `colsum(G)/N_j` (F-SIM-3) and the certificate checks `R` column sums against the **reachable** detected mass/N via the core helper, not against `eta`. R column sums equal `eta` only when every deposition column has a reachable channel column; an exactly-zero C column is therefore allowed. |
+
 ## 2. Target architecture
 
 ```
@@ -196,20 +219,27 @@ unless `--force` is given.
 Units live in key names (`energy_kev`, `daq_time_s`) and axis titles; matrix
 axes follow D-20.
 
-### 3.3 `meta` RNTuple fields (initial contract)
+### 3.3 `meta` RNTuple fields (finalized by W2)
 
-* Every product: `format_version` (int), `producer` (str), `created_utc`
-  (str), `git_revision` (str), `git_dirty` (int), `python_version` (str),
-  dependency versions, input paths and sha256, full CLI arguments.
-* sim adds: `mode`, `mode_name`, `geometry_name`, `geometry_param`
-  (with unit suffix), `angular_distribution`, `seed`, `n_events`, `workers`,
-  source file sha256.
-* unfold adds: `alpha`, `difference_order`, `energy_low_kev`,
+The authoritative field list is `docs/formats.md` section 4; it is implemented
+in `kc761/schema/products.py` (`meta_field_types`).
+
+* Every product: `format_version` (int), `product_kind` (str), `producer`
+  (str), `created_utc` (str), `git_revision` (str), `git_dirty` (int),
+  `python_version` (str), `dependency_versions` (JSON), `command`, full CLI
+  arguments (JSON), input paths and sha256 (JSON).
+* calib adds: `channel_max`, `params_reported_json`, `resol_params_json`.
+* sim adds: `mode` (int), `mode_name`, `geometry_name`, `geometry_param_mm`,
+  `angular_distribution`, `seed`, `n_events`, `workers`.
+* compose adds nothing beyond the common fields.
+* unfold adds: `mode` (str), `alpha`, `difference_order`, `energy_low_kev`,
   `energy_high_kev`, `channel_low`, `channel_high`, `pad_nsigma`, `syst_frac`,
-  `chi2`, `dof`, `covariance_scale`, `calib_sha256`, `sim_sha256`.
+  `chi2`, `dof`, `covariance_scale`; calib-only carries only `mode`.
+* spectrum adds: `daq_time_s`, `source_file`.
 
-W2 finalizes the exact branch list; changes require the contract-change
-process (AGENTS.md).
+Input sha256 digests live only in the common `inputs_json` provenance field
+(D-89); the former `calib_sha256`/`sim_sha256` fields are removed. Changes to
+this list require the contract-change process (AGENTS.md).
 
 ## 4. Mathematics and statistics
 

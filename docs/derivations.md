@@ -1,8 +1,8 @@
 # Derivations and formula registry
 
-Status: W0 registry only. W1 fills each formula with its derivation,
-approximations and guarding certificate. IDs are append-only; derivations may
-gain detail but must never contradict `docs/plan.md`.
+Status: W1 filled the numeric core; W2 implements F-IO-1 (section 4). IDs are
+append-only; derivations may gain detail but must never contradict
+`docs/plan.md`.
 
 ## 1. Formula IDs
 
@@ -42,7 +42,7 @@ gain detail but must never contradict `docs/plan.md`.
 | F-SIM-3 | detection efficiency `eta_j = 1 - zero_j / N_j` | `sim/` | planned |
 | F-SIM-4 | plane and circumscribed-sphere source sampling (Lambertian) | `sim/` | planned |
 | F-SIM-5 | 10 us pulse merging for the source mode | `sim/` | planned |
-| F-IO-1 | atomic write, reopen validation and provenance protocol | `schema/io.py` | planned |
+| F-IO-1 | atomic write, reopen validation and provenance protocol | `schema/io.py` | implemented (W2) |
 
 ## 2. Sympy generation convention
 
@@ -445,3 +445,46 @@ Three contributions, all first-order at fixed active set:
 `total^2 = stat^2 + syst^2` with a relative tolerance of `1e-9` and fails
 strict mode otherwise. Components record their name, kind and formula ID so
 a product can be audited without re-deriving the split.
+
+### F-IO-1 - atomic write, reopen validation and provenance protocol
+
+**Protocol.** A write goes to `<target>.part`; the writer closes the file, the
+same process reopens it with uproot and validates every object against the
+product contract, and only then is the part moved onto `<target>` with
+`os.replace` (atomic on one filesystem). An existing target is refused unless
+`force` is set; the parent directory is created on demand; a stale `.part` is
+removed before writing; any failure removes the part and leaves an existing
+target untouched. The writer and verifier therefore share one implementation
+(`write_product` calls `verify_product` on the part), which is what makes the
+protocol self-checking.
+
+**Validation tiers.** Always-on checks (never disableable, D-62): the
+`product_kind` is known, `format_version == 1`, the on-disk object set equals
+`OBJECT_NAMES` exactly (no extra, no missing, no duplicate cycle), each object
+has the right uproot type (TH1/TH2/RNTuple), axes are strictly increasing with
+a legal unit, values/variances match the axis shapes and are finite, the
+required variance buffers exist, and the `meta` field set matches the frozen
+type table with length-1 entries. Strict-only product certificates
+(`strict=True`, D-61): F-RESP-1/F-RESP-2 (C/R column sums, composition and
+efficiency identities), F-COV-2 (param_cov symmetry, PSD and bin labels),
+F-SIM-1/F-SIM-2 (count/accounting bounds and `fSumw2 = N_j p (1 - p)`),
+F-UNC-3 (band decomposition), D-15 band storage (`fSumw2 = sigma**2`) and
+F-IO-1 (positive `daq_time_s`, non-negative raw `fSumw2`). Every failure is a
+`CertificateError` carrying the formula ID and the offending value.
+
+**Provenance.** `build_provenance` records the git revision and dirty flag,
+Python version, the versions of an ordered, single-source dependency list,
+the sha256 of every input file, the ordered CLI arguments and a UTC
+timestamp. `fingerprint_for`/`input_sha256` look up a recorded digest by exact
+or resolved path (no basename fallback, to avoid ambiguous matches). In a
+non-git directory the revision is `"unknown"`, the dirty flag is 0 and one
+warning is emitted instead of failing (D-93).
+
+**Encoding.** JSON blobs are compact and ASCII: `arguments_json` is an ordered
+list of `[name, value]` pairs, `inputs_json` a list of
+`{"path", "sha256"}`, `dependency_versions` a list of `[name, version]`;
+calibration parameter vectors are JSON number lists in the frozen
+`PARAM_NAMES_REPORTED` order. Variances are read back from the raw `fSumw2`
+buffer (not `errors()**2`), so a write/read cycle is bit exact. Historical
+note: the earlier W0 draft stored `calib_sha256`/`sim_sha256` fields and a
+`geometry_param` key; both were removed in W2 (D-88/D-89).

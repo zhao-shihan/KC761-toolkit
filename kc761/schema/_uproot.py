@@ -14,23 +14,36 @@ Spike conclusions (uproot 5.7.6, validated by ``tests/test_uproot_spike.py``):
   2026-09-10), written explicitly with ``file.mkrntuple(...)``. Uproot's dict
   assignment already defaults to RNTuple, but the explicit call pins the type.
   ``TParameter``/``TNamed``/``TMatrixDSym`` have no writable uproot model.
+* Axis bin labels *are* writable through ``to_THashList``/``to_TObjString``;
+  ``param_cov`` uses them to carry ``c0 c1 c2 c3 b0 b1 b2`` (verified).
+* Axis name and unit travel in the axis ``fTitle`` as ``"<name> [<unit>]"``;
+  :func:`axis_from_hist` parses them back, so units are self-describing.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
 import uproot
 from numpy.typing import NDArray
-from uproot.writing.identify import to_TAxis, to_TH1x, to_TH2x
+from uproot.writing.identify import (
+    to_TAxis,
+    to_TH1x,
+    to_TH2x,
+    to_THashList,
+    to_TObjString,
+)
 
 from kc761.errors import SchemaError, UnsupportedError
 from kc761.schema.axes import Axis
 from kc761.schema.products import META_NTUPLE_NAME, Histogram1D, Histogram2D
 
 MIN_UPROOT = (5, 0)
+
+_AXIS_TITLE = re.compile(r"^(?P<name>.*?)\s*\[(?P<unit>[^\]]+)\]\s*$")
 
 
 def _check_uproot_version() -> None:
@@ -48,6 +61,25 @@ def histogram_has_variance(hist: Any) -> bool:
     return len(hist.member("fSumw2")) > 0
 
 
+def _raw_variances_1d(hist: Any) -> NDArray[np.float64] | None:
+    """Return the exact ``fSumw2`` buffer of a TH1D without flow bins."""
+    if not histogram_has_variance(hist):
+        return None
+    raw = np.asarray(hist.member("fSumw2"), dtype=np.float64)
+    return raw[1:-1].copy()
+
+
+def _raw_variances_2d(hist: Any, shape: tuple[int, int]) -> NDArray[np.float64] | None:
+    """Return the exact ``fSumw2`` buffer of a TH2D without flow bins."""
+    if not histogram_has_variance(hist):
+        return None
+    raw = np.asarray(hist.member("fSumw2"), dtype=np.float64)
+    n_x, n_y = shape
+    # _flow2d stores ``out.T.reshape(-1)`` for an (n_x+2, n_y+2) flow grid.
+    grid = raw.reshape(n_y + 2, n_x + 2).T
+    return grid[1:-1, 1:-1].copy()
+
+
 def _flow1d(values: NDArray[np.float64]) -> NDArray[np.float64]:
     out = np.zeros(values.size + 2, dtype=">f8")
     out[1:-1] = values
@@ -60,7 +92,17 @@ def _flow2d(values: NDArray[np.float64]) -> NDArray[np.float64]:
     return out.T.reshape(-1)
 
 
-def _to_axis(axis: Axis) -> Any:
+def _bin_labels(labels: Sequence[str]) -> Any:
+    """Build the writable ``THashList`` of bin labels used by ``fLabels``."""
+    objects = [to_TObjString(str(label)) for label in labels]
+    label_list = to_THashList(objects)
+    # ROOT's TAxis::SetBinLabel sets TObject.fUniqueID to the 1-based bin index.
+    for index, label in enumerate(label_list, start=1):
+        label._bases[0]._members["@fUniqueID"] = index
+    return label_list
+
+
+def _to_axis(axis: Axis, *, labels: Sequence[str] | None = None) -> Any:
     edges = np.asarray(axis.edges, dtype=np.float64)
     return to_TAxis(
         fName=axis.name,
@@ -69,7 +111,45 @@ def _to_axis(axis: Axis) -> Any:
         fXmin=float(edges[0]),
         fXmax=float(edges[-1]),
         fXbins=edges.astype(">f8"),
+        fLabels=_bin_labels(labels) if labels is not None else None,
     )
+
+
+def axis_from_hist(hist: Any, index: int, *, fallback_name: str) -> Axis:
+    """Read one axis back from a histogram, parsing name/unit from its title.
+
+    The writer stores ``fTitle = "<name> [<unit>]"``; a missing or malformed
+    title is a :class:`kc761.errors.SchemaError`, never a silent default.
+    """
+    axis = hist.axis(index)
+    raw_name = axis.member("fName") if axis.has_member("fName") else None
+    title = axis.member("fTitle") if axis.has_member("fTitle") else None
+    unit: str | None = None
+    name = raw_name if isinstance(raw_name, str) and raw_name else None
+    if isinstance(title, str) and title:
+        match = _AXIS_TITLE.match(title)
+        if match is not None:
+            unit = match.group("unit")
+            if not name:
+                name = match.group("name")
+    if unit is None:
+        raise SchemaError(
+            f"axis {index} of {fallback_name!r}: axis title {title!r} is not "
+            "'<name> [<unit>]'"
+        )
+    edges = np.asarray(axis.edges(), dtype=np.float64)
+    return Axis(name=name or fallback_name, edges=edges, unit=unit)
+
+
+def axis_labels(hist: Any, index: int) -> tuple[str, ...] | None:
+    """Return the bin labels of one axis, or ``None`` when it has none."""
+    axis = hist.axis(index)
+    if not axis.has_member("fLabels"):
+        return None
+    labels = axis.member("fLabels")
+    if labels is None:
+        return None
+    return tuple(str(label) for label in labels)
 
 
 def _require_shape(values: Any, shape: tuple[int, ...], label: str) -> NDArray[np.float64]:
@@ -114,8 +194,13 @@ def write_hist2d(
     hist: Histogram2D,
     *,
     title: str = "",
+    x_labels: Sequence[str] | None = None,
+    y_labels: Sequence[str] | None = None,
 ) -> None:
-    """Write a TH2D, with ``fSumw2`` when variances are present."""
+    """Write a TH2D, with ``fSumw2`` when variances are present.
+
+    ``x_labels``/``y_labels`` attach TAxis bin labels (used by ``param_cov``).
+    """
     _check_uproot_version()
     shape = (hist.x.n_bins, hist.y.n_bins)
     values = _require_shape(hist.values, shape, f"{name}.values")
@@ -138,8 +223,8 @@ def write_hist2d(
         fTsumwy2=float(values.sum(axis=0) @ (y_centers**2)),
         fTsumwxy=float(x_centers @ (values @ y_centers)),
         fSumw2=_flow2d(variances).astype(">f8") if variances is not None else None,
-        fXaxis=_to_axis(hist.x),
-        fYaxis=_to_axis(hist.y),
+        fXaxis=_to_axis(hist.x, labels=x_labels),
+        fYaxis=_to_axis(hist.y, labels=y_labels),
     )
 
 
@@ -163,19 +248,22 @@ def read_hist1d(
     file: Any,
     name: str,
     *,
-    unit: str,
+    unit: str | None = None,
     axis_name: str | None = None,
 ) -> Histogram1D:
-    """Read a TH1D (values, optional variances and edges) into a contract node."""
+    """Read a TH1D (values, optional variances and edges) into a contract node.
+
+    ``unit``/``axis_name`` override the self-described axis; when omitted they
+    are parsed from the stored axis title and name.
+    """
     hist = file[name]
+    axis = axis_from_hist(hist, 0, fallback_name=axis_name or name)
+    if axis_name is not None and axis_name != axis.name:
+        raise SchemaError(f"{name}: stored axis name {axis.name!r} != {axis_name!r}")
+    if unit is not None and unit != axis.unit:
+        raise SchemaError(f"{name}: stored axis unit {axis.unit!r} != {unit!r}")
     values = np.asarray(hist.values(), dtype=np.float64)
-    edges = np.asarray(hist.axis(0).edges(), dtype=np.float64)
-    variances = (
-        np.asarray(hist.errors(), dtype=np.float64) ** 2
-        if histogram_has_variance(hist)
-        else None
-    )
-    axis = Axis(name=axis_name or name, edges=edges, unit=unit)
+    variances = _raw_variances_1d(hist)
     return Histogram1D(axis=axis, values=values, variances=variances)
 
 
@@ -183,24 +271,31 @@ def read_hist2d(
     file: Any,
     name: str,
     *,
-    x_unit: str,
-    y_unit: str,
+    x_unit: str | None = None,
+    y_unit: str | None = None,
     x_name: str | None = None,
     y_name: str | None = None,
 ) -> Histogram2D:
-    """Read a TH2D (values, optional variances and both axes)."""
+    """Read a TH2D (values, optional variances and both axes).
+
+    Units and names are parsed from the stored axis titles unless overridden.
+    """
     hist = file[name]
+    x_axis = axis_from_hist(hist, 0, fallback_name=x_name or name)
+    y_axis = axis_from_hist(hist, 1, fallback_name=y_name or name)
+    if x_name is not None and x_name != x_axis.name:
+        raise SchemaError(f"{name}: stored x-axis name {x_axis.name!r} != {x_name!r}")
+    if y_name is not None and y_name != y_axis.name:
+        raise SchemaError(f"{name}: stored y-axis name {y_axis.name!r} != {y_name!r}")
+    if x_unit is not None and x_unit != x_axis.unit:
+        raise SchemaError(f"{name}: stored x-axis unit {x_axis.unit!r} != {x_unit!r}")
+    if y_unit is not None and y_unit != y_axis.unit:
+        raise SchemaError(f"{name}: stored y-axis unit {y_axis.unit!r} != {y_unit!r}")
     values = np.asarray(hist.values(), dtype=np.float64)
-    x_edges = np.asarray(hist.axis(0).edges(), dtype=np.float64)
-    y_edges = np.asarray(hist.axis(1).edges(), dtype=np.float64)
-    variances = (
-        np.asarray(hist.errors(), dtype=np.float64) ** 2
-        if histogram_has_variance(hist)
-        else None
-    )
+    variances = _raw_variances_2d(hist, values.shape)
     return Histogram2D(
-        x=Axis(name=x_name or name, edges=x_edges, unit=x_unit),
-        y=Axis(name=y_name or name, edges=y_edges, unit=y_unit),
+        x=x_axis,
+        y=y_axis,
         values=values,
         variances=variances,
     )
