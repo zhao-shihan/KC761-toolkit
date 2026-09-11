@@ -19,8 +19,13 @@ from numpy.typing import NDArray
 from kc761.core.response import ComposedResponse, ResponseMatrix
 from kc761.core.solver import (
     DEFAULT_DIFFERENCE_ORDER,
+    DEFAULT_SNIP_FLOOR,
+    DEFAULT_SNIP_MAX_ITERATIONS,
+    DEFAULT_SNIP_PROTECT_SIGMA,
+    DEFAULT_SNIP_THRESHOLD_SIGMA,
     KktCertificate,
     RegularizationSpec,
+    SnipSettings,
 )
 from kc761.core.uncertainty import DEFAULT_SYST_FRAC
 from kc761.errors import ValidationError
@@ -41,12 +46,18 @@ class UnfoldSettings:
     ``calib_only`` path, which does not solve a QP.
     """
 
-    alpha: float | None
     energy_low_kev: float
     energy_high_kev: float
+    alpha: float | None
     difference_order: int = DEFAULT_DIFFERENCE_ORDER
     pad_nsigma: float = 5.0
     syst_frac: float = DEFAULT_SYST_FRAC
+    snip_enabled: bool = True
+    snip_threshold_sigma: float = DEFAULT_SNIP_THRESHOLD_SIGMA
+    snip_protect_sigma: float = DEFAULT_SNIP_PROTECT_SIGMA
+    snip_floor: float = DEFAULT_SNIP_FLOOR
+    snip_iterations: int | None = None
+    snip_max_iterations: int = DEFAULT_SNIP_MAX_ITERATIONS
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.energy_low_kev) or not np.isfinite(self.energy_high_kev):
@@ -66,6 +77,18 @@ class UnfoldSettings:
             raise ValidationError(
                 f"difference_order must be 1 or 2, got {self.difference_order!r}"
             )
+        self.snip_settings()
+
+    def snip_settings(self) -> SnipSettings:
+        """Validated F-SOLVE-4/5 SNIP configuration (D-156/D-157)."""
+        return SnipSettings(
+            enabled=bool(self.snip_enabled),
+            threshold_sigma=float(self.snip_threshold_sigma),
+            protect_sigma=float(self.snip_protect_sigma),
+            floor=float(self.snip_floor),
+            iterations=self.snip_iterations,
+            max_iterations=int(self.snip_max_iterations),
+        )
 
     def regularization(self) -> RegularizationSpec:
         """Build the F-SOLVE-1 regularization spec (alpha is required)."""

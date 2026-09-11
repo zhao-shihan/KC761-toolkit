@@ -326,3 +326,21 @@ def test_regular_product_has_no_part_left(tmp_path: Path) -> None:
     leftovers = [p for p in tmp_path.iterdir() if p.name.endswith(io.PART_SUFFIX)]
     assert leftovers == []
     assert path.is_file()
+
+
+def test_human_titles_and_machine_axis_names(tmp_path: Path) -> None:
+    """D-170: ROOT titles are human-readable; fName keeps the machine name."""
+    import uproot
+
+    from kc761.schema.axes import human_axis_title
+    from kc761.schema.products import HUMAN_TITLES, OBJ_SPECTRUM
+
+    product = synthetic.make_spectrum_product()
+    path = tmp_path / "spectrum.root"
+    io.write_product(product, path)
+    with uproot.open(path) as file:
+        hist = file[OBJ_SPECTRUM]
+        assert hist.member("fTitle") == HUMAN_TITLES[OBJ_SPECTRUM]
+        axis = hist.axis(0)
+        assert axis.member("fName") == product.spectrum.axis.name
+        assert axis.member("fTitle") == human_axis_title(product.spectrum.axis)

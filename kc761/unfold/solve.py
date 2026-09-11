@@ -9,6 +9,7 @@ values and the bands cannot drift. Exactly-zero response columns are removed
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 import numpy as np
@@ -16,7 +17,7 @@ from numpy.typing import NDArray
 from scipy import sparse
 
 from kc761.core.binning import ChannelGrid
-from kc761.core.model import InternalCalibration
+from kc761.core.model import InternalCalibration, resolution_sigma_kev
 from kc761.core.response import (
     ComposedResponse,
     ResponseMatrix,
@@ -27,9 +28,12 @@ from kc761.core.response import (
 from kc761.core.solver import (
     KktCertificate,
     RegularizationSpec,
+    SnipSettings,
     UnfoldSolution,
     normal_equations,
+    snip_peak_mask,
     solve_nonnegative,
+    verify_snip_mask,
 )
 from kc761.core.uncertainty import (
     UncertaintyBands,
@@ -62,6 +66,16 @@ class SolveOutcome:
     sigma_fit: NDArray[np.float64]
     solution: UnfoldSolution
     bands: UncertaintyBands
+    snip_mask: NDArray[np.float64] | None
+    snip_baseline: NDArray[np.float64] | None
+    snip_iterations: int
+    snip_clipped_count: int
+    snip_clipped_first: int
+    snip_clipped_last: int
+    snip_n_candidates: int
+    snip_n_protected: int
+    snip_baseline_sha256: str
+    snip_mask_sha256: str
 
     @property
     def certificate(self) -> KktCertificate:
@@ -107,6 +121,7 @@ def solve_window(
     param_cov: NDArray[np.float64],
     regularization: RegularizationSpec,
     syst_frac: float,
+    snip_settings: SnipSettings | None = None,
     strict: bool = False,
 ) -> SolveOutcome:
     """Solve the padded window and propagate both bands (F-UNF-3/F-UNC-*)."""
@@ -127,12 +142,67 @@ def solve_window(
     stat_variance = np.maximum(stat, 1.0)
     sigma_fit = fit_sigma(stat, y, syst_frac)
 
+    # SNIP peak mask (F-SOLVE-4/5): a function of the measured spectrum only,
+    # frozen before the solve, so the QP stays convex. The mapping from the
+    # channel-domain spectrum to the primary axis must be 1:1 (D-121/D-161).
+    mask = None
+    baseline = None
+    snip_iterations = 0
+    snip_clipped_count = 0
+    snip_clipped_first = -1
+    snip_clipped_last = -1
+    snip_n_candidates = 0
+    snip_n_protected = 0
+    baseline_sha = ""
+    mask_sha = ""
+    values_full = np.asarray(data_values, dtype=np.float64)
+    variances_full = np.asarray(data_variances, dtype=np.float64)
+    if snip_settings is not None and snip_settings.enabled:
+        primary_size = int(composed.matrix.shape[1])
+        if primary_size != values_full.size or (
+            response.deposition_edges_kev.size != values_full.size + 1
+        ):
+            raise ValidationError(
+                "SNIP regularization requires the primary axis to coincide with "
+                "the measured channel axis (D-121); got primary "
+                f"{primary_size} bins and {values_full.size} data bins"
+            )
+        edges = np.asarray(response.deposition_edges_kev, dtype=np.float64)
+        centres = 0.5 * (edges[:-1] + edges[1:])
+        widths = np.diff(edges)
+        resolution = resolution_sigma_kev(centres, resol_params)
+        sigma_y = np.sqrt(np.maximum(variances_full, 1.0))
+        info = snip_peak_mask(values_full, sigma_y, resolution, widths, snip_settings)
+        if strict:
+            verify_snip_mask(
+                snip_settings,
+                info.weights,
+                values=values_full,
+                sigma=sigma_y,
+                resolution_sigma_kev=resolution,
+                bin_width_kev=widths,
+            )
+        mask = info.weights[kept]
+        baseline = info.baseline
+        snip_iterations = int(info.iterations)
+        snip_clipped_count = int(info.clipped_count)
+        snip_clipped_first = int(info.clipped_first)
+        snip_clipped_last = int(info.clipped_last)
+        snip_n_candidates = int(info.n_candidates)
+        snip_n_protected = int(info.n_protected)
+        baseline_sha = hashlib.sha256(
+            np.ascontiguousarray(info.baseline).tobytes()
+        ).hexdigest()
+        mask_sha = hashlib.sha256(
+            np.ascontiguousarray(info.weights).tobytes()
+        ).hexdigest()
+
     # The half-Hessian fed to F-UNC-1/F-UNC-2 is the same construction the
     # solver uses; it is built once here and injected into the solver (D-150),
     # so the value and the bands share one definition with no double
     # factorization (requirement C, D-84).
     hessian, gradient, penalty_scale = normal_equations(
-        reduced, y, sigma_fit, regularization
+        reduced, y, sigma_fit, regularization, mask=mask
     )
     solution = solve_nonnegative(
         reduced,
@@ -140,6 +210,7 @@ def solve_window(
         sigma_fit,
         regularization,
         strict=strict,
+        mask=mask,
         normal=(hessian, gradient, penalty_scale),
     )
     mu = solution.mu
@@ -177,7 +248,7 @@ def solve_window(
         column_sums=response.column_sums,
         deposition_edges_kev=response.deposition_edges_kev,
     )
-    sim_variance = simulation_mc_variance(
+    mc_variance = simulation_mc_variance(
         windowed_response,
         np.asarray(deposition_counts, dtype=np.float64)[:, kept],
         np.asarray(column_totals, dtype=np.float64)[kept],
@@ -194,7 +265,7 @@ def solve_window(
         sigma_fit=sigma_fit,
         calib_jacobian=composed_jacobian,
         calib_covariance=np.asarray(param_cov, dtype=np.float64),
-        sim_variance=sim_variance,
+        mc_variance=mc_variance,
         syst_frac=syst_frac,
         fisher=hessian,
     )
@@ -228,6 +299,16 @@ def solve_window(
         sigma_fit=sigma_fit,
         solution=solution,
         bands=bands,
+        snip_mask=mask,
+        snip_baseline=baseline,
+        snip_iterations=snip_iterations,
+        snip_clipped_count=snip_clipped_count,
+        snip_clipped_first=snip_clipped_first,
+        snip_clipped_last=snip_clipped_last,
+        snip_n_candidates=snip_n_candidates,
+        snip_n_protected=snip_n_protected,
+        snip_baseline_sha256=baseline_sha,
+        snip_mask_sha256=mask_sha,
     )
 
 

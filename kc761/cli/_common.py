@@ -42,18 +42,26 @@ def add_runtime_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def add_output_options(parser: argparse.ArgumentParser, *, with_plot: bool = True) -> None:
+def add_output_options(
+    parser: argparse.ArgumentParser,
+    *,
+    with_plot: bool = True,
+    default_hint: str | None = None,
+) -> None:
     """Add ``-o/--output``, ``-f/--force`` and (optionally) ``--no-plot``.
 
     ``--no-plot`` is the frozen plot surface of D-142: plots are produced by
-    default and suppressed with this single switch.
+    default and suppressed with this single switch. ``default_hint`` overrides
+    the help text for commands whose default output is not ``work/<command>/``
+    (D-165: csv2root and subbkg write next to their input).
     """
+    hint = default_hint or "work/<command>/ under the repository root"
     parser.add_argument(
         "-o",
         "--output",
         default=None,
         metavar="FILE",
-        help="output product path (default: out/<command>/ under the repository root)",
+        help=f"output product path (default: {hint})",
     )
     parser.add_argument(
         "-f",
@@ -90,10 +98,21 @@ def add_config_options(parser: argparse.ArgumentParser) -> None:
 
 
 def default_output(command: str, filename: str) -> Path:
-    """Return the D-19 default product path ``out/<command>/<filename>``."""
+    """Return the D-19 default product path ``work/<command>/<filename>``."""
     if not filename or Path(filename).name != filename:
         raise UsageError(f"invalid default output name {filename!r} for {command}")
-    return REPO_ROOT / "out" / command / filename
+    return REPO_ROOT / "work" / command / filename
+
+
+def default_output_beside(source: str | Path, filename: str) -> Path:
+    """Return ``<source directory>/<filename>`` (D-165).
+
+    Used by the commands whose default product lives next to the input file
+    (``csv2root`` next to the CSV, ``subbkg`` next to the signal spectrum).
+    """
+    if not filename or Path(filename).name != filename:
+        raise UsageError(f"invalid default output name {filename!r}")
+    return Path(source).expanduser().parent / filename
 
 
 def argv_arguments(argv: Sequence[str]) -> tuple[tuple[str, str], ...]:

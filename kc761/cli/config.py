@@ -3,7 +3,7 @@
 Decision D-129..D-142. One file may hold the top-level tables ``[sim]``,
 ``[calib]``, ``[compose]`` and ``[unfold]``; each subcommand reads only its own
 table. Every file declares ``config_version = 1``, unknown keys fail loud, and
-relative paths resolve against the directory containing the file.
+relative paths resolve against the current working directory (D-164).
 
 This module is deliberately dependency-light: standard library only, no
 Geant4 and no numerics. The valid source-key set and default numeric constants
@@ -19,6 +19,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from kc761.core.solver import (
+    DEFAULT_SNIP_FLOOR,
+    DEFAULT_SNIP_MAX_ITERATIONS,
+    DEFAULT_SNIP_PROTECT_SIGMA,
+    DEFAULT_SNIP_THRESHOLD_SIGMA,
+)
 from kc761.errors import UsageError
 
 CONFIG_VERSION = 1
@@ -107,6 +113,12 @@ class UnfoldConfig:
     difference_order: int
     pad_nsigma: float
     syst_frac: float
+    snip_enabled: bool
+    snip_threshold_sigma: float
+    snip_protect_sigma: float
+    snip_floor: float
+    snip_iterations: int | None
+    snip_max_iterations: int
     output: Path | None
     no_plot: bool
     force: bool
@@ -135,7 +147,11 @@ def _load(path: str | Path) -> tuple[dict[str, object], Path]:
 def _config_table(
     path: str | Path, name: str
 ) -> tuple[dict[str, object], Path, Path]:
-    """Return ``(table, base_dir, resolved_config_path)`` for one subcommand."""
+    """Return ``(table, base_dir, resolved_config_path)`` for one subcommand.
+
+    ``base_dir`` is the current working directory (D-163): relative paths in a
+    configuration file resolve against the process CWD, not the file location.
+    """
     data, config_path = _load(path)
     unknown = sorted(set(data) - {"config_version", *CONFIG_TABLES})
     if unknown:
@@ -160,7 +176,7 @@ def _config_table(
     table = data[name]
     if not isinstance(table, dict):
         raise UsageError(f"{config_path}: [{name}] must be a table")
-    return table, config_path.parent, config_path
+    return table, Path.cwd(), config_path
 
 
 def _check_keys(
@@ -453,6 +469,12 @@ def load_unfold_config(path: str | Path, *, default_syst_frac: float) -> UnfoldC
             "difference_order",
             "pad_nsigma",
             "syst_frac",
+            "snip_enabled",
+            "snip_threshold",
+            "snip_protect",
+            "snip_floor",
+            "snip_iterations",
+            "snip_max_iterations",
             "output",
             "no_plot",
             "force",
@@ -505,6 +527,31 @@ def load_unfold_config(path: str | Path, *, default_syst_frac: float) -> UnfoldC
     )
     output = _resolve(base, _as_str(table, "output", "[unfold]"), "[unfold]", "output") \
         if "output" in table else None
+    snip_threshold = _positive(
+        _optional_float(table, "snip_threshold", DEFAULT_SNIP_THRESHOLD_SIGMA, "[unfold]"),
+        "[unfold]",
+        "snip_threshold",
+    )
+    snip_protect = _non_negative(
+        _optional_float(table, "snip_protect", DEFAULT_SNIP_PROTECT_SIGMA, "[unfold]"),
+        "[unfold]",
+        "snip_protect",
+    )
+    snip_floor = _optional_float(table, "snip_floor", DEFAULT_SNIP_FLOOR, "[unfold]")
+    if not 0.0 <= snip_floor <= 1.0:
+        raise UsageError(f"[unfold]: 'snip_floor' must lie in [0, 1], got {snip_floor!r}")
+    snip_iterations = _optional_int(table, "snip_iterations", "[unfold]")
+    if snip_iterations is not None and snip_iterations < 1:
+        raise UsageError(
+            f"[unfold]: 'snip_iterations' must be >= 1, got {snip_iterations!r}"
+        )
+    snip_max_iterations = _optional_int(table, "snip_max_iterations", "[unfold]")
+    if snip_max_iterations is None:
+        snip_max_iterations = DEFAULT_SNIP_MAX_ITERATIONS
+    if snip_max_iterations < 1:
+        raise UsageError(
+            f"[unfold]: 'snip_max_iterations' must be >= 1, got {snip_max_iterations!r}"
+        )
     return UnfoldConfig(
         config_path=config_path,
         data=_resolve(base, _as_str(table, "data", "[unfold]"), "[unfold]", "data"),
@@ -517,6 +564,12 @@ def load_unfold_config(path: str | Path, *, default_syst_frac: float) -> UnfoldC
         difference_order=difference_order,
         pad_nsigma=pad_nsigma,
         syst_frac=syst_frac,
+        snip_enabled=_optional_bool(table, "snip_enabled", True, "[unfold]"),
+        snip_threshold_sigma=snip_threshold,
+        snip_protect_sigma=snip_protect,
+        snip_floor=snip_floor,
+        snip_iterations=snip_iterations,
+        snip_max_iterations=snip_max_iterations,
         output=output,
         no_plot=_optional_bool(table, "no_plot", False, "[unfold]"),
         force=_optional_bool(table, "force", False, "[unfold]"),

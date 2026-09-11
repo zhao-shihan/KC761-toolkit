@@ -1,24 +1,42 @@
-# kc761 calib example (D-139/D-144): one shared fit over the listed datasets.
-#
-# `data` is a measured spectrum product (kc761_spectrum) and `mc` is a
-# source-mode simulation product (kc761_mc_spectrum). channel_low/channel_high
-# are optional (default: the full data axis); syst_frac defaults to 0.10.
+# kc761 calib config (D-139/D-169): one shared fit over the listed datasets.
 config_version = 1
 
 [calib]
-output = "out/calib/calib-am241-lu176.root"
+output = "work/calib/calib-2609a.root"
 no_plot = false
+# force = false
+# dry_run = false
+
+# Per dataset: required data/mc/label; optional channel_low/high (default: full axis)
+# and syst_frac (default 0.05 = 5%).
+[[calib.datasets]]
+data = "work/data/2609a/am241-260910-subbkg.root"
+mc = "work/sim/am241-n3000000-s908136382.root"
+label = "Am241"
+channel_low = 140
+channel_high = 165
+syst_frac = 0.05
 
 [[calib.datasets]]
-data = "out/csv2root/am241.root"
-mc = "out/sim/am241-n1000000-s908136382.root"
-label = "am241"
-channel_low = 0
-channel_high = 2047
-syst_frac = 0.10
+data = "work/data/2609a/lu176-260910-subbkg.root"
+mc = "work/sim/lu176-n20000000-s908136382.root"
+label = "Lu176"
+channel_low = 140
+channel_high = 450
+syst_frac = 0.05
 
 [[calib.datasets]]
-data = "out/csv2root/lu176.root"
-mc = "out/sim/lu176-n2000000-s908136382.root"
-label = "lu176"
+data = "work/data/2609a/th232-260908-subbkg.root"
+mc = "work/sim/th232-n200000000-s908136382.root"
+label = "Th232"
+channel_low = 140
+channel_high = 1400
+syst_frac = 0.05
+
+[[calib.datasets]]
+data = "work/data/2609a/ra226-260908-subbkg.root"
+mc = "work/sim/ra226-n100000000-s908136382.root"
+label = "Ra226"
+channel_low = 140
+channel_high = 1400
 syst_frac = 0.05

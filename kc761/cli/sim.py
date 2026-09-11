@@ -31,9 +31,14 @@ from kc761.cli._common import (
 from kc761.cli.config import SimRunSpec, load_sim_config
 from kc761.errors import Kc761Error, UsageError
 from kc761.runtime import configure_logging
-from kc761.schema.io import verify_product
+from kc761.schema.io import validate_output_path, verify_product
 from kc761.sim import MATRIX_MODE_NAMES, SOURCE_KEYS
 from kc761.sim.config import DEFAULT_SEED
+
+#: Display order for the source flags and help text: alphabetical, which keeps
+#: each ``*-unshielded`` variant next to its base key. The registry order in
+#: ``kc761.sim.sources`` is unchanged.
+_SOURCE_FLAG_ORDER: tuple[str, ...] = tuple(sorted(SOURCE_KEYS))
 
 _MATRIX_FLAGS: dict[str, str] = {
     "plane-front-gamma": "--plane-front-gamma",
@@ -65,7 +70,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         ),
     )
     source = parser.add_mutually_exclusive_group(required=False)
-    for key in SOURCE_KEYS:
+    for key in _SOURCE_FLAG_ORDER:
         source.add_argument(
             f"--{key}",
             dest="source_key",
@@ -159,7 +164,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
         raise UsageError("select exactly one source key or matrix mode")
     if not source_selected and matrix is None:
         raise UsageError(
-            "select a source (" + ", ".join(f"--{key}" for key in SOURCE_KEYS) + ") "
+            "select a source (" + ", ".join(f"--{key}" for key in _SOURCE_FLAG_ORDER) + ") "
             "or a matrix mode (--plane-front-gamma/--sphere-gamma)"
         )
 
@@ -175,6 +180,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
         if args.dry_run:
             _print_dry_run(mode, calib, output, args)
             return 0
+        validate_output_path(output, force=args.force)
         from kc761.sim.runner import run_matrix
 
         run_matrix(
@@ -212,6 +218,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     if args.dry_run:
         _print_dry_run(args.source_key, None, output, args)
         return 0
+    validate_output_path(output, force=args.force)
     from kc761.sim.runner import run_source
 
     run_source(

@@ -20,7 +20,7 @@ from kc761.core.response import (
     verify_composed_columns,
     verify_response_columns,
 )
-from kc761.schema.io import build_provenance, write_product
+from kc761.schema.io import build_provenance, validate_output_path, write_product
 from kc761.schema.products import (
     SCHEMA_VERSION,
     CalibProduct,
@@ -92,6 +92,8 @@ def run_compose(
     extra_inputs: Sequence[str | Path] = (),
 ) -> ComposeResult:
     """Compose full-primary ``R`` and optionally write the compose artifact."""
+    if output is not None:
+        validate_output_path(output, force=force)
     calib_product, calib_path = coerce_calib(calib, strict=strict)
     sim_product, sim_path = coerce_sim(sim, strict=strict)
     check_recorded_input(sim_product, calib_path)

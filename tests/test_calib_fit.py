@@ -16,7 +16,7 @@ from kc761.calib.model import N_CORE, CalibrationModel, fixed_deposition_edges_k
 from kc761.calib.scaling import scale_curve
 from kc761.calib.types import DatasetSpec, FitSettings
 from kc761.core.model import InternalCalibration, internal_to_reported
-from kc761.errors import SolverError, ValidationError
+from kc761.errors import SolverError, UsageError, ValidationError
 from kc761.schema.axes import energy_axis
 from kc761.schema.io import read_product
 from kc761.schema.products import CalibProduct, Histogram1D
@@ -105,9 +105,8 @@ def test_product_is_not_overwritten_without_force(tmp_path: Path) -> None:
     spec, _ = make_dataset(PRODUCT_CHANNELS, FEATURES_MINI, seed=11)
     output = tmp_path / "calib.root"
     run_fit([spec], output=output, plot=False)
-    from kc761.errors import SchemaError
-
-    with pytest.raises(SchemaError, match="refusing to overwrite"):
+    # D-168: the overwrite check fails fast (UsageError) before the fit.
+    with pytest.raises(UsageError, match="refusing to overwrite"):
         run_fit([spec], output=output, plot=False)
     run_fit([spec], output=output, force=True, plot=False)
 
@@ -238,3 +237,42 @@ def test_scale_bound_flags_mark_bound_hits() -> None:
 
 def test_fixed_axis_helper_shape() -> None:
     assert fixed_deposition_edges_kev().size == 4097
+
+
+def test_progress_callback_reports_summary_and_events() -> None:
+    """D-168: the callback sees the pre-fit summary and the final event."""
+    spec, _ = make_dataset(PRODUCT_CHANNELS, FEATURES_MINI, seed=11)
+    events = []
+    result = run_fit(
+        [spec], plot=False, progress=events.append, progress_every_s=0.0
+    )
+    assert events[0].nfev == 0
+    assert events[0].n_datasets == 1
+    assert events[0].n_free == result.n_free
+    assert events[0].reduced_chi2 == pytest.approx(
+        events[0].chi2 / events[0].dof
+    )
+    assert events[-1].nfev > 0
+    assert events[-1].chi2 == pytest.approx(result.chi2)
+
+
+def test_output_is_validated_before_the_fit(tmp_path: Path) -> None:
+    """D-168: an unusable output target fails fast, not after the fit."""
+    spec, _ = make_dataset(PRODUCT_CHANNELS, FEATURES_MINI, seed=12)
+    existing = tmp_path / "calib.root"
+    existing.write_bytes(b"keep me")
+    with pytest.raises(UsageError, match="refusing to overwrite"):
+        run_fit([spec], output=existing, plot=False)
+    assert existing.read_bytes() == b"keep me"
+    nested = tmp_path / "nested" / "calib.root"
+    run_fit([spec], output=nested, plot=False)
+    assert nested.exists()
+
+
+def test_plot_target_is_validated_before_the_fit(tmp_path: Path) -> None:
+    """D-171: the default figure target is also checked before fitting."""
+    spec, _ = make_dataset(PRODUCT_CHANNELS, FEATURES_MINI, seed=13)
+    product = tmp_path / "calib.root"  # absent
+    (tmp_path / "calib.pdf").write_text("existing figure")
+    with pytest.raises(UsageError, match="refusing to overwrite"):
+        run_fit([spec], output=product, plot=True)

@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kc761.errors import ProvenanceError, SchemaError, ValidationError
+from kc761.errors import ProvenanceError, SchemaError, UsageError, ValidationError
 from kc761.schema.axes import energy_axis
 from kc761.schema.io import input_sha256, read_product, sha256_file
 from kc761.schema.products import (
@@ -60,7 +60,8 @@ def test_compose_refuses_overwrite_without_force(tmp_path: Path) -> None:
     _, _, calib_path, sim_path = _inputs(tmp_path)
     output = tmp_path / "compose.root"
     run_compose(calib_path, sim_path, output=output)
-    with pytest.raises(SchemaError, match="refusing to overwrite"):
+    # D-171: the overwrite check fails fast (UsageError) before composing.
+    with pytest.raises(UsageError, match="refusing to overwrite"):
         run_compose(calib_path, sim_path, output=output)
     run_compose(calib_path, sim_path, output=output, force=True)
 

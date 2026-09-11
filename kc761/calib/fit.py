@@ -9,8 +9,9 @@ figure.
 
 from __future__ import annotations
 
+import time
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Final
@@ -25,7 +26,13 @@ from kc761.calib.plot import plot_fit
 from kc761.calib.product import build_calib_product, channel_derived_edges_kev
 from kc761.calib.report import render_report
 from kc761.calib.scaling import N_SCALE
-from kc761.calib.types import DatasetSpec, FitResult, FitSettings, ScaleResult
+from kc761.calib.types import (
+    DatasetSpec,
+    FitProgress,
+    FitResult,
+    FitSettings,
+    ScaleResult,
+)
 from kc761.core.covariance import verify_covariance_psd
 from kc761.core.model import (
     InternalCalibration,
@@ -35,7 +42,7 @@ from kc761.core.model import (
     verify_resolution_positivity,
 )
 from kc761.errors import SolverError, ValidationError
-from kc761.schema.io import build_provenance, write_product
+from kc761.schema.io import build_provenance, validate_output_path, write_product
 
 STATUS_CONVERGED: Final = "converged"
 STATUS_STOPPED: Final = "stopped-early"
@@ -91,6 +98,8 @@ def run_fit(
     force: bool = False,
     strict: bool = False,
     settings: FitSettings | None = None,
+    progress: Callable[[FitProgress], None] | None = None,
+    progress_every_s: float = 1.0,
     plot: bool = True,
     plot_path: str | Path | None = None,
     plot_force: bool = False,
@@ -104,9 +113,19 @@ def run_fit(
     product; strict mode raises. Degenerate fits raise in every mode.
     ``extra_inputs`` are hashed into the product provenance in addition to the
     dataset paths; the W6 config mode passes the configuration file here
-    (D-133).
+    (D-133). ``progress`` receives an initial summary event (``nfev == 0``),
+    time-cadenced progress events (``progress_every_s`` seconds; ``0`` means
+    every evaluation) and one final event; ``output`` is validated before the
+    fit starts so an unusable target fails immediately (D-168).
     """
     specs = tuple(datasets)
+    if output is not None:
+        validate_output_path(output, force=force)
+        if plot:
+            plot_target = (
+                Path(plot_path) if plot_path is not None else Path(output).with_suffix(".pdf")
+            )
+            validate_output_path(plot_target, force=plot_force)
     resolved_settings = settings if settings is not None else FitSettings()
     model = CalibrationModel(specs, channel_max=channel_max, settings=resolved_settings)
 
@@ -115,8 +134,47 @@ def run_fit(
     if np.any(upper - lower <= 0.0):
         raise ValidationError("calibration bounds must satisfy lo < hi for every parameter")
 
+    if progress is not None and (
+        not np.isfinite(progress_every_s) or progress_every_s < 0.0
+    ):
+        raise ValidationError(
+            f"progress_every_s must be finite and >= 0, got {progress_every_s!r}"
+        )
+    start = time.perf_counter()
+    emitted = {"count": 0, "last": start}
+
+    def _emit(nfev: int, chi2_value: float) -> None:
+        now = time.perf_counter()
+        elapsed = now - start
+        reduced = chi2_value / model.dof if model.dof > 0 else float("nan")
+        assert progress is not None
+        progress(
+            FitProgress(
+                nfev=int(nfev),
+                chi2=float(chi2_value),
+                dof=int(model.dof),
+                reduced_chi2=float(reduced),
+                elapsed_s=float(elapsed),
+                ms_per_eval=float(elapsed * 1e3 / max(1, nfev)),
+                n_free=int(model.n_free),
+                n_bins=int(model.n_bins),
+                n_datasets=len(specs),
+            )
+        )
+
+    if progress is not None:
+        initial = model.residuals(model.x0)
+        _emit(0, float(initial @ initial))
+
     def residual(theta: NDArray[np.float64]) -> NDArray[np.float64]:
-        return model.residuals(theta)
+        values = model.residuals(theta)
+        if progress is not None:
+            emitted["count"] += 1
+            now = time.perf_counter()
+            if progress_every_s == 0.0 or now - emitted["last"] >= progress_every_s:
+                emitted["last"] = now
+                _emit(emitted["count"], float(values @ values))
+        return values
 
     def residual_jacobian(theta: NDArray[np.float64]) -> NDArray[np.float64]:
         sigma = np.sqrt(model.variance(theta))
@@ -176,6 +234,8 @@ def run_fit(
 
     chi2 = model.evaluate(theta)
     dof = model.dof
+    if progress is not None:
+        _emit(int(optimization.nfev), float(chi2))
     covariance = calibration_covariance(
         model.jacobian(theta),
         model.variance(theta),

@@ -1,7 +1,7 @@
 """``kc761 csv2root``: strict CSV to spectrum product conversion (W6).
 
 Parses the KC761 MCA export ``Channel,Count #<D>d<H>h<M>m<S>s`` (the sample
-files in ``data/exp/2609a/``). The parser is strict by decision (D-72/D-130):
+files in ``work/data/exp/2609a/``). The parser is strict by decision (D-72/D-130):
 a malformed header, an invalid acquisition time, a wrong column count, a
 duplicated/non-monotonic/non-contiguous channel or a negative count is an
 error. The grammar and ranges are recorded in ``docs/formats.md``.
@@ -20,7 +20,7 @@ from kc761.cli._common import (
     add_output_options,
     add_runtime_options,
     argv_arguments,
-    default_output,
+    default_output_beside,
 )
 from kc761.errors import Kc761Error
 from kc761.runtime import configure_logging
@@ -47,9 +47,11 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         "input",
         type=str,
         metavar="CSV",
-        help="input CSV file (for example data/exp/2609a/am241.csv)",
+        help="input CSV file (for example work/data/exp/2609a/am241.csv)",
     )
-    add_output_options(parser, with_plot=False)
+    add_output_options(
+        parser, with_plot=False, default_hint="next to the input CSV file"
+    )
     add_runtime_options(parser)
     parser.set_defaults(handler=_run)
 
@@ -135,8 +137,11 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     output = (
         Path(args.output).expanduser()
         if args.output is not None
-        else default_output("csv2root", input_path.stem + ".root")
+        else default_output_beside(input_path, input_path.stem + ".root")
     )
+    from kc761.schema.io import validate_output_path
+
+    validate_output_path(output, force=args.force)
     if not input_path.is_file():
         raise Kc761Error(f"input CSV not found: {input_path}")
     try:

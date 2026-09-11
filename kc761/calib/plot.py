@@ -127,11 +127,12 @@ def _title_panel(ax, txt: str) -> None:
 
 def _parameter_text(result: FitResult) -> str:
     def asym(v, lo, hi):
+        v_s = f"{v:.6g}"
         lo_s = f"{lo:.3g}"
         hi_s = f"{hi:.3g}"
         if lo_s == hi_s:
-            return f"{v: .6g}$\\pm{hi_s}$"
-        return f"{v: .6g}$^\\text{{+{hi_s}}}_\\text{{-{lo_s}}}$"
+            return f"{v_s}"r"$\,\pm\,$"f"{hi_s}"
+        return f"{v_s}$^\\text{{+{hi_s}}}_\\text{{-{lo_s}}}$"
 
     def rows(names, vals, los, his):
         return "\n".join(

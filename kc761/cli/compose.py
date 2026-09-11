@@ -16,12 +16,13 @@ from kc761.cli._common import (
     add_output_options,
     add_runtime_options,
     argv_arguments,
-    default_output,
+    default_output_beside,
     reject_run_options,
 )
 from kc761.cli.config import load_compose_config
 from kc761.errors import UsageError
 from kc761.runtime import configure_logging
+from kc761.schema.io import validate_output_path
 
 _RUN_ARG_DEFAULTS: dict[str, object] = {
     "calib": None,
@@ -54,7 +55,11 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         metavar="FILE",
         help="matrix-mode simulation product with the primary-to-deposition matrix",
     )
-    add_output_options(parser, with_plot=False)
+    add_output_options(
+        parser,
+        with_plot=False,
+        default_hint="next to the matrix simulation product (--sim)",
+    )
     add_config_options(parser)
     add_runtime_options(parser)
     parser.set_defaults(handler=_run)
@@ -69,6 +74,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
         if args.dry_run or config.dry_run:
             _print_dry_run(config.calib, config.sim, output)
             return 0
+        validate_output_path(output, force=bool(args.force or config.force))
         with_config = (config.config_path,)
         return _execute(
             config.calib,
@@ -87,6 +93,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     if args.dry_run:
         _print_dry_run(Path(args.calib), Path(args.sim), output)
         return 0
+    validate_output_path(output, force=args.force)
     return _execute(
         Path(args.calib),
         Path(args.sim),
@@ -102,7 +109,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
 def _output(explicit: str | Path | None, calib: Path, sim: Path) -> Path:
     if explicit is not None:
         return Path(explicit).expanduser()
-    return default_output("compose", f"compose-{calib.stem}-{sim.stem}.root")
+    return default_output_beside(sim, f"compose-{calib.stem}-{sim.stem}.root")
 
 
 def _print_dry_run(calib: Path, sim: Path, output: Path) -> None:

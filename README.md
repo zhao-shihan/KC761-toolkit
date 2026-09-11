@@ -47,6 +47,16 @@ sim` (matrix mode) `-> compose -> unfold`: the calibration consumes measured
 and source-mode simulated spectra, and the matrix simulation and unfolding
 consume the calibration product that supplies their energy axes.
 
+Calibration prints a pre-fit summary and a progress line about once per
+second (`--no-progress` silences them, `--progress-every SECONDS` retunes).
+Every product-writing command validates its output and figure targets before
+starting work, so an existing file is refused up front rather than after a long
+run (D-171).
+
+Unfolding applies a default-on SNIP peak mask that relaxes the smoothing penalty
+at resolved peaks while damping noise-induced structure (D-154); disable it with
+`--no-snip` or tune it with the `--snip-*` flags.
+
 Strict mode runs every runtime certificate (D-61) and fails fast:
 
 ```bash
@@ -61,17 +71,19 @@ read with the standard library (`config_version = 1`). One file may hold the
 `[sim]`, `[calib]`, `[compose]` and `[unfold]` tables; each subcommand reads
 only its own table. `[sim]` is a serial batch of `[[sim.runs]]`, each executed
 in a fresh child process because a `G4RunManager` can be initialized only once
-per process. Relative paths resolve against the config file's directory.
+per process. Relative paths resolve against the current working directory (D-164).
 
 See [examples/](examples/) for a commented file per subcommand, and
 [docs/plan.md](docs/plan.md) section 1.12 for the full rules.
 
 ## Data and outputs
 
-* Raw measurements live in `data/exp/<campaign>/` (for example
-  `data/exp/2609a/`); `data/` is not committed.
-* Default products are written under `out/<subcommand>/`; existing files are
-  refused unless `--force` is passed, and writes are atomic.
+* Raw measurements live in `work/data/exp/<campaign>/` (for example
+  `work/data/exp/2609a/`); `work/` is not committed.
+* Default products are written under `work/<subcommand>/`; `csv2root` and
+  `subbkg` default next to their input file (D-165) and `compose` next to its
+  `--sim` input (D-166). Existing files are refused unless `--force` is passed,
+  and writes are atomic.
 
 ## Development checks
 

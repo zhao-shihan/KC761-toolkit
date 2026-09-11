@@ -18,7 +18,7 @@ from kc761.cli._common import (
     add_output_options,
     add_runtime_options,
     argv_arguments,
-    default_output,
+    default_output_beside,
 )
 from kc761.errors import Kc761Error, SchemaError, ValidationError
 from kc761.runtime import configure_logging
@@ -52,7 +52,11 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         metavar="FILE",
         help="background spectrum product with the same channel axis",
     )
-    add_output_options(parser, with_plot=False)
+    add_output_options(
+        parser,
+        with_plot=False,
+        default_hint="next to the signal spectrum product",
+    )
     add_runtime_options(parser)
     parser.set_defaults(handler=_run)
 
@@ -71,14 +75,17 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     logger = configure_logging("subbkg", args.log_level)
     signal_path = Path(args.signal).expanduser()
     background_path = Path(args.background).expanduser()
-    for label, path in (("signal", signal_path), ("background", background_path)):
-        if not path.is_file():
-            raise Kc761Error(f"{label} file not found: {path}")
     output = (
         Path(args.output).expanduser()
         if args.output is not None
-        else default_output("subbkg", signal_path.stem + "-subbkg.root")
+        else default_output_beside(signal_path, signal_path.stem + "-subbkg.root")
     )
+    from kc761.schema.io import validate_output_path
+
+    validate_output_path(output, force=args.force)
+    for label, path in (("signal", signal_path), ("background", background_path)):
+        if not path.is_file():
+            raise Kc761Error(f"{label} file not found: {path}")
 
     signal = _load_spectrum(signal_path, strict=strict)
     background = _load_spectrum(background_path, strict=strict)

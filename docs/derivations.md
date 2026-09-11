@@ -27,15 +27,6 @@ contradict `docs/plan.md`.
 | F-RESP-4 | chain assembly of `dC/dq` and `dR/dq` from the model and kernel derivatives (sympy-generated) | `core/response.py` | implemented (W1, D-75) |
 | F-PROJ-1 | rebinning/folding projection matrix | `core/projection.py` | implemented (W1) |
 | F-PROJ-2 | variance propagation through the projection | `core/projection.py` | implemented (W1) |
-| F-SOLVE-1 | Tikhonov objective `chi2 + alpha * ||D_tilde mu||^2`, `D_tilde = D . diag(sqrt(diag(R^T W R)))`, dimensionless `alpha` (D-80); SNIP mask removed (D-74) | `core/solver.py` | implemented (W1) |
-| F-SOLVE-2 | self-implemented banded Cholesky active-set non-negative QP | `core/solver.py` | implemented (W1) |
-| F-SOLVE-3 | KKT certificate in units of the data-gradient scale (D-84) | `core/solver.py` | implemented (W1) |
-| F-COV-1 | Fisher information from the analytic Jacobian | `core/covariance.py` | implemented (W1) |
-| F-COV-2 | `s**2 = chi2/dof` scaling (PDG convention); PD required, no pseudo-inverse fallback (D-84) | `core/covariance.py` | implemented (W1) |
-| F-COV-3 | optional profile-covariance diagnostic | `core/covariance.py` | implemented (W1) |
-| F-UNC-1 | statistical covariance propagation through the reduced free-set system `H_FF**-1` (D-86) | `core/uncertainty.py` | implemented (W1) |
-| F-UNC-2 | systematic propagation (calibration covariance, simulation MC, data-side term) | `core/uncertainty.py` | implemented (W1) |
-| F-UNC-3 | strict band decomposition `total**2 = stat**2 + syst**2` | `core/uncertainty.py` | implemented (W1) |
 | F-CAL-1 | fit weights `var = max(stat, 1) + (syst_frac * data)**2 + MC` and the folded-prediction MC term (D-102) | `calib/model.py` | implemented (W3) |
 | F-CAL-2 | per-dataset quadratic Bezier scale model (free middle control abscissa `s0`, D-103), value and derivatives | `calib/scaling.py` | implemented (W3) |
 | F-CAL-3 | fit parameter start values and bounds (specification reference, D-103) | `calib/model.py` | implemented (W3) |
@@ -48,13 +39,25 @@ contradict `docs/plan.md`.
 | F-SIM-5 | 10 us pulse merging for the source mode | `sim/actions.py` | implemented (W5) |
 | F-SIM-6 | physical boundary certificate: deposition-bin lower edge above a primary-column upper edge is exactly zero | `sim/certificates.py` | implemented (W5) |
 | F-SIM-7 | deterministic seed derivation: `column_seed(seed, column)` and `block_seed(seed, block)`; same seed + worker partition is bit-for-bit (D-123 revised) | `sim/generator.py` | implemented (W5) |
-| F-IO-1 | atomic write, reopen validation and provenance protocol | `schema/io.py` | implemented (W2) |
+| F-SOLVE-1 | Tikhonov objective `chi2 + alpha * ||D_tilde mu||^2`, `D_tilde = D . diag(sqrt(diag(R^T W R)))`, dimensionless `alpha` (D-80); with the SNIP peak mask `D' = diag(rho**0.5) D` (F-SOLVE-6/D-154, supersedes D-74) | `core/solver.py` | implemented (W1) |
+| F-SOLVE-2 | self-implemented banded Cholesky active-set non-negative QP | `core/solver.py` | implemented (W1) |
+| F-SOLVE-3 | KKT certificate in units of the data-gradient scale (D-84) | `core/solver.py` | implemented (W1) |
+| F-SOLVE-4 | SNIP LLS baseline on the measured spectrum: transform, resolution-derived iteration count, `max(y, 0)` handling (D-155/D-157) | `core/solver.py` | implemented (R2) |
+| F-SOLVE-5 | resolution-matched peak significance and the fixed diagonal peak mask `W` (D-156) | `core/solver.py` | implemented (R2) |
+| F-SOLVE-6 | masked penalty operator `D_tilde' = diag(rho**0.5) D . diag(sqrt(diag(A)))`, its certificates and acceptance metrics (D-158/D-161) | `core/solver.py` | implemented (R2) |
+| F-COV-1 | Fisher information from the analytic Jacobian | `core/covariance.py` | implemented (W1) |
+| F-COV-2 | `s**2 = chi2/dof` scaling (PDG convention); PD required, no pseudo-inverse fallback (D-84) | `core/covariance.py` | implemented (W1) |
+| F-COV-3 | optional profile-covariance diagnostic | `core/covariance.py` | implemented (W1) |
+| F-UNC-1 | statistical covariance propagation through the reduced free-set system `H_FF**-1` (D-86) | `core/uncertainty.py` | implemented (W1) |
+| F-UNC-2 | systematic propagation (calibration covariance, simulation MC, data-side term) | `core/uncertainty.py` | implemented (W1) |
+| F-UNC-3 | strict band decomposition `total**2 = stat**2 + syst**2` | `core/uncertainty.py` | implemented (W1) |
 | F-UNF-1 | energy window -> channel/primary selection from `E(ch)` at channel centres (D-111) | `unfold/selection.py` | implemented (W4) |
 | F-UNF-2 | unfold fit weights `sigma_fit**2 = max(stat, 1) + (syst_frac*data)**2`, data-side only (D-112) | `unfold/selection.py` | implemented (W4) |
 | F-UNF-3 | exact-zero primary-column pruning and reduced non-negative solve (D-110) | `unfold/solve.py` | implemented (W4) |
 | F-UNF-4 | unfold diagnostics: weighted chi2, `dof = n_fit_rows - n_active`, `covariance_scale = 1` (D-118) | `unfold/solve.py` | implemented (W4) |
 | F-UNF-5 | refolded `R . mu` restricted to the reported channel window `[chlo, chhi]` (D-117) | `unfold/unfold.py` | implemented (W4) |
 | F-UNF-6 | calib-only channel-to-energy relabeling on `C.y = E(i +- 1/2)` (D-113) | `unfold/unfold.py` | implemented (W4) |
+| F-IO-1 | atomic write, reopen validation and provenance protocol | `schema/io.py` | implemented (W2) |
 
 ## 2. Sympy generation convention
 
@@ -573,8 +576,10 @@ with `chi2 = ||(R mu - y)/sigma||^2`, `W = diag(1/sigma^2)`,
 diagonal scale is `1/counts`; `D_tilde mu` is dimensionless and `alpha` is
 dimensionless and comparable across datasets and windows. Zero-curvature
 columns (`A_jj = 0`) have a zero scale and are dropped from the penalty;
-they carry no data information and the solver fixes them at zero. The SNIP
-peak mask is removed (D-74).
+they carry no data information and the solver fixes them at zero. With the
+(default-on) SNIP peak mask the penalty operator becomes
+`D_tilde' = diag(rho**0.5) D . diag(sqrt(diag(A)))` (F-SOLVE-6); D-74 is
+superseded by D-154.
 
 **Half-gradient.** The half-gradient is `g(mu) = H mu - b` with
 `H = A + alpha D_tilde^T D_tilde`; the solver and F-UNC use this `H`
@@ -601,6 +606,134 @@ For `r = H mu - b`, the reported metrics are
 `<= KKT_TOL = 1e-6`. Dividing by the data-gradient scale makes the
 certificate independent of the count normalization of the problem. Strict
 mode raises `CertificateError("F-SOLVE-3")` on failure.
+
+### F-SOLVE-4 - SNIP baseline estimation (D-155/D-157)
+
+**Role.** The SNIP (Statistics-sensitive Non-linear Iterative Peak-clipping)
+baseline is used *only* to locate genuine peaks in the measured spectrum. The
+mask built from it (F-SOLVE-5) relaxes the roughness penalty at those peaks,
+which widens the admissible range of `alpha`: a larger global `alpha` can
+suppress noise-induced (spurious) oscillatory structure without eroding real
+peaks. SNIP does not identify spurious peaks; it identifies real ones.
+
+**Non-negativity.** Background-subtracted spectra may contain negative bins.
+The estimator operates on `y+ = max(y, 0)`; the number and index range of
+clipped bins are recorded (`snip_clipped_bins`, `snip_clipped_index_range`).
+No shift or other imputation is applied (no silent handling).
+
+**LLS transform.** With `y = y+`,
+`v_i = ln( ln( sqrt(y_i + 1) + 1 ) + 1 )` and inverse
+`y_i = ( exp( exp(v_i) - 1 ) - 1 )**2 - 1` (Morháč's log-log-sqrt transform).
+The transform compresses the dynamic range so clipping acts on relative
+structure.
+
+**Iteration.** For `p = 1 .. m`:
+`v_i <- min( v_i, (v_{i-p} + v_{i+p}) / 2 )`. Out-of-range neighbours are
+replaced by `v_i` (edge-preserving), so the boundary is not pulled down. The
+baseline is `b = inverse(v)` after the last iteration.
+
+**Iteration count (D-157).** `m` is resolution-derived, not a free knob. At the
+reported-window midpoint energy `E_mid`, `FWHM_bins = FWHM(E_mid) / Delta_E`
+with `FWHM = 2 sqrt(2 ln 2) sigma_E(E_mid)` (F-MODEL-4); then
+`m = clip(round(FWHM_bins / 2), 1, m_max)`, with `m_max` a documented safety
+cap. An explicit override (`snip_iterations`) is allowed and recorded.
+
+**Limits.** SNIP removes structures narrower than about `2m+1` bins; tying `m`
+to the resolution width removes the detector peak before estimating the
+continuum, which is the intended behaviour. On very low-count bins the
+transform is near-linear and the baseline is stable. No continuum model is
+claimed: `b` is a robust local lower envelope, and the mask derived from it is
+a *structural prior*, not a background measurement.
+
+### F-SOLVE-5 - Resolution-matched significance and peak mask (D-156)
+
+**Residual.** `r_i = y+_i - b_i`.
+
+**Matched filter.** The detector width `sigma_E(E_i)` is known (F-MODEL-4).
+With bin width `Delta_i` and `s_i = sigma_E(E_i) / Delta_i`, a normalised
+Gaussian kernel `g` of width `s_i` is applied around each bin:
+`M_i = sum_k g_k r_{i+k}` and `V_i = sum_k g_k**2 sigma_{y,i+k}**2`, so
+`z_i = M_i / sqrt(V_i)`. The matched filter suppresses single-bin noise spikes
+(the dominant spurious-peak seed) that a per-bin threshold would misclassify.
+
+**Candidates.** Bin `i` is a peak candidate when `z_i >= k` (default
+`k = 5`, D-156) and `z_i` is a local maximum within its filter window.
+
+**Mask.** Around every candidate centre, all bins within
+`protect_sigma * sigma_E(E_i)` (default `protect_sigma = 2`) are marked as
+peaks. The fixed diagonal mask is `W = diag(w)` with `w_i = floor` (default
+`0.1`) on marked bins and `w_i = 1` elsewhere. Bins without data support
+(outside the measured window, zero variance) are not marked and keep
+`w_i = 1`, i.e. they are smoothed normally.
+
+**Limits and multiplicity.** Thresholding many bins inflates the family-wise
+false-positive rate; the 5-sigma threshold plus the resolution-width matched
+filter keeps it small but not zero. A wrongly protected noise spike is *less*
+smoothed than before; that is the known failure mode and is quantified by the
+acceptance metrics (F-SOLVE-6). The mask is a function of `y` only and is
+frozen before the solve (D-155), so the masked problem stays convex.
+
+### F-SOLVE-6 - Masked operator, objective and certificates (D-154/D-158)
+
+**Masked difference operator.** `D' = diag(rho**0.5) D` with `D` the order-1
+`[-1, 1]` or order-2 `[1, -2, 1]` finite-difference operator (F-SOLVE-1) and
+`rho_r = prod_{j=0}^{order} w_{r+j}` the product of the mask weights over the
+stencil of difference row `r`. A protected peak bin therefore relaxes every
+difference row that touches it: a row fully inside a peak carries
+`rho = floor**(order+1)`, a row at a peak/continuum boundary
+`rho = floor**order`. `D'^T D' = D^T diag(rho) D` stays symmetric positive
+semidefinite and banded (same half-bandwidth as `D`). (The rectangular
+`W**0.5 D W**0.5` form does not typecheck for `n_rows = n - order`; the row
+form is the correct symmetric weighting.)
+
+**Normalisation (D-80 carried through).** `D_tilde' = D' .
+diag(sqrt(diag(A)))` with `A = R^T W_data R`, `W_data = diag(1/sigma**2)`;
+`alpha` stays dimensionless. Zero-curvature columns (`A_jj = 0`) are dropped
+exactly as in F-SOLVE-1.
+
+**Objective and normal equations.**
+`min_{mu >= 0} ||(R mu - y)/sigma||^2 + alpha * ||D_tilde' mu||^2`,
+`H = A + alpha * D_tilde'^T D_tilde'`, `b = R^T W_data y`. The Lawson-Hanson
+active-set solve and the F-SOLVE-3 KKT certificate are unchanged because
+`D_tilde'` is fixed before solving. `alpha` remains mandatory (D-45); the mask
+only enlarges the useful `alpha` range, it does not choose `alpha`.
+
+**Uncertainty.** F-UNC-1/F-UNC-2 use the same `H`, so the bands include the
+mask effect automatically. The mask is data-derived (plug-in): the reported
+covariance is conditional on the realised mask, and the mask-selection
+uncertainty is not propagated (D-159). That conditionality is documented and
+its coverage is validated on synthetic pulls with the mask on and off.
+
+**Certificate F-SOLVE-6.** Strict mode verifies: `w_i in [floor, 1]`; the
+marked set equals the peaks recomputed from the recorded baseline; `D_tilde'`
+is symmetric with the expected half-bandwidth; the mask and baseline sha256
+match the product meta; the `alpha` normalisation uses the recomputed
+`diag(A)`. Failure raises `CertificateError("F-SOLVE-6")`.
+
+**Determinism.** Given `y`, calibration and parameters, the baseline, the mask
+and hence the solution are deterministic; the mask and baseline sha256 are
+recorded (D-160).
+
+**Acceptance metrics (synthetic, D-161).** (a) spurious-peak suppression: the
+fraction of injected noise peaks that survive, mask on vs off; (b) true-peak
+area bias; (c) pull coverage with the mask on/off; (d) robustness to threshold
+and iteration perturbations; (e) bitwise reproducibility. No golden or
+reference outputs are used.
+
+**Default-parameter study (R2, preliminary).** A sensitivity grid was run on
+the real Th232 window (1259 bins, alpha = 0.1, strict). Mask off gave
+chi2 = 315.9, 537 active bins, max(mu) = 2.73e5. The adopted defaults
+(5 sigma / 2 sigma_E / floor 0.1, resolution-derived m) gave chi2 = 256.2,
+314 active bins, max(mu) = 7.53e5 with an unchanged total. Sweeping the
+parameters moved chi2 within 252-285 and the active count within 200-412:
+an over-strong floor (0.3) over-smooths peaks (max(mu) 5.1e5), a weak floor
+(0.05) inflates them (1.14e6), and an explicit m = 2 under-smooths
+(chi2 = 314). The derived m sits near the best tested value (m = 4 gives 254).
+These are *sensitivity* observations on real data, not truth-based tuning:
+the synthetic closure study of D-161 (injected peaks with known amplitudes,
+pull coverage) remains the gate that may revise the defaults. The realised
+values are always recorded in the product meta (D-160), so a re-tuned default
+never invalidates an existing product.
 
 ### F-COV-1 - Fisher information
 
@@ -656,7 +789,7 @@ Three contributions, all first-order at fixed active set:
    `g_k = Q_k^T W r + R^T W Q_k mu`; the sensitivity columns are the reduced
    solves `V_k = -H_FF^-1 (g_k)_F` (zero on the active set) and
    `Cov_calib = V Sigma_q V^T`.
-3. **Simulation MC.** With `R = C G diag(1/N)` and `N_j` fixed by the
+3. **MC variance (simulation-derived).** With `R = C G diag(1/N)` and `N_j` fixed by the
    sampling design (F-SIM-1), `dR/dG_js = C_j e_s^T / N_s`. Differentiating
    the half-gradient `g = H mu - b` at fixed `mu` gives the **full vector**
 
@@ -675,7 +808,11 @@ Three contributions, all first-order at fixed active set:
    The band is the square root of its diagonal:
 
    `Var_i = sum_s (1/N_s) [ sum_j p_js X_js_i**2 - Xbar_s_i**2 ]`,
-   `X_js = U v_js`, `Xbar_s = sum_j p_js X_js`.
+   `X_js = U v_js`, `Xbar_s = sum_j p_js X_js`. This term is named
+`mc_variance` throughout the code (`propagate_systematic(..., mc_variance=...)`,
+`BandComponent(name="mc_variance")`); the helper that computes it keeps the
+descriptive name `simulation_mc_variance` because the variance comes from the
+finite Monte-Carlo statistics of the simulated response (D-167).
 
    The unrecorded zero-deposition category has `v = 0`, so it cancels from
    `A_s` (the sums run over recorded deposition bins only); dropping it from a
@@ -768,7 +905,7 @@ unfold fit uses
 
     sigma_fit**2 = max(stat, 1) + (syst_frac * data)**2.
 
-The `max(stat, 1)` floor and the `syst_frac = 0.10` default are the frozen
+The `max(stat, 1)` floor and the `syst_frac = 0.05` default (D-169) are the frozen
 F-CAL-1 weight conventions. The simulation-MC term is deliberately **excluded**
 from the weights (D-112): it depends on the unknown deposition distribution and
 would make the objective iterative. It enters only the systematic band through

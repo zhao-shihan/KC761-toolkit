@@ -48,7 +48,7 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-16 | Writes are atomic (`temp` + close + reopen validation + rename). |
 | D-17 | Existing output files are refused by default; `--force` overwrites. |
 | D-18 | Every product records full provenance: git revision and dirty flag, Python/dependency/Geant4 versions, sha256 of every input file, and the complete CLI arguments. |
-| D-19 | Default outputs live in `out/<subcommand>/`; names encode the inputs and run parameters (e.g. `<calib>-<mode>-n<N>-s<SEED>.root`). |
+| D-19 | Default outputs live in `work/<subcommand>/` (root revised by D-163; originally `out/`); names encode the inputs and run parameters (e.g. `<calib>-<mode>-n<N>-s<SEED>.root`). |
 | D-20 | Channel-axis products: matrix convention is `x = output side`, `y = input side` (C: channel/deposition; G: deposition/primary; R: channel/primary). |
 
 ### 1.3 Simulation and physics
@@ -77,7 +77,7 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-45 | Regularization is Tikhonov `chi2 + alpha * ||D mu||**2`; `--alpha` is mandatory (no default, no automatic selection). |
 | D-46 | `D` is normalized so that `alpha` is dimensionless and comparable across problems. |
 | D-47 | The fit uses one quasi-Newton stage (L-BFGS-B / trust-constr class) with analytic gradients generated from sympy. |
-| D-48 | Fit weights keep the current formula `var = max(stat, 1) + (syst_frac * data)**2 + MC` with `syst_frac = 0.10`; the formula and the floor are documented. |
+| D-48 | Fit weights keep the current formula `var = max(stat, 1) + (syst_frac * data)**2 + MC` with `syst_frac = 0.10`; the formula and the floor are documented. **Default revised to 0.05 by D-169** (2026-09-11). |
 | D-49 | The parameter covariance is the analytic Fisher `F**-1`, scaled by `s**2 = chi2/dof` by default (PDG convention) and recorded in the product. Profile covariance is an optional diagnostic only. |
 | D-50 | Uncertainty bands use the strict decomposition `total**2 = stat**2 + syst**2`; `stat` is pure data statistics, `syst` contains data-side `syst_frac`, calibration covariance and simulation MC terms. |
 | D-51 | The non-negative QP solver is self-implemented (banded Cholesky active set) and emits a KKT certificate. |
@@ -106,7 +106,7 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | ID | Decision |
 |----|----------|
 | D-73 | Non-strict resolution negativity: when `sigma**2 < 0` on the export grid and strict mode is off, clamp `sigma` to the documented floor `SIGMA_FLOOR_KEV`, emit a warning and record it (W4 writes the record into `meta`). Strict mode still raises the F-MODEL-5 certificate error. Closes Appendix A item 1. |
-| D-74 | The SNIP peak mask (`snip_iter`, `mask_z0`, `mask_floor`) is removed entirely; `D` is only the normalized finite-difference operator (F-SOLVE-1). Closes Appendix A item 2. |
+| D-74 | The SNIP peak mask (`snip_iter`, `mask_z0`, `mask_floor`) is removed entirely; `D` is only the normalized finite-difference operator (F-SOLVE-1). Closes Appendix A item 2. **Superseded by D-154** (2026-09-10): a redesigned SNIP peak mask is part of the default operator (F-SOLVE-4..6). |
 | D-75 | W1 owns every `core` derivative. Additional formula IDs: F-KERN-4 (`d p / d c`, `d p / d sigma` and the taper derivatives) and F-RESP-4 (chain assembly of `dC/dq`), appended to the registry; further IDs may be appended as derivations require. |
 | D-76 | Support taper: `w = 3 s**2 - 2 s**3` with `s = clip((n*sigma - abs(x)) / sigma, 0, 1)`, equivalently `w = 1 - 3 r**2 + 2 r**3` with `r = clip((abs(x) - (n-1)*sigma) / sigma, 0, 1)`; exact column renormalization follows (F-KERN-2). |
 | D-77 | `sympy` is a runtime dependency. `tools/generate_kernels.py` generates `kc761/core/_gen/`; generated artifacts are committed and their headers record the sympy version, the formula IDs and the exact command. Imports perform a staleness check and regenerate when necessary. CI installs sympy. |
@@ -198,13 +198,13 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-129 | Configuration files are TOML read with the standard library `tomllib` (no new dependency). One file may contain the top-level tables `[sim]`, `[calib]`, `[compose]` and `[unfold]`; each subcommand reads only its own table, and a missing table is a usage error. `csv2root` and `subbkg` take no config file. |
 | D-130 | Invocation is `-c/--config FILE` on `sim`, `calib`, `compose` and `unfold`. Config mode is mutually exclusive with the run-selection arguments; only the global options `--strict`, `--log-level`, `--dry-run` and `--force` are accepted alongside it. Without `--config` the existing flag surface is unchanged. |
 | D-131 | Every config file declares `config_version = 1`; a missing or different value is a usage error. Any key outside the frozen schema is an error (fail loud; no silent ignore). |
-| D-132 | Relative paths in a config file resolve against the directory containing that file (`~` is expanded); absolute paths are used as-is. |
+| D-132 | Relative paths in a config file resolve against the directory containing that file (`~` is expanded); absolute paths are used as-is. **Superseded by D-164** (2026-09-11): they resolve against the current working directory. |
 | D-133 | Products written in config mode record the config file path and sha256 in `provenance.inputs` (D-18) and the fully resolved settings in their existing settings/meta fields. |
 | D-134 | `[sim]` replaces the legacy `runsim` batch runner: it carries batch options (`resume`, `force`, `dry_run`) and a list of `[[sim.runs]]` single-run specs. A run specifies a source key XOR one matrix mode (`plane-front-gamma`/`sphere-gamma`) plus `calib`; `events` is required (interactive runs are not part of config mode); `threads`, `seed`, `verbose` and `output` are optional. Runs execute sequentially (run-level parallelism is not part of the contract). |
 | D-135 | Each sim run executes in a fresh child process by re-invoking `sys.executable -m kc761 sim ...` in single-run mode; the parent process never imports Geant4. This is required because a `G4RunManager` can be initialized only once per process. |
 | D-136 | sim batch failure policy: a failed run is recorded and the batch continues; the process returns 1 if any run failed and 0 only when all succeeded. |
 | D-137 | sim resume: `resume = true` (default) skips a run whose target exists and passes schema validation, and fails loudly when an existing target is invalid (never delete or overwrite another product); `resume = false` applies the D-17 refuse-overwrite rule. |
-| D-138 | `output` is optional everywhere in config mode; when absent the D-19 default naming applies, e.g. source mode `<source>-n<N>-s<SEED>.root`, matrix `<calib-stem>-<mode>-n<N>-s<SEED>.root`, and `<command>[-<label>]...` under `out/<subcommand>/` for calib/compose/unfold. |
+| D-138 | `output` is optional everywhere in config mode; when absent the D-19 default naming applies, e.g. source mode `<source>-n<N>-s<SEED>.root`, matrix `<calib-stem>-<mode>-n<N>-s<SEED>.root`, and `<command>[-<label>]...` under `work/<subcommand>/` for calib/compose/unfold. |
 | D-139 | `calib` config mode runs one fit from `[[calib.datasets]]` (data, sim, label plus optional channel window and `syst_frac`); `compose`/`unfold` config mode run one operation from their tables. Mode-dependent required fields are enforced per mode: `calib_only` requires neither `alpha` nor the energy window, and the single-run CLI applies the same rule (R1 leftover). |
 | D-140 | Business options `force`, `no_plot`, `dry_run` and `resume` may appear in config files; `strict` and `log_level` stay CLI-only and apply to the whole invocation. English-commented `examples/*.toml` are shipped for the four config-capable subcommands. |
 | D-141 | Config parsing and validation live in `kc761/cli/config.py` as strict, frozen dataclasses; the module imports no Geant4 and no numerics. The sim batch driver only validates, expands argv, manages resume and subprocesses, and aggregates the exit code. |
@@ -220,11 +220,44 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-146 | Revises D-111: `select_window` raises `ValidationError` when the requested energy window lies entirely outside the channel energy range; it never degenerates to a single top channel. Windows that merely extend beyond the acquisition are still clipped as before. |
 | D-147 | Cross-package error taxonomy: argument/config misuse raises `UsageError` (CLI) or `ValidationError` (library inputs), product/schema violations raise `SchemaError`, and solver/covariance failures raise `SolverError`; the CLI maps `UsageError` to exit 2 and every other `Kc761Error` to exit 1. |
 | D-148 | `param_cov` axis bin labels are an always-on structural part of the calib product contract and are validated on every read (previously strict-only). |
-| D-149 | R2 updates `README.md` to the current implementation state. Any large-scale real end-to-end run (real CSV data, full source-mode simulation campaigns) requires prior user confirmation of parameters/budget; products are written under `out/` and are never deleted by tooling. |
+| D-149 | R2 updates `README.md` to the current implementation state. Any large-scale real end-to-end run (real CSV data, full source-mode simulation campaigns) requires prior user confirmation of parameters/budget; products are written under `work/` and are never deleted by tooling. |
 | D-150 | `core.solver.solve_nonnegative` gains an optional keyword-only `normal=(H, b, penalty_scale)` injection; the unfolding layer builds `normal_equations` once and passes it, so the solver no longer rebuilds the identical half-Hessian that F-UNC already needs. Behaviour is unchanged. |
 | D-151 | `uncertainty.simulation_mc_variance` keeps the exact free-set inverse `H_FF**-1` materialization (D-119). This is documented as a scale limitation: it is acceptable for the supported 2048-channel window (~32 MiB) but a band-only solve path is deferred to a later perf pass; no correctness shortcut is taken. |
 | D-152 | Audit-only fields are retained deliberately and documented as such: `SpectrumProduct.source_file` (originating path), the unfold setting values recorded in the product meta, and the generator manifest `formula_ids`. They are provenance/audit records, not inputs to any numeric path; removing them would lose traceability. |
 | D-153 | Supersedes the "shared plotting code" clause of D-70: each figure module (`kc761/calib/plot.py`, `kc761/unfold/plot.py`) is a self-contained, legacy-faithful port of the pre-rewrite figure (same geometry, palette, log axes, legends, bands, output-format inference). The shared `kc761/plotting/` package is removed; the `DatasetDetail` gained plotting-only raw-MC/scale fields (`raw_mc_counts`, `raw_mc_uncertainties`, `scale_params`) populated in diagnostics, never in the fit. |
+
+### 1.14 SNIP-based regularization (2026-09-10, user-approved)
+
+SNIP is adopted for regularization to suppress spurious peaks. The mask is not
+a spurious-peak detector: it marks genuine peaks so the global `alpha` can be
+raised enough to damp noise-induced oscillatory structure without eroding real
+peaks. Full derivation and limits: `docs/derivations.md` F-SOLVE-4..6.
+
+| ID | Decision |
+|----|----------|
+| D-154 | Supersedes D-74. The SNIP peak mask `D' = diag(rho**0.5) D` (row-stencil weights) is part of the Tikhonov operator and is **enabled by default**; `snip_enabled = false` (or the CLI switch) disables it and restores the plain F-SOLVE-1 operator. |
+| D-155 | Mechanism A only: the mask is derived from the measured spectrum `y` and frozen before the solve. No solution-adaptive (IRLS) reweighting is part of this contract; it remains a possible future extension. |
+| D-156 | Peak detection: `y+ = max(y, 0)`; residual from the F-SOLVE-4 baseline; resolution-matched Gaussian significance with threshold `k = 5` standard deviations; bins within `protect_sigma = 2` resolution widths of a candidate are protected; mask floor `0.1`. All values are settings with these defaults. |
+| D-157 | The SNIP iteration count is resolution-derived: `m = clip(round(FWHM_bins/2), 1, m_max)` at the reported-window midpoint, with an explicit override recorded in the product. |
+| D-158 | The masked operator is `D_tilde' = diag(rho**0.5) D . diag(sqrt(diag(A)))` with `rho_r = prod_{j=0}^{order} w_{r+j}` (F-SOLVE-6); `D_tilde'^T D_tilde'` stays symmetric PSD and banded, and the F-SOLVE-3 KKT certificate is unchanged. A new strict certificate F-SOLVE-6 verifies the mask, the bandwidth and the hashes. `alpha` remains mandatory and unchanged in meaning. |
+| D-159 | The data-derived mask makes the reported covariance conditional on the realised mask (plug-in); the mask-selection uncertainty is not propagated. The approximation is documented and coverage is validated on synthetic pulls with the mask on and off. |
+| D-160 | `UnfoldSettings`/product meta record `snip_enabled` (default true), `snip_threshold_sigma`, `snip_protect_sigma`, `snip_floor`, `snip_iterations`, `snip_max_iterations`, the clipped-negative count and index range, and the baseline/mask sha256, so a masked solve is exactly reproducible. |
+| D-161 | Implementation is a W4-scope extension (F-SOLVE-4..6 in `core/solver.py`, settings/meta and certificates). Acceptance is quantitative on synthetic spectra: spurious-peak suppression, true-peak area bias, pull coverage with mask on/off, threshold/iteration robustness and bitwise reproducibility; no golden or reference outputs. |
+| D-162 | Provisional defaults after the R2 sensitivity study: `snip_enabled = true`, `snip_threshold_sigma = 5`, `snip_protect_sigma = 2`, `snip_floor = 0.1`, resolution-derived `m` capped at `m_max = 8`. The truth-based synthetic closure study (D-161) remains the acceptance gate and may revise them; the realised values are recorded per product (D-160), so a re-tuned default does not invalidate existing products. |
+
+### 1.15 Workspace layout and config path resolution (2026-09-11, user-approved)
+
+| ID | Decision |
+|----|----------|
+| D-163 | The default product root is `work/` under the repository root (was `out/`). Project data, scratch and products live under `work/` (`work/data`, `work/tmp`, `work/temp`, `work/<subcommand>`); `.gitignore` ignores `work/` and no longer ignores `out/`, `data/`, `tmp/` or `temp/`. |
+| D-164 | Supersedes D-132: relative paths in a TOML configuration file resolve against the current working directory, not the config file's directory; `~` expansion and absolute paths are unchanged. |
+| D-165 | `csv2root` and `subbkg` default their output next to the input file: `csv2root` writes `<csv-dir>/<stem>.root`, `subbkg` writes `<signal-dir>/<signal-stem>-subbkg.root`. |
+| D-166 | `compose` defaults its output next to its `--sim` input (the matrix energy response): `<sim-dir>/compose-<calib-stem>-<sim-stem>.root`. `calib`, `sim`, `unfold` keep the `work/<subcommand>/` default (D-19/D-163); the "every other command" clause of D-165 is revised accordingly. |
+| D-167 | Terminology standard (complements D-144): `sim` denotes the Geant4 simulation workstream and the matrix-mode `sim` product (`primary_to_deposition`); `mc` denotes Monte-Carlo statistics and the source-mode `mc_spectrum` product consumed by `calib --mc`. The finite-MC variance of a template/response is named `mc_variance` everywhere (`propagate_systematic(..., mc_variance=...)`, `BandComponent(name="mc_variance")`); the helper keeps the name `simulation_mc_variance` to denote its simulation origin. The `sim` product, `SimProduct` and the `[sim]` config table are intentionally not renamed. |
+| D-168 | `calib` fit observability and fail-fast output (2026-09-11, user-approved): `run_fit(..., progress=..., progress_every_s=1.0)` emits a `FitProgress` callback (a pre-fit summary event with `nfev == 0`, time-cadenced events and one final event) carrying the global chi2/dof, elapsed time and ms/eval. The CLI prints the summary and progress lines by default (`--no-progress` disables them; `--progress-every SECONDS` sets the interval, `0` = every evaluation). Output targets are validated before the fit through `schema.io.validate_output_path` (overwrite policy plus parent creation and writability), raising `UsageError` (exit 2); `write_product` keeps its `SchemaError` as the last line of defence. |
+| D-169 | The default data-side fractional systematic uncertainty is `syst_frac = 0.05` (5%) instead of 0.10; it is single-sourced as `core.uncertainty.DEFAULT_SYST_FRAC` and used by `DatasetSpec`, `UnfoldSettings`, `run_unfold`, the `--syst-frac` CLI default and the config loaders. Explicit per-dataset values are unchanged. |
+| D-170 | ROOT titles are display-only and human-readable (2026-09-11, user-approved): the axis canonical name travels in `fName` and its unit is derived from that name via `schema.axes.AXIS_UNITS`; `fTitle` is `Label (unit)` with no parentheses for unitless axes (`channel`/`counts`/`dimensionless`), and is never parsed. Histogram object titles are set from `schema.products.HUMAN_TITLES`. The naming table is fixed in `schema.axes.HUMAN_AXIS_LABELS` and `schema.products.HUMAN_TITLES`. |
+| D-171 | All product-writing commands validate their output targets before doing work (2026-09-11, user-approved, extends D-168): `unfold`, `compose`, `sim` (single-run), `calib`, `csv2root` and `subbkg` check the product target and, where a figure is produced by default, the figure target, through `schema.io.validate_output_path` (overwrite policy plus parent creation/writability), raising `UsageError` (exit 2). The `sim` config batch keeps its resume logic and does not pre-check skipped runs. |
 
 ## 2. Target architecture
 
@@ -351,21 +384,6 @@ carry the derivation, its approximations, and the certificate that guards it.
 | F-RESP-4 | chain assembly of `dC/dq` and `dR/dq`, including the global per-column renormalization sum (D-83) |
 | F-PROJ-1 | exact bin-overlap projection weights (target must cover source; fail loud) |
 | F-PROJ-2 | values `W v` and independent variances `W**2 Var`; identity for equal grids |
-| F-SOLVE-1 | Tikhonov `chi2 + alpha * ||D_tilde mu||^2`, `D_tilde = D . diag(sqrt(diag(R^T W R)))` (D-80); SNIP mask removed (D-74) |
-| F-SOLVE-2 | self-implemented active-set non-negative QP (dense/banded/sparse Cholesky) |
-| F-SOLVE-3 | KKT certificate in units of the data-gradient scale (D-84) |
-| F-COV-1 | Fisher information from the analytic Jacobian |
-| F-COV-2 | `s**2 = chi2/dof` scaling (PDG convention); PD required, no pseudo-inverse; PSD certificate |
-| F-COV-3 | optional profile-covariance diagnostic: `dchi2 = 1` widths with inner re-optimization, correlations from the numerical Hessian inverse |
-| F-UNC-1 | statistical propagation with the same Hessian that solved the problem |
-| F-UNC-2 | systematic propagation (calibration, simulation MC multinomial, data-side term) |
-| F-UNC-3 | strict band decomposition `total**2 = stat**2 + syst**2` |
-| F-UNF-1 | energy window to channel rows and reported primary bins, with F-BIN-3 padding |
-| F-UNF-2 | data-side unfold fit weights `sigma_fit**2 = max(stat,1) + (syst_frac*data)**2` (D-112) |
-| F-UNF-3 | exact-zero primary column pruning before the solve (D-110) |
-| F-UNF-4 | unfold diagnostics: `chi2`, `dof = fit rows - active solution bins`, `covariance_scale = 1` |
-| F-UNF-5 | full unfolding orchestration (compose, solve, bands, product) |
-| F-UNF-6 | `calib_only` relabeling onto the channel-derived energy axis (D-113) |
 | F-CAL-1 | fit weights `var = max(stat,1) + (syst_frac*data)**2 + MC` |
 | F-CAL-2 | per-dataset quadratic Bezier scale (free middle control abscissa `s0`, D-103) |
 | F-CAL-3 | fit parameter start values and bounds (D-103) |
@@ -378,6 +396,24 @@ carry the derivation, its approximations, and the certificate that guards it.
 | F-SIM-5 | 10 us pulse merging |
 | F-SIM-6 | physical boundary certificate: deposition-bin lower edge above a primary-column upper edge is exactly zero (strict) |
 | F-SIM-7 | deterministic seed derivation for matrix columns and source event blocks; same seed + same worker partition reproduces bit-for-bit (D-123) |
+| F-SOLVE-1 | Tikhonov `chi2 + alpha * ||D_tilde mu||^2`, `D_tilde = D . diag(sqrt(diag(R^T W R)))` (D-80); with the default SNIP mask `D' = diag(rho**0.5) D` (F-SOLVE-6/D-154) |
+| F-SOLVE-2 | self-implemented active-set non-negative QP (dense/banded/sparse Cholesky) |
+| F-SOLVE-3 | KKT certificate in units of the data-gradient scale (D-84) |
+| F-SOLVE-4 | SNIP LLS baseline (transform, resolution-derived iteration count, `max(y,0)` handling) (D-155/D-157) |
+| F-SOLVE-5 | resolution-matched peak significance and the fixed peak mask `W` (D-156) |
+| F-SOLVE-6 | masked operator `D_tilde' = diag(rho**0.5) D . diag(sqrt(diag(A)))`, certificate and acceptance metrics (D-158/D-161) |
+| F-COV-1 | Fisher information from the analytic Jacobian |
+| F-COV-2 | `s**2 = chi2/dof` scaling (PDG convention); PD required, no pseudo-inverse; PSD certificate |
+| F-COV-3 | optional profile-covariance diagnostic: `dchi2 = 1` widths with inner re-optimization, correlations from the numerical Hessian inverse |
+| F-UNC-1 | statistical propagation with the same Hessian that solved the problem |
+| F-UNC-2 | systematic propagation (calibration, simulation MC multinomial, data-side term) |
+| F-UNC-3 | strict band decomposition `total**2 = stat**2 + syst**2` |
+| F-UNF-1 | energy window to channel rows and reported primary bins, with F-BIN-3 padding |
+| F-UNF-2 | data-side unfold fit weights `sigma_fit**2 = max(stat,1) + (syst_frac*data)**2` (D-112) |
+| F-UNF-3 | exact-zero primary column pruning before the solve (D-110) |
+| F-UNF-4 | unfold diagnostics: `chi2`, `dof = fit rows - active solution bins`, `covariance_scale = 1` |
+| F-UNF-5 | full unfolding orchestration (compose, solve, bands, product) |
+| F-UNF-6 | `calib_only` relabeling onto the channel-derived energy axis (D-113) |
 | F-IO-1 | atomic write / reopen validation protocol |
 
 Numerical decisions already frozen elsewhere in this document are normative;
@@ -423,7 +459,7 @@ derivations may add detail but must not contradict them.
   `unfold2root.cxx`, `csv2root.cxx`, `subbkg.cxx`, `rootmacros.h`.
 * `binexport.py`, `rootcxxfrontend.py`, `hadd.py` (replaced by uproot merge).
 * `G4History.macro`, repository-root `sim_vis_output.root`.
-* `out/` stale products and `tmp/` prototypes.
+* `work/` stale products and moved scratch/prototypes.
 * The pre-rewrite design document (superseded by `docs/plan.md`).
 
 ## 8. Workstreams
@@ -444,7 +480,7 @@ derivations may add detail but must not contradict them.
 1. **Unknown geometry provenance.** Crystal dimensions, R4600 composition,
    shield geometry and sample densities keep their current values by decision
    D-34; the geometry dataclass must mark each value as measured/assumed.
-2. **CSV sample provided.** The raw files are in `data/exp/2609a/`
+2. **CSV sample provided.** The raw files are in `work/data/exp/2609a/`
    (`Channel,Count` header with a `#<...>` acquisition time); W6 finalizes the
    strict `csv2root` grammar, ranges and error policy (Appendix A item 8).
 3. **Strict mode is opt-in.** Normal runs do not self-certify; CI runs the
@@ -474,8 +510,10 @@ A module is complete when, simultaneously:
    non-strict clamps `sigma` to `SIGMA_FLOOR_KEV` with a warning and a record;
    strict still raises F-MODEL-5. Implementation mechanics (floor value, API)
    are W1 contract points.
-2. **SNIP peak masking.** Resolved by D-74 (2026-09-10): the mask is removed
-   entirely; `D` is only the normalized finite-difference operator.
+2. **SNIP peak masking.** Re-opened and re-resolved by D-154..D-161
+   (2026-09-10): a redesigned, default-on SNIP peak mask is part of the
+   Tikhonov operator (F-SOLVE-4..6); D-74 is superseded. Full derivation and
+   limits in `docs/derivations.md`.
 3. **`calib --sim` naming.** Resolved by D-144 (2026-09-10): the option is
    `calib --mc` with no alias, and the `[[calib.datasets]]` key is `mc`;
    `compose`/`unfold` keep `--sim`/`sim` for the matrix simulation product.
@@ -493,7 +531,7 @@ A module is complete when, simultaneously:
    products start at `format_version = 1`, independent of the legacy
    calibration version 3.
 8. **csv2root strict parser details.** The sample CSV is now provided
-   (`data/exp/2609a/`); W6 finalizes the column semantics, header grammar and
+   (`work/data/exp/2609a/`); W6 finalizes the column semantics, header grammar and
    accepted ranges and records them in `docs/formats.md` under the
    contract-change process.
 

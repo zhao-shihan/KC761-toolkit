@@ -9,6 +9,7 @@ module reimplements one.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
@@ -31,6 +32,37 @@ ENERGY_AXIS_NAME = "energy_kev"
 
 PARAM_AXIS_NAME = "reported_parameter"
 """Axis name of the ``param_cov`` matrix (D-13)."""
+
+UNIT_DISPLAY: Final[dict[str, str]] = {
+    UNIT_CHANNEL: "channel",
+    UNIT_KEV: "keV",
+    UNIT_MM: "mm",
+    UNIT_COUNTS: "counts",
+    UNIT_DIMENSIONLESS: "dimensionless",
+}
+"""Display spelling of each unit in human-readable axis titles (D-170)."""
+
+_UNITLESS_DISPLAY: Final[frozenset[str]] = frozenset(
+    {UNIT_CHANNEL, UNIT_COUNTS, UNIT_DIMENSIONLESS}
+)
+
+HUMAN_AXIS_LABELS: Final[dict[str, str]] = {
+    CHANNEL_AXIS_NAME: "Channel",
+    DEPOSITION_AXIS_NAME: "Deposition energy",
+    PRIMARY_AXIS_NAME: "Primary energy",
+    ENERGY_AXIS_NAME: "Energy",
+    PARAM_AXIS_NAME: "Reported parameter",
+}
+"""Human axis labels; the canonical machine name stays in the axis ``fName``."""
+
+AXIS_UNITS: Final[dict[str, str]] = {
+    CHANNEL_AXIS_NAME: UNIT_CHANNEL,
+    DEPOSITION_AXIS_NAME: UNIT_KEV,
+    PRIMARY_AXIS_NAME: UNIT_KEV,
+    ENERGY_AXIS_NAME: UNIT_KEV,
+    PARAM_AXIS_NAME: UNIT_DIMENSIONLESS,
+}
+"""Canonical axis name -> unit; units are no longer parsed from the title."""
 
 UNITS: tuple[str, ...] = (
     UNIT_CHANNEL,
@@ -120,3 +152,21 @@ def reported_parameter_axis() -> Axis:
     """Index axis of ``param_cov``; bin labels are ``PARAM_NAMES_REPORTED`` (D-13)."""
     edges = np.arange(-0.5, len(PARAM_NAMES_REPORTED) + 0.5, 1.0)
     return Axis(name=PARAM_AXIS_NAME, edges=edges, unit=UNIT_DIMENSIONLESS)
+
+
+def human_axis_title(axis: Axis) -> str:
+    """Human-readable axis title: ``Label (unit)``, unitless axes have no unit."""
+    label = HUMAN_AXIS_LABELS.get(axis.name, axis.name)
+    if axis.unit in _UNITLESS_DISPLAY:
+        return label
+    return f"{label} ({UNIT_DISPLAY.get(axis.unit, axis.unit)})"
+
+
+def unit_for_axis_name(name: str) -> str:
+    """Return the canonical unit for a canonical axis name (D-170)."""
+    try:
+        return AXIS_UNITS[name]
+    except KeyError:
+        raise SchemaError(
+            f"unknown axis name {name!r}; expected one of {tuple(AXIS_UNITS)}"
+        ) from None

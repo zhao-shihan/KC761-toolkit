@@ -1,7 +1,8 @@
 """``kc761`` command-line entry point.
 
-Six frozen subcommands (docs/plan.md D-66): ``calib``, ``unfold``, ``sim``,
-``compose``, ``csv2root``, ``subbkg``. Logging, strict mode and the exit-code
+Six frozen subcommands (docs/plan.md D-66) in pipeline order: ``csv2root``,
+``subbkg``, ``sim``, ``calib``, ``compose``, ``unfold``. Logging, strict mode
+and the exit-code
 policy (0 success / 1 runtime failure / 2 usage error) live here; the
 subcommand modules only declare arguments and dispatch to their workstream.
 """
@@ -15,7 +16,14 @@ from kc761 import __version__
 from kc761.errors import Kc761Error, UsageError
 from kc761.runtime import configure_logging, strict_enabled
 
-SUBCOMMANDS: tuple[str, ...] = ("calib", "unfold", "sim", "compose", "csv2root", "subbkg")
+SUBCOMMANDS: tuple[str, ...] = (
+    "csv2root",
+    "subbkg",
+    "sim",
+    "calib",
+    "compose",
+    "unfold",
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,8 +39,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
-    for module in (calib, unfold, sim, compose, csv2root, subbkg):
-        module.add_parser(subparsers)
+    modules = {
+        "calib": calib,
+        "compose": compose,
+        "csv2root": csv2root,
+        "sim": sim,
+        "subbkg": subbkg,
+        "unfold": unfold,
+    }
+    for name in SUBCOMMANDS:
+        modules[name].add_parser(subparsers)
     return parser
 
 

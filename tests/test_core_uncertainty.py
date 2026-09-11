@@ -148,3 +148,8 @@ def test_simulation_mc_variance_matches_finite_difference() -> None:
         fisher=hessian,
     )
     assert np.allclose(variance, reference, rtol=0.15, atol=1e-6)
+
+
+def test_default_syst_frac_is_five_percent() -> None:
+    """D-169: the single-sourced default data-side systematic is 5%."""
+    assert uncertainty.DEFAULT_SYST_FRAC == 0.05

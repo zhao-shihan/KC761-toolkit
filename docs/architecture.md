@@ -41,7 +41,7 @@ Rules:
 | `core/kernel.py` | exact Gaussian bin integrals, smoothstep taper, kernel derivatives, sparse assembly | F-KERN-1..4 |
 | `core/response.py` | response matrix C, composed matrix R, window slicing, response Jacobian | F-RESP-1..4 |
 | `core/projection.py` | rebinning/folding projections and variance propagation | F-PROJ-1..2 |
-| `core/solver.py` | non-negative QP, regularization spec, KKT certificate | F-SOLVE-1..3 |
+| `core/solver.py` | non-negative QP, regularization spec (with the default SNIP peak mask), KKT certificate | F-SOLVE-1..6 |
 | `core/covariance.py` | Fisher information, `s**2` scaling, optional profile diagnostic | F-COV-1..3 |
 | `core/uncertainty.py` | strict stat/syst propagation, simulation MC term, band combination | F-UNC-1..3 |
 | `core/_checks.py` | shared array/shape/finiteness guards | - |
@@ -49,19 +49,19 @@ Rules:
 | `core/_gen/` | committed sympy-generated kernels with manifest and import-time freshness check | F-MODEL/F-KERN (D-77) |
 | `schema/axes.py` | `Axis` (edges + unit), axis constructors and `reported_parameter_axis` | F-BIN-1 |
 | `schema/products.py` | product containers, `product_kind` dispatch, object names, meta field/type tables, provenance | F-IO-1 |
-| `schema/io.py` | atomic write, reopen validation, overwrite policy, provenance assembly, product certificates | F-IO-1 |
+| `schema/io.py` | atomic write, reopen validation, overwrite policy, early `validate_output_path` (D-168), provenance assembly, product certificates | F-IO-1 |
 | `schema/_uproot.py` | verified low-level uproot helpers (spike): variance buffers, axis titles/units, bin labels, meta RNTuple | F-IO-1 |
 | `calib/model.py` | global calibration objective over datasets: fixed-axis `C_fit`, F-CAL-1 weights, start values/bounds, analytic prediction Jacobian and exact gradient | F-CAL-1/F-CAL-3/F-CAL-4 |
 | `calib/scaling.py` | per-dataset quadratic-Bezier scale (free middle control abscissa `s0`) and analytic derivatives | F-CAL-2 |
 | `calib/covariance.py` | full-parameter Fisher inverse, scale marginalization, reported-basis transform, `s**2` scaling | F-CAL-5 |
-| `calib/fit.py` | single bounded trust-region Gauss-Newton stage, certificates, product write, figure; public `run_fit` | F-CAL-1..5 |
+| `calib/fit.py` | single bounded trust-region Gauss-Newton stage, `FitProgress` callback (D-168), certificates, product write, figure; public `run_fit` | F-CAL-1..5 |
 | `calib/product.py` | export `C` on the channel-derived axis `E(i +- 1/2)` (D-101), reported parameters, clamp record | F-RESP-1/F-IO-1 |
 | `calib/report.py` | text report of chi2/dof, parameters, scales and clamp statistics | - |
 | `calib/plot.py` | calibration figure, legacy-faithful self-contained port | D-153 |
 | `unfold/inputs.py` | product loading, axis bitwise checks, upstream provenance checks | D-114 |
 | `unfold/compose.py` | `run_compose`: full-axis composition and compose artifact | F-RESP-2/F-RESP-3 |
 | `unfold/selection.py` | energy window to channel/primary selection and data-side fit weights | F-UNF-1/F-UNF-2 |
-| `unfold/solve.py` | exact-zero pruning, non-negative solve, strict uncertainty bands, diagnostics | F-UNF-3/F-UNF-4 |
+| `unfold/solve.py` | SNIP mask settings plumbing, exact-zero pruning, non-negative solve, strict uncertainty bands, diagnostics | F-UNF-3/F-UNF-4 |
 | `unfold/unfold.py` | `run_unfold`: full and `calib_only` orchestration, product assembly | F-UNF-5/F-UNF-6 |
 | `unfold/report.py`, `unfold/plot.py` | text report and legacy-faithful figure | D-70/D-153 |
 | `sim/config.py` | run defaults: base seed, event-block size, raw histogram names, memory budget | F-SIM-7/D-123/D-124 |
@@ -79,7 +79,7 @@ Rules:
 
 ## CLI orchestration (W6)
 
-* `kc761/cli/_common.py` owns the cross-command plumbing: the `out/<command>/`
+* `kc761/cli/_common.py` owns the cross-command plumbing: the `work/<command>/`
   default-name convention (D-19), full-argv provenance pairs (D-18), the
   config/run-option mutual-exclusion check (D-130) and the shared option
   groups. Handlers import their workstream entry point lazily, so `--help`
@@ -96,7 +96,7 @@ Rules:
   `--provenance-input` option.
 * `kc761/cli/config.py` is a leaf: standard library only, frozen dataclasses,
   unknown keys and missing sections are errors, relative paths resolve against
-  the config file directory.
+  the current working directory (D-164).
 * `run_fit`/`run_compose`/`run_unfold` are called in-process by `calib`,
   `compose` and `unfold`; the CLI only builds products (`DatasetSpec`,
   `SpectrumProduct`), resolves names, and prints the library report.
@@ -148,3 +148,26 @@ Item 3 (`calib --sim` naming) is resolved by D-144: the option is
 `calib --mc` (no alias) and the config key is `mc`. The non-strict resolution clamp (D-73)
 and the removal of the SNIP peak mask (D-74) are decided and implemented in
 `kc761/core/`.
+
+## Terminology: `sim` versus `mc` (D-167)
+
+* **`sim`** is the Geant4 simulation workstream (`kc761/sim/`, the `sim`
+  command, `run_source`/`run_matrix`) and the **matrix-mode response product**
+  `sim` (`primary_to_deposition`). `compose` and `unfold` consume it as
+  `--sim`; the `[sim]` config table lists those runs.
+* **`mc`** is the **Monte-Carlo statistics** axis and the **source-mode
+  simulation spectrum** product `mc_spectrum` consumed by calibration
+  (`calib --mc`, `[[calib.datasets]] mc`).
+* The finite-MC variance of a template or response is **`mc_variance`** in
+  every module (the `propagate_systematic` keyword, the `BandComponent` name,
+  the calibration `DatasetProjection` field). The helper
+  `simulation_mc_variance` keeps its descriptive name because the variance
+  originates from the finite Monte-Carlo sample of the simulation.
+* The two words are **not** interchangeable: `sim` is never a spectrum and
+  `mc` is never the matrix response product.
+
+## ROOT titles (D-170)
+
+Axis `fName` holds the canonical machine name; the unit follows from
+`schema.axes.AXIS_UNITS`. Axis and histogram `fTitle` fields are human-readable
+display labels (`Energy (keV)`, `Measured spectrum`) and are never parsed.

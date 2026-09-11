@@ -54,6 +54,7 @@ from kc761.errors import (
     Kc761Error,
     ProvenanceError,
     SchemaError,
+    UsageError,
     ValidationError,
 )
 from kc761.schema import _uproot
@@ -320,6 +321,29 @@ def refuse_overwrite(path: str | Path, *, force: bool = False) -> None:
         raise SchemaError(f"target {target} is a directory, not a product file")
 
 
+def validate_output_path(path: str | Path, *, force: bool = False) -> None:
+    """Fail fast on an unusable output target before an expensive run (D-168).
+
+    Applies the same overwrite policy as :func:`refuse_overwrite` but raises
+    :class:`kc761.errors.UsageError` (CLI exit code 2, "pass --force or fix the
+    path"), and additionally creates the parent directory and checks that it is
+    writable. ``write_product`` still re-checks at write time as the last line
+    of defence.
+    """
+    try:
+        refuse_overwrite(path, force=force)
+    except SchemaError as exc:
+        raise UsageError(str(exc)) from exc
+    target = Path(path)
+    parent = target.parent
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise UsageError(f"cannot create output directory {parent}: {exc}") from exc
+    if not os.access(parent, os.W_OK):
+        raise UsageError(f"output directory is not writable: {parent}")
+
+
 def atomic_write(
     target: str | Path,
     writer: Callable[[Path], None],
@@ -375,8 +399,10 @@ def _encode_common_meta(product: Product) -> dict[str, float | int | str]:
     }
 
 
-def _coerce_setting(field: str, type_: type, raw: str) -> float | int:
+def _coerce_setting(field: str, type_: type, raw: str) -> float | int | str:
     text = str(raw).strip()
+    if type_ is str:
+        return str(raw)
     try:
         if type_ is int:
             return int(text)

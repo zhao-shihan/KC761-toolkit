@@ -1,20 +1,22 @@
 """Non-negative regularized unfolding: objective, solver and KKT certificate.
 
-Formula IDs (docs/derivations.md): F-SOLVE-1 .. F-SOLVE-3.
+Formula IDs (docs/derivations.md): F-SOLVE-1 .. F-SOLVE-6.
 
-* F-SOLVE-1: Tikhonov objective ``chi2 + alpha * ||D mu||**2`` with ``mu >= 0``.
-  ``alpha`` is mandatory at the CLI (D-45) and dimensionless (D-46): the
-  difference operator is scaled as ``D_tilde = D . diag(sqrt(diag(R^T W R)))``,
-  so it acts on the signal-to-noise normalized solution and the penalty
-  carries no counts (see docs/derivations.md F-SOLVE-1).
+* F-SOLVE-1: Tikhonov objective ``chi2 + alpha * ||D_tilde mu||**2`` with
+  ``mu >= 0``. ``alpha`` is mandatory at the CLI (D-45) and dimensionless
+  (D-80): the difference operator is scaled on the right,
+  ``D_tilde = D . diag(sqrt(diag(R^T W R)))``.
 * F-SOLVE-2: self-implemented Cholesky active-set solver (banded when the
   normal matrix is banded, dense otherwise).
 * F-SOLVE-3: the KKT certificate is measured in units of the data-gradient
   scale (relative tolerance ``KKT_TOL``), so it does not depend on the count
   normalization of the problem.
-
-The SNIP peak mask is removed (D-74); ``D`` is only the finite-difference
-operator below.
+* F-SOLVE-4/5/6 (D-154..D-161): an optional, default-on SNIP peak mask. The
+  baseline (F-SOLVE-4) and the resolution-matched significance (F-SOLVE-5)
+  build a fixed diagonal weight ``W``; the penalty operator becomes
+  ``D_tilde' = W**0.5 D W**0.5 . diag(sqrt(diag(A)))`` (F-SOLVE-6). The mask is
+  a function of the measured spectrum only, so the problem stays convex and the
+  F-SOLVE-3 certificate is unchanged.
 """
 
 from __future__ import annotations
@@ -53,6 +55,262 @@ class RegularizationSpec:
             )
 
 
+def difference_operator(n_bins: int, order: int) -> sparse.csr_matrix:
+    """Finite-difference operator ``D`` of the requested order (F-SOLVE-1)."""
+    if order not in (1, 2):
+        raise ValidationError(f"difference_order must be 1 or 2, got {order!r}")
+    if n_bins < 1:
+        raise ValidationError(f"n_bins must be >= 1, got {n_bins!r}")
+    n_rows = max(n_bins - order, 0)
+    if n_rows == 0:
+        return sparse.csr_matrix((0, n_bins), dtype=np.float64)
+    rows = np.repeat(np.arange(n_rows), order + 1)
+    cols = np.concatenate([np.arange(start, start + order + 1) for start in range(n_rows)])
+    coefficients = {
+        1: np.array([-1.0, 1.0]),
+        2: np.array([1.0, -2.0, 1.0]),
+    }[order]
+    values = np.tile(coefficients, n_rows)
+    return sparse.csr_matrix((values, (rows, cols)), shape=(n_rows, n_bins))
+
+
+DEFAULT_SNIP_THRESHOLD_SIGMA = 5.0
+DEFAULT_SNIP_PROTECT_SIGMA = 2.0
+DEFAULT_SNIP_FLOOR = 0.1
+DEFAULT_SNIP_MAX_ITERATIONS = 8
+SNIP_FILTER_SIGMA = 3.0
+"""Matched-filter support in resolution widths (F-SOLVE-5)."""
+
+
+@dataclass(frozen=True)
+class SnipSettings:
+    """SNIP peak-mask configuration (F-SOLVE-4/5, D-156/D-157).
+
+    The defaults are provisional and are refined by the synthetic parameter
+    study recorded under F-SOLVE-6 in docs/derivations.md; the realised values are
+    always written into the product meta (D-160).
+    """
+
+    enabled: bool = True
+    threshold_sigma: float = DEFAULT_SNIP_THRESHOLD_SIGMA
+    protect_sigma: float = DEFAULT_SNIP_PROTECT_SIGMA
+    floor: float = DEFAULT_SNIP_FLOOR
+    iterations: int | None = None
+    max_iterations: int = DEFAULT_SNIP_MAX_ITERATIONS
+
+    def __post_init__(self) -> None:
+        if not np.isfinite(self.threshold_sigma) or self.threshold_sigma <= 0.0:
+            raise ValidationError(
+                f"snip threshold_sigma must be positive and finite, got {self.threshold_sigma!r}"
+            )
+        if not np.isfinite(self.protect_sigma) or self.protect_sigma < 0.0:
+            raise ValidationError(
+                f"snip protect_sigma must be non-negative and finite, got {self.protect_sigma!r}"
+            )
+        if not np.isfinite(self.floor) or not 0.0 <= self.floor <= 1.0:
+            raise ValidationError(f"snip floor must lie in [0, 1], got {self.floor!r}")
+        if self.iterations is not None and (
+            not isinstance(self.iterations, int) or self.iterations < 1
+        ):
+            raise ValidationError(
+                f"snip iterations must be a positive integer or None, got {self.iterations!r}"
+            )
+        if not isinstance(self.max_iterations, int) or self.max_iterations < 1:
+            raise ValidationError(
+                f"snip max_iterations must be a positive integer, got {self.max_iterations!r}"
+            )
+
+    def resolved_iterations(self, fwhm_bins: float) -> int:
+        """F-SOLVE-4 iteration count: resolution-derived unless overridden."""
+        if self.iterations is not None:
+            return int(self.iterations)
+        if not np.isfinite(fwhm_bins) or fwhm_bins <= 0.0:
+            return 1
+        half = int(round(0.5 * float(fwhm_bins)))
+        return int(np.clip(half, 1, self.max_iterations))
+
+
+@dataclass(frozen=True)
+class SnipMask:
+    """Fixed peak mask and its construction statistics (F-SOLVE-5)."""
+
+    weights: NDArray[np.float64]
+    baseline: NDArray[np.float64]
+    iterations: int
+    clipped_count: int
+    clipped_first: int
+    clipped_last: int
+    n_candidates: int
+    n_protected: int
+
+
+def snip_baseline(
+    values: NDArray[np.float64], iterations: int
+) -> NDArray[np.float64]:
+    """SNIP LLS baseline of a non-negative spectrum (F-SOLVE-4)."""
+    y = as_float_array("snip values", values, ndim=1)
+    if np.any(y < 0.0):
+        raise ValidationError("SNIP baseline requires non-negative values")
+    count = int(iterations)
+    if count < 1:
+        raise ValidationError(f"SNIP iterations must be >= 1, got {iterations!r}")
+    transformed = np.log(np.log(np.sqrt(y + 1.0) + 1.0) + 1.0)
+    for offset in range(1, count + 1):
+        left = transformed.copy()
+        left[offset:] = transformed[:-offset]
+        right = transformed.copy()
+        right[:-offset] = transformed[offset:]
+        transformed = np.minimum(transformed, 0.5 * (left + right))
+    baseline = (np.exp(np.exp(transformed) - 1.0) - 1.0) ** 2 - 1.0
+    return np.maximum(baseline, 0.0)
+
+
+def snip_peak_mask(
+    values: NDArray[np.float64],
+    sigma: NDArray[np.float64],
+    resolution_sigma_kev: NDArray[np.float64],
+    bin_width_kev: NDArray[np.float64],
+    settings: SnipSettings,
+) -> SnipMask:
+    """Resolution-matched peak mask on the measured spectrum (F-SOLVE-5).
+
+    ``values`` is the (channel-domain) measured spectrum, ``sigma`` its
+    per-bin uncertainty, ``resolution_sigma_kev`` the detector width and
+    ``bin_width_kev`` the per-bin energy width. All arrays share the length of
+    the mapped primary axis (D-121 makes the mapping 1:1; the unfold layer
+    enforces that before calling this function).
+    """
+    y_raw = as_float_array("snip spectrum", values, ndim=1)
+    errors = as_float_array("snip sigma", sigma, ndim=1)
+    resol = as_float_array("snip resolution", resolution_sigma_kev, ndim=1)
+    widths = as_float_array("snip bin widths", bin_width_kev, ndim=1)
+    require_same_length("snip spectrum/sigma", y_raw, errors)
+    require_same_length("snip spectrum/resolution", y_raw, resol)
+    require_same_length("snip spectrum/bin widths", y_raw, widths)
+    if np.any(errors <= 0.0) or np.any(widths <= 0.0) or np.any(resol <= 0.0):
+        raise ValidationError("SNIP inputs require positive sigma, widths and resolution")
+
+    negative = y_raw < 0.0
+    clipped = np.maximum(y_raw, 0.0)
+    clipped_count = int(np.count_nonzero(negative))
+    if clipped_count:
+        indices = np.flatnonzero(negative)
+        clipped_first = int(indices[0])
+        clipped_last = int(indices[-1])
+    else:
+        clipped_first = -1
+        clipped_last = -1
+
+    width_in_bins = resol / widths
+    middle = y_raw.size // 2
+    fwhm_bins = 2.0 * np.sqrt(2.0 * np.log(2.0)) * float(width_in_bins[middle])
+    iterations = settings.resolved_iterations(fwhm_bins)
+    baseline = snip_baseline(clipped, iterations)
+    residual = clipped - baseline
+
+    size = clipped.size
+    significance = np.zeros(size, dtype=np.float64)
+    for index in range(size):
+        half = max(1, int(np.ceil(SNIP_FILTER_SIGMA * float(width_in_bins[index]))))
+        low = max(0, index - half)
+        high = min(size, index + half + 1)
+        offsets = np.arange(low, high, dtype=np.float64) - float(index)
+        kernel = np.exp(-0.5 * (offsets / float(width_in_bins[index])) ** 2)
+        total = float(kernel.sum())
+        if total <= 0.0:
+            continue
+        kernel /= total
+        matched = float(kernel @ residual[low:high])
+        variance = float(kernel @ (kernel * errors[low:high] ** 2))
+        significance[index] = matched / np.sqrt(variance) if variance > 0.0 else 0.0
+
+    candidate = significance >= settings.threshold_sigma
+    local = np.zeros(size, dtype=bool)
+    if size == 1:
+        local[0] = bool(candidate[0])
+    elif size > 1:
+        local[0] = bool(candidate[0] and significance[0] >= significance[1])
+        local[-1] = bool(candidate[-1] and significance[-1] >= significance[-2])
+        local[1:-1] = candidate[1:-1] & (significance[1:-1] >= significance[:-2]) & (
+            significance[1:-1] >= significance[2:]
+        )
+    protected = np.zeros(size, dtype=bool)
+    centres = np.flatnonzero(local)
+    for index in centres:
+        half = int(np.ceil(settings.protect_sigma * float(width_in_bins[index])))
+        protected[max(0, index - half) : min(size, index + half + 1)] = True
+    weights = np.where(protected, settings.floor, 1.0).astype(np.float64)
+    return SnipMask(
+        weights=weights,
+        baseline=baseline,
+        iterations=iterations,
+        clipped_count=clipped_count,
+        clipped_first=clipped_first,
+        clipped_last=clipped_last,
+        n_candidates=int(centres.size),
+        n_protected=int(np.count_nonzero(protected)),
+    )
+
+
+def verify_snip_mask(
+    settings: SnipSettings,
+    mask: NDArray[np.float64],
+    *,
+    values: NDArray[np.float64],
+    sigma: NDArray[np.float64],
+    resolution_sigma_kev: NDArray[np.float64],
+    bin_width_kev: NDArray[np.float64],
+) -> SnipMask:
+    """F-SOLVE-6 certificate: the mask equals the recomputed construction."""
+    expected = snip_peak_mask(values, sigma, resolution_sigma_kev, bin_width_kev, settings)
+    provided = as_float_array("snip mask", mask, ndim=1)
+    if provided.shape != expected.weights.shape or not np.array_equal(
+        provided, expected.weights
+    ):
+        raise CertificateError(
+            "F-SOLVE-6",
+            "the SNIP mask does not match the mask recomputed from the recorded "
+            "spectrum and settings",
+        )
+    return expected
+
+
+def _check_mask(mask: NDArray[np.float64], n_bins: int) -> NDArray[np.float64]:
+    weights = as_float_array("snip mask", mask, ndim=1)
+    if weights.size != n_bins:
+        raise ValidationError(
+            f"snip mask has {weights.size} entries, expected {n_bins}"
+        )
+    if not np.isfinite(weights).all():
+        raise ValidationError("snip mask contains non-finite weights")
+    if np.any(weights < 0.0) or np.any(weights > 1.0):
+        raise ValidationError("snip mask weights must lie in [0, 1]")
+    return weights
+
+
+def _masked_difference(
+    difference: sparse.csr_matrix, mask: NDArray[np.float64]
+) -> sparse.csr_matrix:
+    """``D' = diag(rho**0.5) D`` with per-row stencil weights (F-SOLVE-6).
+
+    ``rho_r`` is the product of the mask weights over the finite-difference
+    stencil of row ``r`` (``order + 1`` columns), so a protected peak bin
+    relaxes every difference row that touches it. ``D'^T D'`` stays symmetric
+    positive semidefinite and banded, and no rectangular ``W D W`` product is
+    needed.
+    """
+    weights = _check_mask(mask, difference.shape[1])
+    n_rows = difference.shape[0]
+    if n_rows == 0:
+        return difference
+    order = difference.shape[1] - n_rows
+    row_weight = np.ones(n_rows, dtype=np.float64)
+    for offset in range(order + 1):
+        row_weight = row_weight * weights[offset : offset + n_rows]
+    row_weight = np.maximum(row_weight, 0.0)
+    return (sparse.diags(np.sqrt(row_weight)) @ difference).tocsr()
+
+
 @dataclass(frozen=True)
 class KktCertificate:
     """F-SOLVE-3 certificate for one solution (relative metrics)."""
@@ -82,37 +340,21 @@ class UnfoldSolution:
     certificate: KktCertificate
 
 
-def difference_operator(n_bins: int, order: int) -> sparse.csr_matrix:
-    """Finite-difference operator ``D`` of the requested order (F-SOLVE-1)."""
-    if order not in (1, 2):
-        raise ValidationError(f"difference_order must be 1 or 2, got {order!r}")
-    if n_bins < 1:
-        raise ValidationError(f"n_bins must be >= 1, got {n_bins!r}")
-    n_rows = max(n_bins - order, 0)
-    if n_rows == 0:
-        return sparse.csr_matrix((0, n_bins), dtype=np.float64)
-    rows = np.repeat(np.arange(n_rows), order + 1)
-    cols = np.concatenate([np.arange(start, start + order + 1) for start in range(n_rows)])
-    coefficients = {
-        1: np.array([-1.0, 1.0]),
-        2: np.array([1.0, -2.0, 1.0]),
-    }[order]
-    values = np.tile(coefficients, n_rows)
-    return sparse.csr_matrix((values, (rows, cols)), shape=(n_rows, n_bins))
-
-
 def normal_equations(
     response: sparse.csr_matrix,
     spectrum: NDArray[np.float64],
     sigma: NDArray[np.float64],
     regularization: RegularizationSpec,
+    *,
+    mask: NDArray[np.float64] | None = None,
 ) -> tuple[sparse.csr_matrix, NDArray[np.float64], NDArray[np.float64]]:
     """Half Hessian ``Hc`` and gradient offset ``b`` of the objective (F-SOLVE-1).
 
-    The objective is ``chi2 + alpha * ||D_tilde mu||**2`` with
+    The objective is ``chi2 + alpha * ||D_tilde' mu||**2`` with
     ``chi2 = ||(R mu - y) / sigma||**2``; its half gradient is ``Hc mu - b``.
     Returns ``(Hc, b, penalty_scale)`` where ``penalty_scale = sqrt(diag(A))``
-    and ``A = R^T W R``.
+    and ``A = R^T W R``. With ``mask`` the penalty operator is
+    ``D_tilde' = W**0.5 D W**0.5 . diag(penalty_scale)`` (F-SOLVE-6).
     """
     matrix = check_response_matrix(response)
     y = as_float_array("spectrum", spectrum, ndim=1)
@@ -134,6 +376,8 @@ def normal_equations(
         raise SolverError("R^T W R has a negative diagonal entry")
     penalty_scale = np.sqrt(diagonal)
     difference = difference_operator(n_bins, regularization.difference_order)
+    if mask is not None:
+        difference = _masked_difference(difference, mask)
     scaled = difference @ sparse.diags(penalty_scale)
     hessian = (hessian + regularization.alpha * (scaled.T @ scaled)).tocsr()
     return hessian, gradient, penalty_scale
@@ -146,6 +390,7 @@ def solve_nonnegative(
     regularization: RegularizationSpec,
     *,
     strict: bool = False,
+    mask: NDArray[np.float64] | None = None,
     normal: tuple[sparse.csr_matrix, NDArray[np.float64], NDArray[np.float64]]
     | None = None,
 ) -> UnfoldSolution:
@@ -163,7 +408,7 @@ def solve_nonnegative(
     """
     if normal is None:
         hessian, gradient, penalty_scale = normal_equations(
-            response, spectrum, sigma, regularization
+            response, spectrum, sigma, regularization, mask=mask
         )
     else:
         hessian, gradient, penalty_scale = normal
@@ -193,7 +438,9 @@ def solve_nonnegative(
     return UnfoldSolution(
         mu=mu,
         refolded=refolded,
-        objective=_objective(matrix, spectrum, sigma, mu, regularization, penalty_scale),
+        objective=_objective(
+            matrix, spectrum, sigma, mu, regularization, penalty_scale, mask=mask
+        ),
         certificate=certificate,
     )
 
@@ -204,9 +451,13 @@ def verify_kkt(
     sigma: NDArray[np.float64],
     regularization: RegularizationSpec,
     mu: NDArray[np.float64],
+    *,
+    mask: NDArray[np.float64] | None = None,
 ) -> KktCertificate:
     """Evaluate the KKT certificate for a given ``mu`` (F-SOLVE-3)."""
-    hessian, gradient, _ = normal_equations(response, spectrum, sigma, regularization)
+    hessian, gradient, _ = normal_equations(
+        response, spectrum, sigma, regularization, mask=mask
+    )
     solution = as_float_array("mu", mu, ndim=1)
     if solution.size != gradient.size:
         raise ValidationError(
@@ -315,10 +566,14 @@ def _objective(
     mu: NDArray[np.float64],
     regularization: RegularizationSpec,
     penalty_scale: NDArray[np.float64],
+    *,
+    mask: NDArray[np.float64] | None = None,
 ) -> float:
     residual = (np.asarray(response @ mu, dtype=np.float64) - spectrum) / sigma
     chi2 = float(residual @ residual)
     difference = difference_operator(mu.size, regularization.difference_order)
+    if mask is not None:
+        difference = _masked_difference(difference, mask)
     if difference.shape[0] == 0:
         penalty = 0.0
     else:

@@ -15,6 +15,13 @@ from pathlib import Path
 import numpy as np
 
 from kc761.core.binning import ChannelGrid
+from kc761.core.solver import (
+    DEFAULT_SNIP_FLOOR,
+    DEFAULT_SNIP_MAX_ITERATIONS,
+    DEFAULT_SNIP_PROTECT_SIGMA,
+    DEFAULT_SNIP_THRESHOLD_SIGMA,
+)
+from kc761.core.uncertainty import DEFAULT_SYST_FRAC
 from kc761.errors import ValidationError
 from kc761.schema.axes import (
     ENERGY_AXIS_NAME,
@@ -22,7 +29,7 @@ from kc761.schema.axes import (
     channel_axis,
     energy_axis,
 )
-from kc761.schema.io import build_provenance, write_product
+from kc761.schema.io import build_provenance, validate_output_path, write_product
 from kc761.schema.products import (
     META_ALPHA,
     META_CHANNEL_HIGH,
@@ -34,6 +41,16 @@ from kc761.schema.products import (
     META_ENERGY_HIGH_KEV,
     META_ENERGY_LOW_KEV,
     META_PAD_NSIGMA,
+    META_SNIP_BASELINE_SHA256,
+    META_SNIP_CLIPPED_BINS,
+    META_SNIP_CLIPPED_INDEX_RANGE,
+    META_SNIP_ENABLED,
+    META_SNIP_FLOOR,
+    META_SNIP_ITERATIONS,
+    META_SNIP_MASK_SHA256,
+    META_SNIP_MAX_ITERATIONS,
+    META_SNIP_PROTECT_SIGMA,
+    META_SNIP_THRESHOLD_SIGMA,
     META_SYST_FRAC,
     SCHEMA_VERSION,
     UNFOLD_MODE_CALIB_ONLY,
@@ -59,7 +76,7 @@ from kc761.unfold.inputs import (
 from kc761.unfold.plot import plot_unfold
 from kc761.unfold.report import render_report
 from kc761.unfold.selection import select_window
-from kc761.unfold.solve import solve_window
+from kc761.unfold.solve import SolveOutcome, solve_window
 from kc761.unfold.types import (
     ComposeResult,
     UnfoldResult,
@@ -73,13 +90,14 @@ _COVARIANCE_SCALE = 1.0
 
 def _settings_tuple(
     settings: UnfoldSettings,
+    outcome: SolveOutcome,
     *,
     channel_low: int,
     channel_high: int,
     chi2: float,
     dof: int,
 ) -> tuple[tuple[str, str], ...]:
-    """Build the 11 frozen unfold settings fields (docs/formats.md)."""
+    """Build the frozen unfold settings fields (docs/formats.md, D-160)."""
     assert settings.alpha is not None
     return (
         (META_ALPHA, repr(float(settings.alpha))),
@@ -90,6 +108,19 @@ def _settings_tuple(
         (META_CHANNEL_HIGH, str(int(channel_high))),
         (META_PAD_NSIGMA, repr(float(settings.pad_nsigma))),
         (META_SYST_FRAC, repr(float(settings.syst_frac))),
+        (META_SNIP_ENABLED, "1" if settings.snip_enabled else "0"),
+        (META_SNIP_THRESHOLD_SIGMA, repr(float(settings.snip_threshold_sigma))),
+        (META_SNIP_PROTECT_SIGMA, repr(float(settings.snip_protect_sigma))),
+        (META_SNIP_FLOOR, repr(float(settings.snip_floor))),
+        (META_SNIP_ITERATIONS, str(int(outcome.snip_iterations))),
+        (META_SNIP_MAX_ITERATIONS, str(int(settings.snip_max_iterations))),
+        (META_SNIP_CLIPPED_BINS, str(int(outcome.snip_clipped_count))),
+        (
+            META_SNIP_CLIPPED_INDEX_RANGE,
+            f"{int(outcome.snip_clipped_first)}:{int(outcome.snip_clipped_last)}",
+        ),
+        (META_SNIP_BASELINE_SHA256, outcome.snip_baseline_sha256),
+        (META_SNIP_MASK_SHA256, outcome.snip_mask_sha256),
         (META_CHI2, repr(float(chi2))),
         (META_DOF, str(int(dof))),
         (META_COVARIANCE_SCALE, repr(float(_COVARIANCE_SCALE))),
@@ -202,13 +233,19 @@ def run_unfold(
     calib: str | Path | CalibProduct,
     sim: str | Path | SimProduct | None = None,
     *,
+    calib_only: bool = False,
     energy_low_kev: float,
     energy_high_kev: float,
     alpha: float | None = None,
     difference_order: int = 2,
     pad_nsigma: float = 5.0,
-    syst_frac: float = 0.10,
-    calib_only: bool = False,
+    syst_frac: float = DEFAULT_SYST_FRAC,
+    snip_enabled: bool = True,
+    snip_threshold_sigma: float = DEFAULT_SNIP_THRESHOLD_SIGMA,
+    snip_protect_sigma: float = DEFAULT_SNIP_PROTECT_SIGMA,
+    snip_floor: float = DEFAULT_SNIP_FLOOR,
+    snip_iterations: int | None = None,
+    snip_max_iterations: int = DEFAULT_SNIP_MAX_ITERATIONS,
     output: str | Path | None = None,
     force: bool = False,
     strict: bool = False,
@@ -220,7 +257,20 @@ def run_unfold(
     plot_force: bool = False,
     extra_inputs: Sequence[str | Path] = (),
 ) -> UnfoldResult:
-    """Unfold a measured channel spectrum (F-SOLVE/F-UNC/F-UNF)."""
+    """Unfold a measured channel spectrum (F-SOLVE/F-UNC/F-UNF).
+
+    ``output`` (and, when ``plot`` is set, the figure target) is validated
+    before any product is read or composed, so an unusable target fails fast
+    (D-171) instead of after the solve.
+    """
+    if output is not None:
+        validate_output_path(output, force=force)
+    if plot:
+        target = plot_path
+        if target is None and output is not None:
+            target = Path(output).with_suffix(".pdf")
+        if target is not None:
+            validate_output_path(target, force=plot_force)
     data_product, data_path = coerce_spectrum(data, strict=strict)
     calib_product, calib_path = coerce_calib(calib, strict=strict)
     check_data_channel_axis(calib_product, data_product)
@@ -254,6 +304,12 @@ def run_unfold(
         difference_order=difference_order,
         pad_nsigma=pad_nsigma,
         syst_frac=syst_frac,
+        snip_enabled=snip_enabled,
+        snip_threshold_sigma=snip_threshold_sigma,
+        snip_protect_sigma=snip_protect_sigma,
+        snip_floor=snip_floor,
+        snip_iterations=snip_iterations,
+        snip_max_iterations=snip_max_iterations,
     )
     sim_product, sim_path = coerce_sim(sim, strict=strict)
     check_recorded_input(sim_product, calib_path)
@@ -293,6 +349,7 @@ def run_unfold(
         param_cov=param_cov,
         regularization=settings.regularization(),
         syst_frac=syst_frac,
+        snip_settings=settings.snip_settings(),
         strict=strict,
     )
 
@@ -339,6 +396,7 @@ def run_unfold(
 
     settings_tuple = _settings_tuple(
         settings,
+        outcome,
         channel_low=selection.channel_low,
         channel_high=selection.channel_high,
         chi2=outcome.chi2,

@@ -34,7 +34,7 @@ from kc761.errors import CertificateError, SolverError, ValidationError
 
 BandKind = Literal["stat", "syst"]
 
-DEFAULT_SYST_FRAC = 0.10
+DEFAULT_SYST_FRAC = 0.05
 """Default data-side fractional systematic (F-CAL-1/F-UNF-2, D-48).
 
 Single source for both the calibration and the unfolding weight defaults.
@@ -121,14 +121,14 @@ def propagate_systematic(
     sigma_fit: NDArray[np.float64],
     calib_jacobian: list[sparse.csr_matrix],
     calib_covariance: NDArray[np.float64],
-    sim_variance: NDArray[np.float64] | None = None,
+    mc_variance: NDArray[np.float64] | None = None,
     syst_frac: float = 0.0,
     fisher: NDArray[np.float64] | sparse.spmatrix | None = None,
 ) -> tuple[NDArray[np.float64], tuple[BandComponent, ...]]:
     """Systematic band and its components for one solution (F-UNC-2).
 
     ``calib_jacobian`` is the list of ``dR/dq_k`` matrices from F-RESP-4 and
-    ``calib_covariance`` their covariance. ``sim_variance`` is the
+    ``calib_covariance`` their covariance. ``mc_variance`` is the
     per-primary-bin variance contribution from the simulation MC term
     (see :func:`simulation_mc_variance`); it is a variance, not a sigma.
     ``syst_frac`` is the data-side fractional systematic (F-CAL-1). Active
@@ -213,19 +213,19 @@ def propagate_systematic(
             )
         )
 
-    if sim_variance is not None:
-        sim_var = as_float_array("sim_variance", sim_variance, ndim=1)
-        if sim_var.shape != solution.shape:
-            raise ValidationError("sim_variance must match the primary axis of mu")
-        if np.any(sim_var < 0.0):
-            raise ValidationError("sim_variance must be non-negative")
-        variance += sim_var
+    if mc_variance is not None:
+        mc_var = as_float_array("mc_variance", mc_variance, ndim=1)
+        if mc_var.shape != solution.shape:
+            raise ValidationError("mc_variance must match the primary axis of mu")
+        if np.any(mc_var < 0.0):
+            raise ValidationError("mc_variance must be non-negative")
+        variance += mc_var
         components.append(
             BandComponent(
-                name="simulation_mc",
+                name="mc_variance",
                 kind="syst",
                 formula_id="F-UNC-2",
-                sigma=np.sqrt(sim_var),
+                sigma=np.sqrt(mc_var),
             )
         )
 

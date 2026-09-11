@@ -224,7 +224,9 @@ def _raw_axis(name: str, edges, unit: str):
     values = np.asarray(edges, dtype=np.float64)
     return to_TAxis(
         fName=name,
-        fTitle=f"{name} [{unit}]",
+        # D-170: fTitle is display-only and never parsed, so raw fixtures can
+        # carry a deliberately meaningless label.
+        fTitle=f"display only ({unit})",
         fNbins=values.size - 1,
         fXmin=float(values[0]),
         fXmax=float(values[-1]),
@@ -264,6 +266,7 @@ def _write_calib_raw(
     values: np.ndarray | None = None,
     x_edges=None,
     x_unit: str | None = None,
+    x_name: str = "channel",
     x_labels=None,
     drop_param_cov: bool = False,
     extra_object: str | None = None,
@@ -291,7 +294,7 @@ def _write_calib_raw(
             file[OBJ_DEPOSITION_TO_CHANNEL] = _raw_th2d(
                 OBJ_DEPOSITION_TO_CHANNEL,
                 c_values,
-                _raw_axis("channel", edges, unit),
+                _raw_axis(x_name, edges, unit),
                 y_axis,
             )
         if not drop_param_cov:
@@ -391,10 +394,11 @@ def test_duplicate_object_version_is_rejected(tmp_path: Path) -> None:
         io.read_product(path)
 
 
-def test_unknown_axis_unit_is_rejected(tmp_path: Path) -> None:
+def test_unknown_axis_name_is_rejected(tmp_path: Path) -> None:
+    """D-170: units come from the canonical fName, not the display title."""
     path = tmp_path / "c.root"
-    _write_calib_raw(path, synthetic.make_calib_product(), x_unit="parsec")
-    with pytest.raises(SchemaError, match="unknown unit"):
+    _write_calib_raw(path, synthetic.make_calib_product(), x_name="parsec")
+    with pytest.raises(SchemaError, match="unknown axis name"):
         io.read_product(path)
 
 

@@ -22,7 +22,6 @@ Spike conclusions (uproot 5.7.6, validated by ``tests/test_uproot_spike.py``):
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -38,12 +37,16 @@ from uproot.writing.identify import (
 )
 
 from kc761.errors import SchemaError, UnsupportedError
-from kc761.schema.axes import Axis
-from kc761.schema.products import META_NTUPLE_NAME, Histogram1D, Histogram2D
+from kc761.schema.axes import Axis, human_axis_title, unit_for_axis_name
+from kc761.schema.products import (
+    HUMAN_TITLES,
+    META_NTUPLE_NAME,
+    Histogram1D,
+    Histogram2D,
+)
 
 MIN_UPROOT = (5, 0)
 
-_AXIS_TITLE = re.compile(r"^(?P<name>.*?)\s*\[(?P<unit>[^\]]+)\]\s*$")
 
 
 def _check_uproot_version() -> None:
@@ -106,7 +109,7 @@ def _to_axis(axis: Axis, *, labels: Sequence[str] | None = None) -> Any:
     edges = np.asarray(axis.edges, dtype=np.float64)
     return to_TAxis(
         fName=axis.name,
-        fTitle=f"{axis.name} [{axis.unit}]",
+        fTitle=human_axis_title(axis),
         fNbins=edges.size - 1,
         fXmin=float(edges[0]),
         fXmax=float(edges[-1]),
@@ -116,29 +119,20 @@ def _to_axis(axis: Axis, *, labels: Sequence[str] | None = None) -> Any:
 
 
 def axis_from_hist(hist: Any, index: int, *, fallback_name: str) -> Axis:
-    """Read one axis back from a histogram, parsing name/unit from its title.
+    """Read one axis back from a histogram (D-170).
 
-    The writer stores ``fTitle = "<name> [<unit>]"``; a missing or malformed
-    title is a :class:`kc761.errors.SchemaError`, never a silent default.
+    The canonical name travels in ``fName``; the unit is derived from that name
+    through :data:`kc761.schema.axes.AXIS_UNITS`. ``fTitle`` is a human-readable
+    display label only and is never parsed. A missing ``fName`` is a
+    :class:`kc761.errors.SchemaError`, never a silent default.
     """
     axis = hist.axis(index)
     raw_name = axis.member("fName") if axis.has_member("fName") else None
-    title = axis.member("fTitle") if axis.has_member("fTitle") else None
-    unit: str | None = None
-    name = raw_name if isinstance(raw_name, str) and raw_name else None
-    if isinstance(title, str) and title:
-        match = _AXIS_TITLE.match(title)
-        if match is not None:
-            unit = match.group("unit")
-            if not name:
-                name = match.group("name")
-    if unit is None:
-        raise SchemaError(
-            f"axis {index} of {fallback_name!r}: axis title {title!r} is not "
-            "'<name> [<unit>]'"
-        )
+    if not isinstance(raw_name, str) or not raw_name:
+        raise SchemaError(f"axis {index} of {fallback_name!r}: missing axis name")
+    unit = unit_for_axis_name(raw_name)
     edges = np.asarray(axis.edges(), dtype=np.float64)
-    return Axis(name=name or fallback_name, edges=edges, unit=unit)
+    return Axis(name=raw_name, edges=edges, unit=unit)
 
 
 def axis_labels(hist: Any, index: int) -> tuple[str, ...] | None:
@@ -164,10 +158,11 @@ def write_hist1d(
     name: str,
     hist: Histogram1D,
     *,
-    title: str = "",
+    title: str | None = None,
 ) -> None:
     """Write a TH1D, with ``fSumw2`` when variances are present."""
     _check_uproot_version()
+    resolved_title = HUMAN_TITLES.get(name, "") if title is None else title
     values = _require_shape(hist.values, (hist.axis.n_bins,), f"{name}.values")
     variances = None
     if hist.variances is not None:
@@ -176,7 +171,7 @@ def write_hist1d(
     entries = float(values.sum())
     file[name] = to_TH1x(
         fName=None,
-        fTitle=title,
+        fTitle=resolved_title,
         data=_flow1d(values),
         fEntries=entries,
         fTsumw=entries,
@@ -193,7 +188,7 @@ def write_hist2d(
     name: str,
     hist: Histogram2D,
     *,
-    title: str = "",
+    title: str | None = None,
     x_labels: Sequence[str] | None = None,
     y_labels: Sequence[str] | None = None,
 ) -> None:
@@ -202,6 +197,7 @@ def write_hist2d(
     ``x_labels``/``y_labels`` attach TAxis bin labels (used by ``param_cov``).
     """
     _check_uproot_version()
+    resolved_title = HUMAN_TITLES.get(name, "") if title is None else title
     shape = (hist.x.n_bins, hist.y.n_bins)
     values = _require_shape(hist.values, shape, f"{name}.values")
     variances = None
@@ -212,7 +208,7 @@ def write_hist2d(
     entries = float(values.sum())
     file[name] = to_TH2x(
         fName=None,
-        fTitle=title,
+        fTitle=resolved_title,
         data=_flow2d(values),
         fEntries=entries,
         fTsumw=entries,

@@ -161,7 +161,7 @@ def test_sim_rejects_zero_events(tmp_path: Path) -> None:
         _sim(path)
 
 
-def test_sim_relative_paths_resolve_against_config(tmp_path: Path) -> None:
+def test_sim_relative_paths_resolve_against_cwd(tmp_path: Path) -> None:
     subdir = tmp_path / "nested"
     subdir.mkdir()
     absolute = tmp_path / "abs.root"
@@ -174,7 +174,7 @@ def test_sim_relative_paths_resolve_against_config(tmp_path: Path) -> None:
     )
     config = _sim(path)
     run = config.runs[0]
-    assert run.calib == subdir / "calib.root"
+    assert run.calib == Path.cwd() / "calib.root"
     assert run.output == absolute
 
 
@@ -224,7 +224,7 @@ def test_calib_defaults_and_window(tmp_path: Path) -> None:
     assert first.syst_frac == DEFAULT_SYST
     assert (second.channel_low, second.channel_high) == (3, 10)
     assert second.syst_frac == 0.25
-    assert first.data == tmp_path / "d.root"
+    assert first.data == Path.cwd() / "d.root"
 
 
 def test_calib_rejects_half_window(tmp_path: Path) -> None:
@@ -252,8 +252,8 @@ def test_compose_parses_optional_output(tmp_path: Path) -> None:
         'config_version = 1\n[compose]\ncalib = "c.root"\nsim = "s.root"\n',
     )
     config = load_compose_config(path)
-    assert config.calib == tmp_path / "c.root"
-    assert config.sim == tmp_path / "s.root"
+    assert config.calib == Path.cwd() / "c.root"
+    assert config.sim == Path.cwd() / "s.root"
     assert config.output is None
     assert config.force is False
 
@@ -284,7 +284,7 @@ def test_unfold_full_parses(tmp_path: Path) -> None:
     assert config.energy_high_kev == 1500.0
     assert config.alpha == 0.5
     assert config.difference_order == 2
-    assert config.sim == tmp_path / "s.root"
+    assert config.sim == Path.cwd() / "s.root"
 
 
 def test_unfold_calib_only_rejects_alpha(tmp_path: Path) -> None:

@@ -1,19 +1,26 @@
-# kc761 unfold example (D-139): one unfold operation.
-#
-# Full mode requires data, calib, sim, the energy window and alpha. Set
-# calib_only = true to relabel the channel axis to energy instead: then sim,
-# alpha, energy_low and energy_high must be omitted. When `output` is omitted
-# the default is out/unfold/unfold-<data-stem>-<sim-stem>-a<alpha>.root.
+# kc761 unfold config (D-139/D-154/D-169).
+# Full mode: needs data, calib, sim, the energy window and alpha.
+# calib_only = true: relabel the channel axis to energy; omit sim/alpha/energy_low/energy_high.
 config_version = 1
 
 [unfold]
-data = "out/csv2root/am241.root"
-calib = "out/calib/calib-am241.root"
-sim = "out/sim/calib-am241-plane-front-gamma-n10000000-s908136382.root"
-energy_low = 30.0
-energy_high = 1500.0
-alpha = 0.01
-difference_order = 2
-pad_nsigma = 5.0
-syst_frac = 0.10
-no_plot = false
+data = "work/data/2609a/th232-260908-subbkg.root"
+calib = "work/calib/calib-2609a.root"
+sim = "work/sim/calib-2609a-plane-front-gamma-n100000000-s908136382.root"
+energy_low = 40.0
+energy_high = 2800.0
+alpha = 0.1
+syst_frac = 0.05
+# calib_only = false
+# difference_order = 2
+# pad_nsigma = 5.0
+# snip_enabled = true
+# snip_threshold = 5.0
+# snip_protect = 2.0
+# snip_floor = 0.1
+# snip_iterations = 8       # default: resolution-derived, capped by snip_max_iterations
+# snip_max_iterations = 8
+# output = "..."            # default under work/unfold/
+# no_plot = false
+# force = false
+# dry_run = false

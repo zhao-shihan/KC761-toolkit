@@ -1,11 +1,9 @@
-# kc761 compose example (D-139): compose R = C . p_tilde . diag(eta) once.
-#
-# `calib` is a calibration product and `sim` is a matrix-mode simulation
-# product. When `output` is omitted the default is
-# out/compose/compose-<calib-stem>-<sim-stem>.root.
+# kc761 compose config (D-139/D-166).
 config_version = 1
 
 [compose]
-calib = "out/calib/calib-am241.root"
-sim = "out/sim/calib-am241-plane-front-gamma-n10000000-s908136382.root"
-# output = "out/compose/custom.root"
+calib = "work/calib/calib-2609a.root"
+sim = "work/sim/calib-2609a-plane-front-gamma-n100000000-s908136382.root"
+# output = "..."    # default: next to the --sim input
+# force = false
+# dry_run = false

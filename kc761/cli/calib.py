@@ -25,6 +25,7 @@ from kc761.cli._common import (
 from kc761.cli.config import load_calib_config
 from kc761.errors import SchemaError, UsageError
 from kc761.runtime import configure_logging
+from kc761.schema.io import validate_output_path
 
 _RUN_ARG_DEFAULTS: dict[str, object] = {
     "data": None,
@@ -74,6 +75,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         metavar="NAME",
         help="dataset label (plot titles, scale parameter names); repeat per dataset",
     )
+    add_channel_window(parser, required=False)
     parser.add_argument(
         "--syst-frac",
         "--syst",
@@ -84,10 +86,9 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         metavar="FRAC",
         help=(
             "per-bin fractional systematic uncertainty (0.05 = 5%%); single "
-            "value or one per dataset (default 0.10, formula F-CAL-1)"
+            "value or one per dataset (default 0.05 = 5%%, formula F-CAL-1)"
         ),
     )
-    add_channel_window(parser, required=False)
     parser.add_argument(
         "--max-iter",
         type=int,
@@ -101,6 +102,21 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         default=None,
         metavar="TOL",
         help="positive convergence tolerance for ftol/xtol/gtol (default: FitSettings)",
+    )
+    parser.set_defaults(progress_enabled=True)
+    parser.add_argument(
+        "--progress-every",
+        dest="progress_every",
+        type=float,
+        default=1.0,
+        metavar="SECONDS",
+        help="fit progress line interval in seconds (default 1; 0 = every evaluation)",
+    )
+    parser.add_argument(
+        "--no-progress",
+        dest="progress_enabled",
+        action="store_false",
+        help="disable the fit summary and progress lines",
     )
     add_output_options(parser)
     add_config_options(parser)
@@ -129,6 +145,11 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     if args.dry_run:
         _print_dry_run(args.data, args.mc, args.label, output)
         return 0
+    validate_output_path(output, force=args.force)
+    if not args.no_plot:
+        validate_output_path(Path(output).with_suffix(".pdf"), force=args.force)
+    hints = [(label, args.channel_low, args.channel_high) for label in args.label]
+    progress = _progress_printer(hints, settings) if args.progress_enabled else None
     specs = tuple(
         _build_spec(
             data_path=args.data[index],
@@ -147,6 +168,8 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
         force=args.force,
         no_plot=args.no_plot,
         settings=settings,
+        progress=progress,
+        progress_every_s=args.progress_every,
         strict=strict,
         logger=configure_logging("calib", args.log_level),
         arguments=argv_arguments(args.argv),
@@ -167,6 +190,14 @@ def _run_config(args: argparse.Namespace, *, strict: bool) -> int:
             output,
         )
         return 0
+    force = bool(args.force or config.force)
+    validate_output_path(output, force=force)
+    if not config.no_plot:
+        validate_output_path(Path(output).with_suffix(".pdf"), force=force)
+    hints = [
+        (entry.label, entry.channel_low, entry.channel_high) for entry in config.datasets
+    ]
+    progress = _progress_printer(hints, None) if args.progress_enabled else None
     specs = tuple(
         _build_spec(
             data_path=entry.data,
@@ -182,9 +213,11 @@ def _run_config(args: argparse.Namespace, *, strict: bool) -> int:
     return _execute(
         specs,
         output=output,
-        force=bool(args.force or config.force),
+        force=force,
         no_plot=config.no_plot,
         settings=None,
+        progress=progress,
+        progress_every_s=args.progress_every,
         strict=strict,
         logger=configure_logging("calib", args.log_level),
         arguments=argv_arguments(args.argv),
@@ -282,6 +315,46 @@ def _print_dry_run(
     print(f"  output={output}")
 
 
+def _progress_printer(hints, settings):
+    """Return a callback printing the pre-fit summary and periodic progress."""
+    from kc761.calib.types import FitProgress, FitSettings
+
+    resolved = settings if settings is not None else FitSettings()
+
+    def printer(event: FitProgress) -> None:
+        if event.nfev == 0:
+            joined = ", ".join(
+                f"{label} "
+                f"[{lo if lo is not None else 'full'}-{hi if hi is not None else 'full'}]"
+                for label, lo, hi in hints
+            )
+            print(f"[calib] fitting {event.n_datasets} dataset(s): {joined}", flush=True)
+            print(
+                f"[calib] free parameters {event.n_free}, fitted bins {event.n_bins}, "
+                f"dof {event.dof}",
+                flush=True,
+            )
+            print(
+                f"[calib] optimizer maxiter={resolved.maxiter} "
+                f"tol=({resolved.ftol:g},{resolved.xtol:g},{resolved.gtol:g})",
+                flush=True,
+            )
+            print(
+                f"[calib] initial chi2/dof = {event.chi2:.6g} / {event.dof} "
+                f"= {event.reduced_chi2:.6g}",
+                flush=True,
+            )
+            return
+        print(
+            f"[calib] fit iter {event.nfev}: chi2/dof = {event.chi2:.6g} / "
+            f"{event.dof} = {event.reduced_chi2:.6g} "
+            f"({event.ms_per_eval:.2f} ms/eval, {event.elapsed_s:.1f}s)",
+            flush=True,
+        )
+
+    return printer
+
+
 def _execute(
     specs,
     *,
@@ -289,6 +362,8 @@ def _execute(
     force: bool,
     no_plot: bool,
     settings,
+    progress,
+    progress_every_s: float,
     strict: bool,
     logger,
     arguments,
@@ -302,6 +377,8 @@ def _execute(
         force=force,
         strict=strict,
         settings=settings,
+        progress=progress,
+        progress_every_s=progress_every_s,
         plot=not no_plot,
         plot_force=force,
         command="kc761 calib",

@@ -66,6 +66,26 @@ class FitSettings:
 
 
 @dataclass(frozen=True)
+class FitProgress:
+    """Progress event emitted by :func:`kc761.calib.fit.run_fit` (D-168).
+
+    ``nfev == 0`` marks the pre-fit summary event; positive values are
+    time-cadenced progress reports and the final event. ``ms_per_eval`` is the
+    mean wall time per objective evaluation so far.
+    """
+
+    nfev: int
+    chi2: float
+    dof: int
+    reduced_chi2: float
+    elapsed_s: float
+    ms_per_eval: float
+    n_free: int
+    n_bins: int
+    n_datasets: int
+
+
+@dataclass(frozen=True)
 class ScaleResult:
     """One dataset's fitted quadratic-Bezier scale (F-CAL-2)."""
 

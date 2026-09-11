@@ -54,7 +54,7 @@ def test_full_product_roundtrip_settings_and_provenance(tmp_path: Path) -> None:
         data_path,
         calib_path,
         sim_path,
-        energy_low_kev=WINDOW[0],
+        snip_enabled=False, energy_low_kev=WINDOW[0],
         energy_high_kev=WINDOW[1],
         alpha=ALPHA,
         output=output,
@@ -65,7 +65,7 @@ def test_full_product_roundtrip_settings_and_provenance(tmp_path: Path) -> None:
     product = read_product(output, strict=True)
     assert product.mode == UNFOLD_MODE_FULL
     assert dict(product.settings).keys() == set(UNFOLD_SETTING_TYPES)
-    assert len(product.settings) == 11
+    assert len(product.settings) == len(UNFOLD_SETTING_TYPES)
     assert product.sigma_statistical is not None
     assert product.sigma_total is not None
     assert np.allclose(
@@ -83,7 +83,7 @@ def test_calib_only_relabels_axis_without_touching_counts(tmp_path: Path) -> Non
     result = run_unfold(
         data_path,
         calib_path,
-        energy_low_kev=WINDOW[0],
+        snip_enabled=False, energy_low_kev=WINDOW[0],
         energy_high_kev=WINDOW[1],
         calib_only=True,
         output=output,
@@ -124,7 +124,7 @@ def test_calib_only_rejects_mismatched_channel_axis(tmp_path: Path) -> None:
         run_unfold(
             wrong_path,
             calib_path,
-            energy_low_kev=WINDOW[0],
+            snip_enabled=False, energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             calib_only=True,
             plot=False,
@@ -141,7 +141,7 @@ def test_full_unfold_requires_alpha_and_sim(tmp_path: Path) -> None:
             data_path,
             calib_path,
             sim_path,
-            energy_low_kev=WINDOW[0],
+            snip_enabled=False, energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             plot=False,
         )
@@ -149,7 +149,7 @@ def test_full_unfold_requires_alpha_and_sim(tmp_path: Path) -> None:
         run_unfold(
             data_path,
             calib_path,
-            energy_low_kev=WINDOW[0],
+            snip_enabled=False, energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             alpha=ALPHA,
             plot=False,
@@ -166,7 +166,7 @@ def test_window_outside_primary_axis_is_rejected(tmp_path: Path) -> None:
             data_path,
             calib_path,
             sim_path,
-            energy_low_kev=-10.0,
+            snip_enabled=False, energy_low_kev=-10.0,
             energy_high_kev=200.0,
             alpha=ALPHA,
             plot=False,
@@ -182,7 +182,7 @@ def test_wrong_data_product_kind_is_rejected(tmp_path: Path) -> None:
             sim_path,
             calib_path,
             sim_path,
-            energy_low_kev=WINDOW[0],
+            snip_enabled=False, energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             alpha=ALPHA,
             plot=False,
@@ -199,7 +199,7 @@ def test_report_and_plot_are_written_and_plot_refuses_overwrite(tmp_path: Path) 
         data_path,
         calib_path,
         sim_path,
-        energy_low_kev=WINDOW[0],
+        snip_enabled=False, energy_low_kev=WINDOW[0],
         energy_high_kev=WINDOW[1],
         alpha=ALPHA,
         output=output,
@@ -214,11 +214,44 @@ def test_report_and_plot_are_written_and_plot_refuses_overwrite(tmp_path: Path) 
             data_path,
             calib_path,
             sim_path,
-            energy_low_kev=WINDOW[0],
+            snip_enabled=False, energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             alpha=ALPHA,
             output=output,
             force=True,
             strict=True,
+            plot=True,
+        )
+
+
+def test_unfold_validates_output_before_reading_inputs(tmp_path: Path) -> None:
+    """D-171: the overwrite check runs before any product is opened."""
+    target = tmp_path / "u.root"
+    target.write_text("existing")
+    with pytest.raises(UsageError, match="refusing to overwrite"):
+        run_unfold(
+            "missing-d.root",
+            "missing-c.root",
+            "missing-s.root",
+            energy_low_kev=1.0,
+            energy_high_kev=2.0,
+            alpha=0.1,
+            output=target,
+            plot=False,
+        )
+
+
+def test_unfold_validates_figure_target_before_inputs(tmp_path: Path) -> None:
+    product = tmp_path / "u.root"
+    (tmp_path / "u.pdf").write_text("existing figure")
+    with pytest.raises(UsageError, match="refusing to overwrite"):
+        run_unfold(
+            "missing-d.root",
+            "missing-c.root",
+            "missing-s.root",
+            energy_low_kev=1.0,
+            energy_high_kev=2.0,
+            alpha=0.1,
+            output=product,
             plot=True,
         )

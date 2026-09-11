@@ -71,6 +71,10 @@ OBJ_MC_SPECTRUM: Final = "kc761_mc_spectrum"
 #: Object collection per dispatch key. The set on disk must match exactly
 #: (no extra, no missing object; W2 decision 6).
 OBJECT_NAMES: Final[dict[str, tuple[str, ...]]] = {
+    # Pipeline order: measured/simulated spectra, calibration, simulation
+    # matrix, composed response, unfolded results.
+    "spectrum": (OBJ_SPECTRUM, META_NTUPLE_NAME),
+    "mc_spectrum": (OBJ_MC_SPECTRUM, META_NTUPLE_NAME),
     "calib": (OBJ_DEPOSITION_TO_CHANNEL, OBJ_PARAM_COV, META_NTUPLE_NAME),
     "sim": (OBJ_PRIMARY_TO_DEPOSITION, OBJ_PRIMARY_COLUMN_TOTALS, META_NTUPLE_NAME),
     "compose": (
@@ -90,19 +94,35 @@ OBJECT_NAMES: Final[dict[str, tuple[str, ...]]] = {
         META_NTUPLE_NAME,
     ),
     "unfold_calib_only": (OBJ_SPECTRUM_CALIBRATED, META_NTUPLE_NAME),
-    "spectrum": (OBJ_SPECTRUM, META_NTUPLE_NAME),
-    "mc_spectrum": (OBJ_MC_SPECTRUM, META_NTUPLE_NAME),
 }
+
+HUMAN_TITLES: Final[dict[str, str]] = {
+    OBJ_DEPOSITION_TO_CHANNEL: "Deposition to channel response",
+    OBJ_PARAM_COV: "Parameter covariance",
+    OBJ_PRIMARY_TO_DEPOSITION: "Primary to deposition counts",
+    OBJ_PRIMARY_COLUMN_TOTALS: "Primary column totals",
+    OBJ_RESPONSE_MATRIX: "Response matrix",
+    OBJ_PRIMARY_EFFICIENCY: "Primary efficiency",
+    OBJ_SPECTRUM_UNFOLDED: "Unfolded spectrum",
+    OBJ_SIGMA_STATISTICAL: "Statistical uncertainty",
+    OBJ_SIGMA_SYSTEMATIC: "Systematic uncertainty",
+    OBJ_SIGMA_TOTAL: "Total uncertainty",
+    OBJ_SPECTRUM_REFOLDED: "Refolded spectrum",
+    OBJ_SPECTRUM_CALIBRATED: "Calibrated spectrum",
+    OBJ_SPECTRUM: "Measured spectrum",
+    OBJ_MC_SPECTRUM: "Simulated source spectrum",
+}
+"""Human-readable ROOT object titles, keyed by the frozen object names (D-170)."""
 
 #: ``product_kind`` value written for each dispatch key.
 PRODUCT_KIND_FOR_DISPATCH: Final[dict[str, str]] = {
+    "spectrum": PRODUCT_KIND_SPECTRUM,
+    "mc_spectrum": PRODUCT_KIND_MC_SPECTRUM,
     "calib": PRODUCT_KIND_CALIB,
     "sim": PRODUCT_KIND_SIM,
     "compose": PRODUCT_KIND_COMPOSE,
     "unfold": PRODUCT_KIND_UNFOLD,
     "unfold_calib_only": PRODUCT_KIND_UNFOLD,
-    "spectrum": PRODUCT_KIND_SPECTRUM,
-    "mc_spectrum": PRODUCT_KIND_MC_SPECTRUM,
 }
 
 # --- meta field names (single source) -------------------------------------
@@ -152,6 +172,18 @@ META_CHI2: Final = "chi2"
 META_DOF: Final = "dof"
 META_COVARIANCE_SCALE: Final = "covariance_scale"
 
+# SNIP peak-mask settings (D-154..D-161); enabled is recorded as int (0/1).
+META_SNIP_ENABLED: Final = "snip_enabled"
+META_SNIP_ITERATIONS: Final = "snip_iterations"
+META_SNIP_MAX_ITERATIONS: Final = "snip_max_iterations"
+META_SNIP_THRESHOLD_SIGMA: Final = "snip_threshold_sigma"
+META_SNIP_PROTECT_SIGMA: Final = "snip_protect_sigma"
+META_SNIP_FLOOR: Final = "snip_floor"
+META_SNIP_CLIPPED_BINS: Final = "snip_clipped_bins"
+META_SNIP_CLIPPED_INDEX_RANGE: Final = "snip_clipped_index_range"
+META_SNIP_BASELINE_SHA256: Final = "snip_baseline_sha256"
+META_SNIP_MASK_SHA256: Final = "snip_mask_sha256"
+
 META_DAQ_TIME_S: Final = "daq_time_s"
 META_SOURCE_FILE: Final = "source_file"
 META_SOURCE_KEY: Final = "source_key"
@@ -178,6 +210,16 @@ UNFOLD_SETTING_TYPES: Final[dict[str, type]] = {
     META_CHANNEL_HIGH: int,
     META_PAD_NSIGMA: float,
     META_SYST_FRAC: float,
+    META_SNIP_ENABLED: int,
+    META_SNIP_THRESHOLD_SIGMA: float,
+    META_SNIP_PROTECT_SIGMA: float,
+    META_SNIP_FLOOR: float,
+    META_SNIP_ITERATIONS: int,
+    META_SNIP_MAX_ITERATIONS: int,
+    META_SNIP_CLIPPED_BINS: int,
+    META_SNIP_CLIPPED_INDEX_RANGE: str,
+    META_SNIP_BASELINE_SHA256: str,
+    META_SNIP_MASK_SHA256: str,
     META_CHI2: float,
     META_DOF: int,
     META_COVARIANCE_SCALE: float,

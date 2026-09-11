@@ -27,7 +27,7 @@ with `SchemaError`.
   * `primary_to_deposition`: x deposition energy, y primary energy.
   * `response_matrix`: x channel, y primary energy.
 * Units are part of key names (`energy_kev`, `daq_time_s`, `z_mm`); matrices
-  carry units in their axis titles as well.
+  carry units in their human-readable axis titles as well.
 * No unit conversion happens in the schema layer: arrays are stored in the
   units named by their keys.
 
@@ -105,13 +105,21 @@ no missing and no extra field (`SchemaError` otherwise). The complete list:
 * unfold: `mode` (str, `unfold` or `calib_only`), `alpha` (float),
   `difference_order` (int), `energy_low_kev`, `energy_high_kev` (float),
   `channel_low`, `channel_high` (int), `pad_nsigma` (float), `syst_frac`
-  (float), `chi2` (float), `dof` (int), `covariance_scale` (float). The
+  (float), then the SNIP mask settings `snip_enabled` (int 0/1, default 1,
+  D-154), `snip_threshold_sigma` (float, default 5.0), `snip_protect_sigma`
+  (float, default 2.0), `snip_floor` (float, default 0.1), `snip_iterations`
+  (int, resolution-derived per run, D-157), `snip_max_iterations` (int,
+  default 8), `snip_clipped_bins` (int), `snip_clipped_index_range` (str),
+  `snip_baseline_sha256` (str), `snip_mask_sha256` (str), and finally the
+  diagnostics `chi2` (float), `dof` (int), `covariance_scale` (float). The
   `calib_only` variant carries only the common fields plus `mode`. Per D-118,
   `chi2` is the weighted residual sum of squares over the solver rows,
   `dof = n_fit_rows - n_active` (the number of strictly positive solution bins)
   may be zero or negative for a heavily regularized problem, and
   `covariance_scale` is fixed to `1.0` (the analytic F-UNC-1/F-UNC-2 bands are
-  never rescaled).
+  never rescaled). When the SNIP mask is enabled the reported bands are
+  conditional on the realised mask (D-159) and the baseline/mask hashes pin the
+  exact solve.
 * spectrum: `daq_time_s` (float), `source_file` (str).
 * mc_spectrum: `source_key` (str), `mode_name` (str), `geometry_name` (str),
   `geometry_param_mm` (float), `n_events` (int), `seed` (int), `workers` (int)
@@ -165,9 +173,11 @@ Verified with `uproot 5.7.6`, `numpy 2.5.3`, Python 3.14.7 (the code targets
    requires ROOT >= 6.30 (uproot is unaffected).
 7. TAxis bin labels are writable through
    `uproot.writing.identify.to_THashList` / `to_TObjString`; `param_cov` uses
-   them for `c0 c1 c2 c3 b0 b1 b2`. Axis name and unit travel in the axis
-   `fTitle` as `"<name> [<unit>]"` and are parsed back by
-   `kc761/schema/_uproot.py`. **Reading variances uses the raw `fSumw2`
+   them for `c0 c1 c2 c3 b0 b1 b2`. The canonical axis name travels in the axis
+   `fName` and its unit is derived from that name through
+   `kc761.schema.axes.AXIS_UNITS`; the axis `fTitle` is a human-readable display
+   label (`Energy (keV)`, `Channel`) and is never parsed (D-170). ROOT object
+   titles are human-readable as well (`HUMAN_TITLES`). **Reading variances uses the raw `fSumw2`
    buffer, not `errors()**2`, so `write -> read` is bit exact.**
 
 Constraints respected in W2: `meta` fields all have length 1; variable length
@@ -187,7 +197,9 @@ and `--dry-run`; `csv2root` and `subbkg` take no config file (D-129).
 
 ### 7.2 Default outputs (D-19/D-138)
 
-When `-o/--output` is omitted the product is written under `out/<command>/`:
+When `-o/--output` is omitted the product is written under `work/<command>`
+(except `csv2root`/`subbkg`, D-165, and `compose`, D-166, which default next
+to their input):
 
 | Command | Default file name |
 |---------|-------------------|

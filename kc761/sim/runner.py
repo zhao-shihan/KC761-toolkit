@@ -44,7 +44,12 @@ from kc761.schema.axes import (
     PRIMARY_AXIS_NAME,
     energy_axis,
 )
-from kc761.schema.io import build_provenance, read_product, write_product
+from kc761.schema.io import (
+    build_provenance,
+    read_product,
+    validate_output_path,
+    write_product,
+)
 from kc761.schema.products import (
     SCHEMA_VERSION,
     CalibProduct,
@@ -448,6 +453,7 @@ def run_matrix(
     D-121 revision; the fixed source-mode Monte-Carlo axis is used only by the
     source-mode ``mc_spectrum``.
     """
+    validate_output_path(output, force=force)
     if n_events <= 0:
         raise UsageError(f"n_events must be positive, got {n_events!r}")
     source = _matrix_source(mode)
@@ -579,6 +585,7 @@ def run_source(
     extra_inputs: Sequence[str | Path] = (),
 ) -> Path:
     """Run the radioactive-source mode and write an ``mc_spectrum`` (D-120)."""
+    validate_output_path(output, force=force)
     if n_events <= 0:
         raise UsageError(f"n_events must be positive, got {n_events!r}")
     spec = get_source(source_key)

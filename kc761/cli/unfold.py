@@ -23,8 +23,16 @@ from kc761.cli._common import (
     reject_run_options,
 )
 from kc761.cli.config import UnfoldConfig, load_unfold_config
+from kc761.core.solver import (
+    DEFAULT_SNIP_FLOOR,
+    DEFAULT_SNIP_MAX_ITERATIONS,
+    DEFAULT_SNIP_PROTECT_SIGMA,
+    DEFAULT_SNIP_THRESHOLD_SIGMA,
+)
+from kc761.core.uncertainty import DEFAULT_SYST_FRAC
 from kc761.errors import UsageError
 from kc761.runtime import configure_logging
+from kc761.schema.io import validate_output_path
 
 _RUN_ARG_DEFAULTS: dict[str, object] = {
     "data": None,
@@ -36,7 +44,7 @@ _RUN_ARG_DEFAULTS: dict[str, object] = {
     "alpha": None,
     "difference_order": 2,
     "pad_nsigma": 5.0,
-    "syst_frac": 0.10,
+    "syst_frac": DEFAULT_SYST_FRAC,
     "output": None,
     "no_plot": False,
 }
@@ -113,9 +121,62 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         "--syst",
         dest="syst_frac",
         type=float,
-        default=0.10,
+        default=DEFAULT_SYST_FRAC,
         metavar="FRAC",
-        help="data-side fractional systematic uncertainty (default 0.10)",
+        help=f"data-side fractional systematic uncertainty (default {DEFAULT_SYST_FRAC:g})",
+    )
+    parser.set_defaults(snip_enabled=True)
+    parser.add_argument(
+        "--snip",
+        dest="snip_enabled",
+        action="store_true",
+        help="enable the SNIP peak mask (default)",
+    )
+    parser.add_argument(
+        "--no-snip",
+        dest="snip_enabled",
+        action="store_false",
+        help="disable the SNIP peak mask",
+    )
+    parser.add_argument(
+        "--snip-threshold",
+        dest="snip_threshold_sigma",
+        type=float,
+        default=DEFAULT_SNIP_THRESHOLD_SIGMA,
+        metavar="SIGMA",
+        help="peak significance threshold in sigma (default 5)",
+    )
+    parser.add_argument(
+        "--snip-protect",
+        dest="snip_protect_sigma",
+        type=float,
+        default=DEFAULT_SNIP_PROTECT_SIGMA,
+        metavar="SIGMA",
+        help="protective half-width around a peak in resolution sigmas (default 2)",
+    )
+    parser.add_argument(
+        "--snip-floor",
+        dest="snip_floor",
+        type=float,
+        default=DEFAULT_SNIP_FLOOR,
+        metavar="W",
+        help="penalty weight floor on protected peak bins (default 0.1)",
+    )
+    parser.add_argument(
+        "--snip-iterations",
+        dest="snip_iterations",
+        type=int,
+        default=None,
+        metavar="M",
+        help="SNIP iteration count override (default: resolution-derived)",
+    )
+    parser.add_argument(
+        "--snip-max-iterations",
+        dest="snip_max_iterations",
+        type=int,
+        default=DEFAULT_SNIP_MAX_ITERATIONS,
+        metavar="M",
+        help="cap for the resolution-derived SNIP iteration count (default 8)",
     )
     add_output_options(parser)
     add_config_options(parser)
@@ -127,13 +188,16 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     logger = configure_logging("unfold", args.log_level)
     if args.config is not None:
         reject_run_options(args, _RUN_ARG_DEFAULTS, command="unfold")
-        config = load_unfold_config(args.config, default_syst_frac=0.10)
+        config = load_unfold_config(args.config, default_syst_frac=DEFAULT_SYST_FRAC)
         output = _output(
             config.output, Path(config.data), config.sim, config.alpha, config.calib_only
         )
         if args.dry_run or config.dry_run:
             _print_dry_run(config, output)
             return 0
+        _validate_outputs(
+            output, bool(args.force or config.force), plot=not config.no_plot
+        )
         return _execute(
             data=config.data,
             calib=config.calib,
@@ -145,6 +209,12 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
             difference_order=config.difference_order,
             pad_nsigma=config.pad_nsigma,
             syst_frac=config.syst_frac,
+            snip_enabled=config.snip_enabled,
+            snip_threshold_sigma=config.snip_threshold_sigma,
+            snip_protect_sigma=config.snip_protect_sigma,
+            snip_floor=config.snip_floor,
+            snip_iterations=config.snip_iterations,
+            snip_max_iterations=config.snip_max_iterations,
             output=output,
             force=bool(args.force or config.force),
             no_plot=config.no_plot,
@@ -185,6 +255,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     if args.dry_run:
         _print_args_dry_run(args, output)
         return 0
+    _validate_outputs(output, args.force, plot=not args.no_plot)
     return _execute(
         data=args.data,
         calib=args.calib,
@@ -196,6 +267,12 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
         difference_order=args.difference_order,
         pad_nsigma=args.pad_nsigma,
         syst_frac=args.syst_frac,
+        snip_enabled=args.snip_enabled,
+        snip_threshold_sigma=args.snip_threshold_sigma,
+        snip_protect_sigma=args.snip_protect_sigma,
+        snip_floor=args.snip_floor,
+        snip_iterations=args.snip_iterations,
+        snip_max_iterations=args.snip_max_iterations,
         output=output,
         force=args.force,
         no_plot=args.no_plot,
@@ -273,6 +350,13 @@ def _print_args_dry_run(args: argparse.Namespace, output: Path) -> None:
     print(f"  output={output}")
 
 
+def _validate_outputs(output: Path, force: bool, *, plot: bool) -> None:
+    """Fail fast on an unusable product or figure target (D-171)."""
+    validate_output_path(output, force=force)
+    if plot:
+        validate_output_path(Path(output).with_suffix(".pdf"), force=force)
+
+
 def _execute(
     *,
     data,
@@ -285,6 +369,12 @@ def _execute(
     difference_order: int,
     pad_nsigma: float,
     syst_frac: float,
+    snip_enabled: bool,
+    snip_threshold_sigma: float,
+    snip_protect_sigma: float,
+    snip_floor: float,
+    snip_iterations: int | None,
+    snip_max_iterations: int,
     output: Path,
     force: bool,
     no_plot: bool,
@@ -305,6 +395,12 @@ def _execute(
         difference_order=difference_order,
         pad_nsigma=pad_nsigma,
         syst_frac=syst_frac,
+        snip_enabled=snip_enabled,
+        snip_threshold_sigma=snip_threshold_sigma,
+        snip_protect_sigma=snip_protect_sigma,
+        snip_floor=snip_floor,
+        snip_iterations=snip_iterations,
+        snip_max_iterations=snip_max_iterations,
         calib_only=calib_only,
         output=output,
         force=force,
