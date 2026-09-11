@@ -403,7 +403,7 @@ n_{\text{active}} = \lbrace k : \mu_k > 0 \rbrace,
 \mathrm{dof} = \lvert F \rvert - n_{\text{active}},
 $$
 
-with $`\texttt{covariance\\_scale} = 1`$.
+with $`\texttt{covariance\_scale} = 1`$.
 
 `covariance_scale` is fixed at one because the unfold reports the analytic
 first-order propagation and never rescales it by a reduced chi-square. `dof`
@@ -567,7 +567,7 @@ Three contributions, all first-order at fixed active set.
 
 **Data-side `syst_frac`** (default 0.05, D-169) is the same linearization as
 F-UNC-1 with
-$`\Sigma = \mathrm{diag}\big((\texttt{syst\\_frac}\cdot y)^2\big)`$.
+$`\Sigma = \mathrm{diag}\big((\texttt{syst\_frac}\cdot y)^2\big)`$.
 
 **Calibration.** With $`Q_k = \partial R/\partial q_k`$ from F-RESP-4, the
 half-gradient derivative is the **full** expression
@@ -773,7 +773,7 @@ $$
 \mathrm{cov}_{\text{reported}} = T \mathrm{cov}_{\text{core}} T^{\mathsf{T}},
 $$
 
-with $`T = \mathrm{diag}\big(\texttt{internal\\_jacobian}(\mathrm{ch}_{\max}), I_3\big)`$.
+with $`T = \mathrm{diag}\big(\texttt{internal\_jacobian}(\mathrm{ch}_{\max}), I_3\big)`$.
 
 The Schur complement $`F_{cc} - F_{cs}F_{ss}^{+}F_{sc}`$ is the $(c,c)$ block of
 $F^{-1}$, i.e. the scale **marginalized** rather than fixed; $`F_{ss}^{+}`$ is the
