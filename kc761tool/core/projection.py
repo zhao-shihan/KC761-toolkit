@@ -107,8 +107,7 @@ def project(
             f"values has {values_array.size} bins, projection plan expects {n_source}"
         )
     if plan.weights.shape[1] != n_source:
-        raise ValidationError(
-            "projection plan weights do not match the source edges")
+        raise ValidationError("projection plan weights do not match the source edges")
     projected = np.asarray(plan.weights @ values_array, dtype=np.float64)
     if variances is None:
         return projected, None
@@ -117,6 +116,5 @@ def project(
         raise ValidationError("variances and values must have the same shape")
     if np.any(variances_array < 0.0):
         raise ValidationError("variances must be non-negative")
-    propagated = np.asarray(plan.weights.power(
-        2) @ variances_array, dtype=np.float64)
+    propagated = np.asarray(plan.weights.power(2) @ variances_array, dtype=np.float64)
     return projected, propagated

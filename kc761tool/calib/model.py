@@ -177,11 +177,9 @@ class CalibrationModel:
             )
         self.n_channels = int(next(iter(n_channels)))
         inferred = float(self.n_channels - 1)
-        self.channel_max = inferred if channel_max is None else float(
-            channel_max)
+        self.channel_max = inferred if channel_max is None else float(channel_max)
         if not np.isfinite(self.channel_max) or self.channel_max <= 0.0:
-            raise ValidationError(
-                f"channel_max must be positive and finite, got {channel_max!r}")
+            raise ValidationError(f"channel_max must be positive and finite, got {channel_max!r}")
         if self.channel_max < inferred:
             raise ValidationError(
                 f"channel_max={self.channel_max!r} is below the last channel index {inferred}"
@@ -206,8 +204,7 @@ class CalibrationModel:
         )
         self.bounds = self._build_bounds()
         self.x0 = self._build_start()
-        self.n_bins = int(
-            sum(spec.channel_high - spec.channel_low + 1 for spec in specs))
+        self.n_bins = int(sum(spec.channel_high - spec.channel_low + 1 for spec in specs))
         self.n_free = N_CORE + N_SCALE * len(specs)
         self.dof = self.n_bins - self.n_free
         if self.dof < 1:
@@ -245,18 +242,13 @@ class CalibrationModel:
             raise ValidationError(
                 f"dataset {spec.label!r}: data spectrum has no fSumw2 variance buffer"
             )
-        values = as_float_array(
-            f"{spec.label}.data.counts", data.values, ndim=1)
-        variances = as_float_array(
-            f"{spec.label}.data.variances", data.variances, ndim=1)
+        values = as_float_array(f"{spec.label}.data.counts", data.values, ndim=1)
+        variances = as_float_array(f"{spec.label}.data.variances", data.variances, ndim=1)
         if np.any(variances < 0.0):
-            raise ValidationError(
-                f"dataset {spec.label!r}: data variances must be non-negative")
-        mc_values = as_float_array(
-            f"{spec.label}.mc.counts", mc.values, ndim=1)
+            raise ValidationError(f"dataset {spec.label!r}: data variances must be non-negative")
+        mc_values = as_float_array(f"{spec.label}.mc.counts", mc.values, ndim=1)
         if np.any(mc_values < 0.0):
-            raise ValidationError(
-                f"dataset {spec.label!r}: MC counts must be non-negative")
+            raise ValidationError(f"dataset {spec.label!r}: MC counts must be non-negative")
         if not np.array_equal(mc.axis.edges, self.fixed_edges):
             raise ValidationError(
                 f"dataset {spec.label!r}: MC spectrum must use the fixed source-mode "
@@ -265,15 +257,13 @@ class CalibrationModel:
         if mc.variances is None:
             mc_var = np.maximum(mc_values, 0.0)
         else:
-            mc_var = as_float_array(
-                f"{spec.label}.mc.variances", mc.variances, ndim=1)
+            mc_var = as_float_array(f"{spec.label}.mc.variances", mc.variances, ndim=1)
             if np.any(mc_var < 0.0):
-                raise ValidationError(
-                    f"dataset {spec.label!r}: MC variances must be non-negative")
+                raise ValidationError(f"dataset {spec.label!r}: MC variances must be non-negative")
         # Keep the window quantities the model actually fits: the scale curve
         # and the folded model are window-sized, so the data side must be too.
-        self.data_counts.append(values[low: high + 1])
-        self.stat_variance.append(np.maximum(variances[low: high + 1], 1.0))
+        self.data_counts.append(values[low : high + 1])
+        self.stat_variance.append(np.maximum(variances[low : high + 1], 1.0))
         self.mc_counts.append(mc_values)
         self.mc_variance_source.append(mc_var)
         self.syst_frac.append(float(spec.syst_frac))
@@ -312,8 +302,7 @@ class CalibrationModel:
         projection = cache.datasets[index]
         model = projection.model_counts
         data = self.data_counts[index]
-        variance = self.stat_variance[index] + \
-            (self.syst_frac[index] * data) ** 2
+        variance = self.stat_variance[index] + (self.syst_frac[index] * data) ** 2
         fallback = self.initial_scales[index]
         size = model.size
         edges = (0, size // 3, (2 * size) // 3, size)
@@ -325,18 +314,12 @@ class CalibrationModel:
                 values.append(fallback)
                 continue
             numerator = float(
-                np.sum(data[start:stop][mask] *
-                       window_model[mask] / variance[start:stop][mask])
+                np.sum(data[start:stop][mask] * window_model[mask] / variance[start:stop][mask])
             )
-            denominator = float(
-                np.sum(window_model[mask] ** 2 / variance[start:stop][mask])
-            )
-            values.append(numerator / denominator if denominator >
-                          0.0 else fallback)
-        value_bounds = scale_bounds(
-            fallback, self.channel_low[index], self.channel_high[index])[1]
-        clamped = tuple(float(np.clip(value, *value_bounds))
-                        for value in values)
+            denominator = float(np.sum(window_model[mask] ** 2 / variance[start:stop][mask]))
+            values.append(numerator / denominator if denominator > 0.0 else fallback)
+        value_bounds = scale_bounds(fallback, self.channel_low[index], self.channel_high[index])[1]
+        clamped = tuple(float(np.clip(value, *value_bounds)) for value in values)
         midpoint = 0.5 * (self.channel_low[index] + self.channel_high[index])
         return (midpoint, clamped[0], clamped[1], clamped[2])
 
@@ -377,8 +360,7 @@ class CalibrationModel:
         for counts, variance in zip(self.mc_counts, self.mc_variance_source, strict=True):
             active |= (counts != 0.0) | (variance != 0.0)
         if not active.any():
-            raise ValidationError(
-                "MC spectra have no non-zero deposition bin (D-101)")
+            raise ValidationError("MC spectra have no non-zero deposition bin (D-101)")
         low = int(np.argmax(active))
         high = int(active.size - 1 - np.argmax(active[::-1]))
         return low, high
@@ -386,18 +368,15 @@ class CalibrationModel:
     def _response_cache(self, core: NDArray[np.float64]) -> _ResponseCache:
         q = as_float_array("core", core, ndim=1)
         if q.size != N_CORE:
-            raise ValidationError(
-                f"core must have {N_CORE} entries, got {q.size}")
+            raise ValidationError(f"core must have {N_CORE} entries, got {q.size}")
         key = q.tobytes()
         if key == self._cache_key and self._cache is not None:
             return self._cache
 
         low, high = self._active_deposition_columns()
-        deposition_edges = np.asarray(
-            self.fixed_edges[low: high + 2], dtype=np.float64)
-        mc_slices = [counts[low: high + 1] for counts in self.mc_counts]
-        variance_slices = [variance[low: high + 1]
-                           for variance in self.mc_variance_source]
+        deposition_edges = np.asarray(self.fixed_edges[low : high + 2], dtype=np.float64)
+        mc_slices = [counts[low : high + 1] for counts in self.mc_counts]
+        variance_slices = [variance[low : high + 1] for variance in self.mc_variance_source]
 
         calibration = InternalCalibration.from_array(q[:4])
         resol = np.asarray(q[4:], dtype=np.float64)
@@ -421,16 +400,13 @@ class CalibrationModel:
         transform = internal_jacobian(channel_max=self.channel_max)
         internal_jacobian_matrices: list[sparse.csr_matrix] = []
         for internal_index in range(4):
-            accumulator = reported_jacobian[0] * \
-                float(transform[0, internal_index])
+            accumulator = reported_jacobian[0] * float(transform[0, internal_index])
             for reported_index in range(1, 4):
                 weight = float(transform[reported_index, internal_index])
                 if weight != 0.0:
-                    accumulator = accumulator + \
-                        reported_jacobian[reported_index] * weight
+                    accumulator = accumulator + reported_jacobian[reported_index] * weight
             internal_jacobian_matrices.append(accumulator.tocsr())
-        internal_jacobian_matrices.extend(
-            matrix.tocsr() for matrix in reported_jacobian[4:])
+        internal_jacobian_matrices.extend(matrix.tocsr() for matrix in reported_jacobian[4:])
 
         matrix = response.matrix
         projections: list[DatasetProjection] = []
@@ -440,16 +416,14 @@ class CalibrationModel:
             mc = mc_slices[index]
             mc_var = variance_slices[index]
             model_counts = np.asarray(window @ mc, dtype=np.float64)
-            mc_variance = np.asarray(
-                window.power(2) @ mc_var, dtype=np.float64)
+            mc_variance = np.asarray(window.power(2) @ mc_var, dtype=np.float64)
             d_model: list[NDArray[np.float64]] = []
             d_mc_variance: list[NDArray[np.float64]] = []
             for parameter in range(N_CORE):
                 derivative = internal_jacobian_matrices[parameter][rows, :]
                 d_model.append(np.asarray(derivative @ mc, dtype=np.float64))
                 d_mc_variance.append(
-                    2.0 * np.asarray(window.multiply(derivative)
-                                     @ mc_var, dtype=np.float64)
+                    2.0 * np.asarray(window.multiply(derivative) @ mc_var, dtype=np.float64)
                 )
             projections.append(
                 DatasetProjection(
@@ -515,9 +489,8 @@ class CalibrationModel:
     def _scale_values_for(self, theta: NDArray[np.float64], index: int) -> NDArray[np.float64]:
         start = N_CORE + N_SCALE * index
         return scale_curve(
-            theta[start: start + N_SCALE],
-            np.arange(
-                self.channel_low[index], self.channel_high[index] + 1, dtype=np.float64),
+            theta[start : start + N_SCALE],
+            np.arange(self.channel_low[index], self.channel_high[index] + 1, dtype=np.float64),
             self.channel_low[index],
             self.channel_high[index],
         )
@@ -558,8 +531,7 @@ class CalibrationModel:
         for index in range(len(self.specs)):
             projection = self._response_cache(values[:N_CORE]).datasets[index]
             scale, scale_grad = scale_curve_grad(
-                values[N_CORE + N_SCALE *
-                       index: N_CORE + N_SCALE * (index + 1)],
+                values[N_CORE + N_SCALE * index : N_CORE + N_SCALE * (index + 1)],
                 projection.channel_centers,
                 self.channel_low[index],
                 self.channel_high[index],
@@ -567,8 +539,7 @@ class CalibrationModel:
             size = self.channel_high[index] - self.channel_low[index] + 1
             block = slice(offset, offset + size)
             for parameter in range(N_CORE):
-                jacobian[block, parameter] = scale * \
-                    projection.d_model[parameter]
+                jacobian[block, parameter] = scale * projection.d_model[parameter]
             for parameter in range(N_SCALE):
                 jacobian[block, N_CORE + N_SCALE * index + parameter] = (
                     scale_grad[parameter] * projection.model_counts
@@ -583,8 +554,7 @@ class CalibrationModel:
         variances: list[NDArray[np.float64]] = []
         for index in range(len(self.specs)):
             projection = self._response_cache(values[:N_CORE]).datasets[index]
-            variances.append(self._fit_variance(
-                index, scales[index], projection))
+            variances.append(self._fit_variance(index, scales[index], projection))
         return np.concatenate(variances)
 
     def variance_gradient(self, theta: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -600,8 +570,7 @@ class CalibrationModel:
         for index in range(len(self.specs)):
             projection = self._response_cache(values[:N_CORE]).datasets[index]
             scale, scale_grad = scale_curve_grad(
-                values[N_CORE + N_SCALE *
-                       index: N_CORE + N_SCALE * (index + 1)],
+                values[N_CORE + N_SCALE * index : N_CORE + N_SCALE * (index + 1)],
                 projection.channel_centers,
                 self.channel_low[index],
                 self.channel_high[index],
@@ -609,12 +578,10 @@ class CalibrationModel:
             size = self.channel_high[index] - self.channel_low[index] + 1
             block = slice(offset, offset + size)
             for parameter in range(N_CORE):
-                gradient[block, parameter] = scale * scale * \
-                    projection.d_mc_variance[parameter]
+                gradient[block, parameter] = scale * scale * projection.d_mc_variance[parameter]
             for parameter in range(N_SCALE):
                 gradient[block, N_CORE + N_SCALE * index + parameter] = (
-                    2.0 * scale * scale_grad[parameter] *
-                    projection.mc_variance
+                    2.0 * scale * scale_grad[parameter] * projection.mc_variance
                 )
             offset += size
         return gradient
@@ -632,8 +599,7 @@ class CalibrationModel:
         for index in range(len(self.specs)):
             projection = self._response_cache(values[:N_CORE]).datasets[index]
             scale, scale_grad = scale_curve_grad(
-                values[N_CORE + N_SCALE *
-                       index: N_CORE + N_SCALE * (index + 1)],
+                values[N_CORE + N_SCALE * index : N_CORE + N_SCALE * (index + 1)],
                 projection.channel_centers,
                 self.channel_low[index],
                 self.channel_high[index],
@@ -647,8 +613,7 @@ class CalibrationModel:
             second = difference * difference / (variance * variance)
             for parameter in range(N_CORE):
                 d_prediction = scale * projection.d_model[parameter]
-                d_variance = scale * scale * \
-                    projection.d_mc_variance[parameter]
+                d_variance = scale * scale * projection.d_mc_variance[parameter]
                 gradient[parameter] += -2.0 * float(d_prediction @ first) - float(
                     d_variance @ second
                 )
@@ -674,9 +639,7 @@ class CalibrationModel:
         overlap for a piecewise-constant source; outside the source range the
         clamped cumulative yields zero target content. The fit never calls this.
         """
-        cumulative = np.concatenate(
-            ([0.0], np.cumsum(np.asarray(values, dtype=np.float64)))
-        )
+        cumulative = np.concatenate(([0.0], np.cumsum(np.asarray(values, dtype=np.float64))))
         return np.diff(np.interp(target_edges, source_edges, cumulative))
 
     def dataset_details(self, theta: NDArray[np.float64]) -> tuple[DatasetDetail, ...]:
@@ -686,8 +649,7 @@ class CalibrationModel:
         calibration = InternalCalibration.from_array(values[:4])
         scales = self._scale_values(values)
         for index, spec in enumerate(self.specs):
-            projection, residual = self._dataset_terms(
-                index, values, scales[index])
+            projection, residual = self._dataset_terms(index, values, scales[index])
             scale = scales[index]
             variance = self._fit_variance(index, scale, projection)
             energy_edges = energy_kev(
@@ -708,8 +670,7 @@ class CalibrationModel:
                     data_counts=self.data_counts[index].copy(),
                     data_display_sigma=np.sqrt(
                         self.stat_variance[index]
-                        + (self.syst_frac[index] *
-                           self.data_counts[index]) ** 2
+                        + (self.syst_frac[index] * self.data_counts[index]) ** 2
                     ),
                     scale_curve=scale.copy(),
                     model_counts=projection.model_counts.copy(),
@@ -717,8 +678,7 @@ class CalibrationModel:
                     prediction=scale * projection.model_counts,
                     fit_sigma=np.sqrt(variance),
                     residual=residual.copy(),
-                    energy_centers_kev=0.5 *
-                    (energy_edges[:-1] + energy_edges[1:]),
+                    energy_centers_kev=0.5 * (energy_edges[:-1] + energy_edges[1:]),
                     energy_edges_kev=energy_edges,
                     chi2=float(residual @ residual),
                     raw_mc_counts=self._rebin_to_edges(
@@ -735,7 +695,7 @@ class CalibrationModel:
                         )
                     ),
                     scale_params=values[
-                        N_CORE + N_SCALE * index: N_CORE + N_SCALE * (index + 1)
+                        N_CORE + N_SCALE * index : N_CORE + N_SCALE * (index + 1)
                     ].copy(),
                 )
             )

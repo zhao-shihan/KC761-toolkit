@@ -53,27 +53,22 @@ class RegularizationSpec:
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.alpha) or self.alpha <= 0.0:
-            raise ValidationError(
-                f"alpha must be positive and finite, got {self.alpha!r}")
+            raise ValidationError(f"alpha must be positive and finite, got {self.alpha!r}")
         if self.difference_order not in (1, 2):
-            raise ValidationError(
-                f"difference_order must be 1 or 2, got {self.difference_order!r}"
-            )
+            raise ValidationError(f"difference_order must be 1 or 2, got {self.difference_order!r}")
 
 
 def difference_operator(n_bins: int, order: int) -> sparse.csr_matrix:
     """Finite-difference operator ``D`` of the requested order (F-SOLVE-1)."""
     if order not in (1, 2):
-        raise ValidationError(
-            f"difference_order must be 1 or 2, got {order!r}")
+        raise ValidationError(f"difference_order must be 1 or 2, got {order!r}")
     if n_bins < 1:
         raise ValidationError(f"n_bins must be >= 1, got {n_bins!r}")
     n_rows = max(n_bins - order, 0)
     if n_rows == 0:
         return sparse.csr_matrix((0, n_bins), dtype=np.float64)
     rows = np.repeat(np.arange(n_rows), order + 1)
-    cols = np.concatenate([np.arange(start, start + order + 1)
-                          for start in range(n_rows)])
+    cols = np.concatenate([np.arange(start, start + order + 1) for start in range(n_rows)])
     coefficients = {
         1: np.array([-1.0, 1.0]),
         2: np.array([1.0, -2.0, 1.0]),
@@ -116,8 +111,7 @@ class SnipSettings:
                 f"snip protect_sigma must be non-negative and finite, got {self.protect_sigma!r}"
             )
         if not np.isfinite(self.floor) or not 0.0 <= self.floor <= 1.0:
-            raise ValidationError(
-                f"snip floor must lie in [0, 1], got {self.floor!r}")
+            raise ValidationError(f"snip floor must lie in [0, 1], got {self.floor!r}")
         if self.iterations is not None and (
             not isinstance(self.iterations, int) or self.iterations < 1
         ):
@@ -153,17 +147,14 @@ class SnipMask:
     n_protected: int
 
 
-def snip_baseline(
-    values: NDArray[np.float64], iterations: int
-) -> NDArray[np.float64]:
+def snip_baseline(values: NDArray[np.float64], iterations: int) -> NDArray[np.float64]:
     """SNIP LLS baseline of a non-negative spectrum (F-SOLVE-4)."""
     y = as_float_array("snip values", values, ndim=1)
     if np.any(y < 0.0):
         raise ValidationError("SNIP baseline requires non-negative values")
     count = int(iterations)
     if count < 1:
-        raise ValidationError(
-            f"SNIP iterations must be >= 1, got {iterations!r}")
+        raise ValidationError(f"SNIP iterations must be >= 1, got {iterations!r}")
     transformed = np.log(np.log(np.sqrt(y + 1.0) + 1.0) + 1.0)
     for offset in range(1, count + 1):
         left = transformed.copy()
@@ -198,8 +189,7 @@ def snip_peak_mask(
     require_same_length("snip spectrum/resolution", y_raw, resol)
     require_same_length("snip spectrum/bin widths", y_raw, widths)
     if np.any(errors <= 0.0) or np.any(widths <= 0.0) or np.any(resol <= 0.0):
-        raise ValidationError(
-            "SNIP inputs require positive sigma, widths and resolution")
+        raise ValidationError("SNIP inputs require positive sigma, widths and resolution")
 
     negative = y_raw < 0.0
     clipped = np.maximum(y_raw, 0.0)
@@ -222,8 +212,7 @@ def snip_peak_mask(
     size = clipped.size
     significance = np.zeros(size, dtype=np.float64)
     for index in range(size):
-        half = max(
-            1, int(np.ceil(SNIP_FILTER_SIGMA * float(width_in_bins[index]))))
+        half = max(1, int(np.ceil(SNIP_FILTER_SIGMA * float(width_in_bins[index]))))
         low = max(0, index - half)
         high = min(size, index + half + 1)
         offsets = np.arange(low, high, dtype=np.float64) - float(index)
@@ -234,8 +223,7 @@ def snip_peak_mask(
         kernel /= total
         matched = float(kernel @ residual[low:high])
         variance = float(kernel @ (kernel * errors[low:high] ** 2))
-        significance[index] = matched / \
-            np.sqrt(variance) if variance > 0.0 else 0.0
+        significance[index] = matched / np.sqrt(variance) if variance > 0.0 else 0.0
 
     candidate = significance >= settings.threshold_sigma
     local = np.zeros(size, dtype=bool)
@@ -243,17 +231,17 @@ def snip_peak_mask(
         local[0] = bool(candidate[0])
     elif size > 1:
         local[0] = bool(candidate[0] and significance[0] >= significance[1])
-        local[-1] = bool(candidate[-1] and significance[-1]
-                         >= significance[-2])
-        local[1:-1] = candidate[1:-1] & (significance[1:-1] >= significance[:-2]) & (
-            significance[1:-1] >= significance[2:]
+        local[-1] = bool(candidate[-1] and significance[-1] >= significance[-2])
+        local[1:-1] = (
+            candidate[1:-1]
+            & (significance[1:-1] >= significance[:-2])
+            & (significance[1:-1] >= significance[2:])
         )
     protected = np.zeros(size, dtype=bool)
     centers = np.flatnonzero(local)
     for index in centers:
-        half = int(np.ceil(settings.protect_sigma *
-                   float(width_in_bins[index])))
-        protected[max(0, index - half): min(size, index + half + 1)] = True
+        half = int(np.ceil(settings.protect_sigma * float(width_in_bins[index])))
+        protected[max(0, index - half) : min(size, index + half + 1)] = True
     weights = np.where(protected, settings.floor, 1.0).astype(np.float64)
     return SnipMask(
         weights=weights,
@@ -277,12 +265,9 @@ def verify_snip_mask(
     bin_width_kev: NDArray[np.float64],
 ) -> SnipMask:
     """F-SOLVE-6 certificate: the mask equals the recomputed construction."""
-    expected = snip_peak_mask(
-        values, sigma, resolution_sigma_kev, bin_width_kev, settings)
+    expected = snip_peak_mask(values, sigma, resolution_sigma_kev, bin_width_kev, settings)
     provided = as_float_array("snip mask", mask, ndim=1)
-    if provided.shape != expected.weights.shape or not np.array_equal(
-        provided, expected.weights
-    ):
+    if provided.shape != expected.weights.shape or not np.array_equal(provided, expected.weights):
         raise CertificateError(
             "F-SOLVE-6",
             "the SNIP mask does not match the mask recomputed from the recorded "
@@ -294,9 +279,7 @@ def verify_snip_mask(
 def _check_mask(mask: NDArray[np.float64], n_bins: int) -> NDArray[np.float64]:
     weights = as_float_array("snip mask", mask, ndim=1)
     if weights.size != n_bins:
-        raise ValidationError(
-            f"snip mask has {weights.size} entries, expected {n_bins}"
-        )
+        raise ValidationError(f"snip mask has {weights.size} entries, expected {n_bins}")
     if not np.isfinite(weights).all():
         raise ValidationError("snip mask contains non-finite weights")
     if np.any(weights < 0.0) or np.any(weights > 1.0):
@@ -322,7 +305,7 @@ def _masked_difference(
     order = difference.shape[1] - n_rows
     row_weight = np.ones(n_rows, dtype=np.float64)
     for offset in range(order + 1):
-        row_weight = row_weight * weights[offset: offset + n_rows]
+        row_weight = row_weight * weights[offset : offset + n_rows]
     row_weight = np.maximum(row_weight, 0.0)
     return (sparse.diags(np.sqrt(row_weight)) @ difference).tocsr()
 
@@ -380,9 +363,7 @@ def normal_equations(
         raise ValidationError("sigma must be strictly positive")
     n_bins = matrix.shape[1]
     if y.size != matrix.shape[0]:
-        raise ValidationError(
-            f"spectrum has {y.size} bins, response has {matrix.shape[0]} rows"
-        )
+        raise ValidationError(f"spectrum has {y.size} bins, response has {matrix.shape[0]} rows")
     weights = 1.0 / errors**2
     hessian, gradient = weighted_normal_and_rhs(matrix, weights, y)
     assert gradient is not None
@@ -406,8 +387,7 @@ def solve_nonnegative(
     *,
     strict: bool = False,
     mask: NDArray[np.float64] | None = None,
-    normal: tuple[sparse.csr_matrix, NDArray[np.float64], NDArray[np.float64]]
-    | None = None,
+    normal: tuple[sparse.csr_matrix, NDArray[np.float64], NDArray[np.float64]] | None = None,
 ) -> UnfoldSolution:
     """Solve the non-negative Tikhonov problem (F-SOLVE-2).
 
@@ -430,9 +410,7 @@ def solve_nonnegative(
         checked = check_response_matrix(response)
         y = as_float_array("spectrum", spectrum, ndim=1)
         if y.size != checked.shape[0] or gradient.size != checked.shape[1]:
-            raise ValidationError(
-                "injected normal equations do not match the response/spectrum"
-            )
+            raise ValidationError("injected normal equations do not match the response/spectrum")
     n_bins = gradient.size
     mu, iterations, converged = _active_set(hessian, gradient, n_bins)
     certificate = _certificate(hessian, gradient, mu, iterations, converged)
@@ -453,9 +431,7 @@ def solve_nonnegative(
     return UnfoldSolution(
         mu=mu,
         refolded=refolded,
-        objective=_objective(
-            matrix, spectrum, sigma, mu, regularization, penalty_scale, mask=mask
-        ),
+        objective=_objective(matrix, spectrum, sigma, mu, regularization, penalty_scale, mask=mask),
         certificate=certificate,
     )
 
@@ -470,14 +446,10 @@ def verify_kkt(
     mask: NDArray[np.float64] | None = None,
 ) -> KktCertificate:
     """Evaluate the KKT certificate for a given ``mu`` (F-SOLVE-3)."""
-    hessian, gradient, _ = normal_equations(
-        response, spectrum, sigma, regularization, mask=mask
-    )
+    hessian, gradient, _ = normal_equations(response, spectrum, sigma, regularization, mask=mask)
     solution = as_float_array("mu", mu, ndim=1)
     if solution.size != gradient.size:
-        raise ValidationError(
-            f"mu has {solution.size} bins, response has {gradient.size} columns"
-        )
+        raise ValidationError(f"mu has {solution.size} bins, response has {gradient.size} columns")
     return _certificate(hessian, gradient, solution, 0, True)
 
 
@@ -489,8 +461,7 @@ def _certificate(
     converged: bool,
 ) -> KktCertificate:
     residual = np.asarray(hessian @ mu, dtype=np.float64) - gradient
-    gradient_scale = max(1.0, float(np.max(np.abs(gradient)))
-                         if gradient.size else 1.0)
+    gradient_scale = max(1.0, float(np.max(np.abs(gradient))) if gradient.size else 1.0)
     active = mu <= 0.0
     negative = np.where(active, -residual, 0.0)
     max_negative = float(np.max(negative)) if negative.size else 0.0
@@ -528,8 +499,7 @@ def _active_set(
     if np.any(unbounded):
         worst = int(np.argmax(np.abs(gradient)))
         raise SolverError(
-            f"objective is unbounded below: bin {worst} has no curvature and a "
-            "non-zero gradient"
+            f"objective is unbounded below: bin {worst} has no curvature and a non-zero gradient"
         )
     free = diagonal > 0.0
     max_iterations = MAX_ITERATIONS_FACTOR * n_bins + 100
@@ -548,26 +518,20 @@ def _active_set(
                 free_indices = np.flatnonzero(free)
                 direction = candidate[free_indices] - mu[free_indices]
                 with np.errstate(divide="ignore", invalid="ignore"):
-                    ratios = np.where(
-                        direction < 0.0, mu[free_indices] /
-                        (-direction), np.inf
-                    )
+                    ratios = np.where(direction < 0.0, mu[free_indices] / (-direction), np.inf)
                 limiting = float(np.min(ratios)) if ratios.size else np.inf
                 step = min(1.0, max(limiting, 0.0))
                 mu = mu + step * (candidate - mu)
                 if limiting <= 1.0 and np.any(direction < 0.0):
                     negative = free_indices[direction < 0.0]
-                    boundary = negative[ratios[direction <
-                                               0.0] <= limiting + 1e-12]
+                    boundary = negative[ratios[direction < 0.0] <= limiting + 1e-12]
                 else:
                     boundary = np.flatnonzero(free & (mu <= 0.0))
                 if boundary.size:
                     free[boundary] = False
                     mu[boundary] = 0.0
                 continue
-        residual = (
-            dense @ mu if dense is not None else np.asarray(hessian @ mu)
-        ) - gradient
+        residual = (dense @ mu if dense is not None else np.asarray(hessian @ mu)) - gradient
         blocked = np.flatnonzero(~free & (residual < -threshold))
         if blocked.size == 0:
             return mu, iteration, True

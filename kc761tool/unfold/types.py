@@ -68,18 +68,13 @@ class UnfoldSettings:
                 f"{self.energy_low_kev!r} and {self.energy_high_kev!r}"
             )
         if not np.isfinite(self.pad_nsigma) or self.pad_nsigma < 0.0:
-            raise ValidationError(
-                f"pad_nsigma must be finite and >= 0, got {self.pad_nsigma!r}")
+            raise ValidationError(f"pad_nsigma must be finite and >= 0, got {self.pad_nsigma!r}")
         if not np.isfinite(self.syst_frac) or self.syst_frac < 0.0:
-            raise ValidationError(
-                f"syst_frac must be finite and >= 0, got {self.syst_frac!r}")
+            raise ValidationError(f"syst_frac must be finite and >= 0, got {self.syst_frac!r}")
         if self.alpha is not None and (not np.isfinite(self.alpha) or self.alpha <= 0.0):
-            raise ValidationError(
-                f"alpha must be positive and finite, got {self.alpha!r}")
+            raise ValidationError(f"alpha must be positive and finite, got {self.alpha!r}")
         if self.difference_order not in (1, 2):
-            raise ValidationError(
-                f"difference_order must be 1 or 2, got {self.difference_order!r}"
-            )
+            raise ValidationError(f"difference_order must be 1 or 2, got {self.difference_order!r}")
         self.snip_settings()
 
     def snip_settings(self) -> SnipSettings:
@@ -96,11 +91,8 @@ class UnfoldSettings:
     def regularization(self) -> RegularizationSpec:
         """Build the F-SOLVE-1 regularization spec (alpha is required)."""
         if self.alpha is None:
-            raise ValidationError(
-                "calib_only settings carry no alpha to regularize with")
-        return RegularizationSpec(
-            alpha=self.alpha, difference_order=self.difference_order
-        )
+            raise ValidationError("calib_only settings carry no alpha to regularize with")
+        return RegularizationSpec(alpha=self.alpha, difference_order=self.difference_order)
 
 
 @dataclass(frozen=True)

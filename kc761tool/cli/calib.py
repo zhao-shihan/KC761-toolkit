@@ -130,8 +130,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
         return _run_config(args, strict=strict)
 
     if args.data is None or args.mc is None or args.label is None:
-        raise UsageError(
-            "--data, --mc and --label are required (repeat per dataset)")
+        raise UsageError("--data, --mc and --label are required (repeat per dataset)")
     count = len(args.data)
     if len(args.mc) != count or len(args.label) != count:
         raise UsageError(
@@ -148,12 +147,9 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
         return 0
     validate_output_path(output, force=args.force)
     if not args.no_plot:
-        validate_output_path(
-            Path(output).with_suffix(".pdf"), force=args.force)
-    hints = [(label, args.channel_low, args.channel_high)
-             for label in args.label]
-    progress = _progress_printer(
-        hints, settings) if args.progress_enabled else None
+        validate_output_path(Path(output).with_suffix(".pdf"), force=args.force)
+    hints = [(label, args.channel_low, args.channel_high) for label in args.label]
+    progress = _progress_printer(hints, settings) if args.progress_enabled else None
     specs = tuple(
         _build_spec(
             data_path=args.data[index],
@@ -184,8 +180,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
 def _run_config(args: argparse.Namespace, *, strict: bool) -> int:
     from kc761tool.calib.types import DEFAULT_SYST_FRAC
 
-    config = load_calib_config(
-        args.config, default_syst_frac=DEFAULT_SYST_FRAC)
+    config = load_calib_config(args.config, default_syst_frac=DEFAULT_SYST_FRAC)
     output = _output(config.output, [entry.label for entry in config.datasets])
     if args.dry_run or config.dry_run:
         _print_dry_run(
@@ -199,11 +194,8 @@ def _run_config(args: argparse.Namespace, *, strict: bool) -> int:
     validate_output_path(output, force=force)
     if not config.no_plot:
         validate_output_path(Path(output).with_suffix(".pdf"), force=force)
-    hints = [
-        (entry.label, entry.channel_low, entry.channel_high) for entry in config.datasets
-    ]
-    progress = _progress_printer(
-        hints, None) if args.progress_enabled else None
+    hints = [(entry.label, entry.channel_low, entry.channel_high) for entry in config.datasets]
+    progress = _progress_printer(hints, None) if args.progress_enabled else None
     specs = tuple(
         _build_spec(
             data_path=entry.data,
@@ -238,8 +230,7 @@ def _resolve_syst(values: list[float] | None, count: int) -> list[float]:
         return [DEFAULT_SYST_FRAC] * count
     for value in values:
         if not math.isfinite(value) or value < 0.0:
-            raise UsageError(
-                f"--syst-frac must be finite and >= 0, got {value!r}")
+            raise UsageError(f"--syst-frac must be finite and >= 0, got {value!r}")
     if len(values) == 1:
         return values * count
     if len(values) == count:
@@ -255,8 +246,7 @@ def _settings(max_iter: int | None, tolerance: float | None):  # noqa: ANN202
     if max_iter is not None and max_iter < 1:
         raise UsageError(f"--max-iter must be >= 1, got {max_iter!r}")
     if tolerance is not None and (not math.isfinite(tolerance) or tolerance <= 0.0):
-        raise UsageError(
-            f"--tolerance must be positive and finite, got {tolerance!r}")
+        raise UsageError(f"--tolerance must be positive and finite, got {tolerance!r}")
     from kc761tool.calib.types import FitSettings
 
     base = FitSettings()
@@ -293,8 +283,7 @@ def _build_spec(
     high = n_bins - 1 if channel_high is None else channel_high
     if not 0 <= low <= high < n_bins:
         raise UsageError(
-            f"dataset {label!r}: channel window [{low}, {high}] is outside "
-            f"[0, {n_bins - 1}]"
+            f"dataset {label!r}: channel window [{low}, {high}] is outside [0, {n_bins - 1}]"
         )
     return DatasetSpec(
         label=label,
@@ -314,9 +303,7 @@ def _output(explicit: str | Path | None, labels: list[str]) -> Path:
     return default_output("calib", "calib-" + "-".join(labels) + ".root")
 
 
-def _print_dry_run(
-    data: list[str], mc: list[str], labels: list[str], output: Path
-) -> None:
+def _print_dry_run(data: list[str], mc: list[str], labels: list[str], output: Path) -> None:
     print("kc761tool calib (dry-run):")
     for label, data_path, mc_path in zip(labels, data, mc, strict=True):
         print(f"  dataset {label}: data={data_path} mc={mc_path}")
@@ -332,12 +319,10 @@ def _progress_printer(hints, settings):
     def printer(event: FitProgress) -> None:
         if event.nfev == 0:
             joined = ", ".join(
-                f"{label} "
-                f"[{lo if lo is not None else 'full'}-{hi if hi is not None else 'full'}]"
+                f"{label} [{lo if lo is not None else 'full'}-{hi if hi is not None else 'full'}]"
                 for label, lo, hi in hints
             )
-            print(
-                f"[calib] fitting {event.n_datasets} dataset(s): {joined}", flush=True)
+            print(f"[calib] fitting {event.n_datasets} dataset(s): {joined}", flush=True)
             print(
                 f"[calib] free parameters {event.n_free}, fitted bins {event.n_bins}, "
                 f"dof {event.dof}",

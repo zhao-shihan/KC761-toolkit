@@ -126,8 +126,7 @@ def solve_window(
     strict: bool = False,
 ) -> SolveOutcome:
     """Solve the padded window and propagate both bands (F-UNF-3/F-UNC-*)."""
-    sliced = slice_response(
-        composed, selection.solve_low, selection.solve_high)
+    sliced = slice_response(composed, selection.solve_low, selection.solve_high)
     sliced_matrix = sliced.matrix.tocsr().astype(np.float64)
     kept, pruned = exact_zero_columns(sliced_matrix)
     if kept.size == 0:
@@ -174,8 +173,7 @@ def solve_window(
         widths = np.diff(edges)
         resolution = resolution_sigma_kev(centers, resol_params)
         sigma_y = np.sqrt(np.maximum(variances_full, 1.0))
-        info = snip_peak_mask(values_full, sigma_y,
-                              resolution, widths, snip_settings)
+        info = snip_peak_mask(values_full, sigma_y, resolution, widths, snip_settings)
         if strict:
             verify_snip_mask(
                 snip_settings,
@@ -193,12 +191,8 @@ def solve_window(
         snip_clipped_last = int(info.clipped_last)
         snip_n_candidates = int(info.n_candidates)
         snip_n_protected = int(info.n_protected)
-        baseline_sha = hashlib.sha256(
-            np.ascontiguousarray(info.baseline).tobytes()
-        ).hexdigest()
-        mask_sha = hashlib.sha256(
-            np.ascontiguousarray(info.weights).tobytes()
-        ).hexdigest()
+        baseline_sha = hashlib.sha256(np.ascontiguousarray(info.baseline).tobytes()).hexdigest()
+        mask_sha = hashlib.sha256(np.ascontiguousarray(info.weights).tobytes()).hexdigest()
 
     # The half-Hessian fed to F-UNC-1/F-UNC-2 is the same construction the
     # solver uses; it is built once here and injected into the solver (D-150),
@@ -273,9 +267,7 @@ def solve_window(
         syst_frac=syst_frac,
         fisher=hessian,
     )
-    bands = combine_bands(
-        stat_band, syst_band, components=stat_components + syst_components
-    )
+    bands = combine_bands(stat_band, syst_band, components=stat_components + syst_components)
     verify_band_decomposition(bands, strict=strict)
 
     n_primary = composed.matrix.shape[1]

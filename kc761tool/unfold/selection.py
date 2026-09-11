@@ -30,8 +30,7 @@ def fit_sigma(
     counts = as_float_array("data", data, ndim=1)
     require_same_length("data/stat_variance", counts, stat)
     if not np.isfinite(syst_frac) or syst_frac < 0.0:
-        raise ValidationError(
-            f"syst_frac must be finite and >= 0, got {syst_frac!r}")
+        raise ValidationError(f"syst_frac must be finite and >= 0, got {syst_frac!r}")
     floor = np.maximum(stat, 1.0)
     systematic = (syst_frac * counts) ** 2
     return np.sqrt(floor + systematic)
@@ -54,8 +53,7 @@ def select_window(
     The primary axis is the simulation ``G.y`` axis; the channel map uses
     ``E(ch)`` at the channel centers. See F-UNF-1 for the exact conventions.
     """
-    primary = EnergyGrid(edges_kev=np.asarray(
-        primary_edges_kev, dtype=np.float64))
+    primary = EnergyGrid(edges_kev=np.asarray(primary_edges_kev, dtype=np.float64))
     primary_edges = primary.edges_kev
     if not np.isfinite(energy_low_kev) or not np.isfinite(energy_high_kev):
         raise ValidationError("energy window bounds must be finite")
@@ -71,16 +69,14 @@ def select_window(
         )
 
     channels = np.arange(int(n_channels), dtype=np.float64)
-    channel_centers = energy_kev(
-        channels, calibration, channel_max=channel_max)
+    channel_centers = energy_kev(channels, calibration, channel_max=channel_max)
     if not np.all(np.diff(channel_centers) > 0.0):
         raise ValidationError(
             "the calibration is not strictly increasing across the acquisition; "
             "the energy window cannot be mapped to channels"
         )
     low = int(np.searchsorted(channel_centers, energy_low_kev, side="left"))
-    high = int(np.searchsorted(channel_centers,
-               energy_high_kev, side="right")) - 1
+    high = int(np.searchsorted(channel_centers, energy_high_kev, side="right")) - 1
     if low > high or low >= int(n_channels) or high < 0:
         # D-146 revision of D-111: a window entirely outside the channel energy
         # range is an error, never a silent degenerate single-channel fit.
@@ -104,8 +100,7 @@ def select_window(
     )
 
     primary_centers = 0.5 * (primary_edges[:-1] + primary_edges[1:])
-    inside = (primary_centers >= energy_low_kev) & (
-        primary_centers <= energy_high_kev)
+    inside = (primary_centers >= energy_low_kev) & (primary_centers <= energy_high_kev)
     indices = np.flatnonzero(inside)
     if indices.size == 0:
         raise ValidationError(

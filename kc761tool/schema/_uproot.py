@@ -53,8 +53,7 @@ def _check_uproot_version() -> None:
     version = (int(parts[0]), int(parts[1]))
     if version < MIN_UPROOT:
         raise UnsupportedError(
-            f"uproot >= {MIN_UPROOT[0]}.{MIN_UPROOT[1]} is required, "
-            f"found {uproot.__version__}"
+            f"uproot >= {MIN_UPROOT[0]}.{MIN_UPROOT[1]} is required, found {uproot.__version__}"
         )
 
 
@@ -128,8 +127,7 @@ def axis_from_hist(hist: Any, index: int, *, fallback_name: str) -> Axis:
     axis = hist.axis(index)
     raw_name = axis.member("fName") if axis.has_member("fName") else None
     if not isinstance(raw_name, str) or not raw_name:
-        raise SchemaError(
-            f"axis {index} of {fallback_name!r}: missing axis name")
+        raise SchemaError(f"axis {index} of {fallback_name!r}: missing axis name")
     unit = unit_for_axis_name(raw_name)
     edges = np.asarray(axis.edges(), dtype=np.float64)
     return Axis(name=raw_name, edges=edges, unit=unit)
@@ -149,8 +147,7 @@ def axis_labels(hist: Any, index: int) -> tuple[str, ...] | None:
 def _require_shape(values: Any, shape: tuple[int, ...], label: str) -> NDArray[np.float64]:
     array = np.asarray(values, dtype=np.float64)
     if array.shape != shape:
-        raise SchemaError(
-            f"{label}: expected shape {shape}, got {array.shape}")
+        raise SchemaError(f"{label}: expected shape {shape}, got {array.shape}")
     return array
 
 
@@ -167,8 +164,7 @@ def write_hist1d(
     values = _require_shape(hist.values, (hist.axis.n_bins,), f"{name}.values")
     variances = None
     if hist.variances is not None:
-        variances = _require_shape(
-            hist.variances, values.shape, f"{name}.variances")
+        variances = _require_shape(hist.variances, values.shape, f"{name}.variances")
     centers = hist.axis.centers()
     entries = float(values.sum())
     file[name] = to_TH1x(
@@ -180,8 +176,7 @@ def write_hist1d(
         fTsumw2=float(variances.sum()) if variances is not None else entries,
         fTsumwx=float(values @ centers),
         fTsumwx2=float(values @ (centers**2)),
-        fSumw2=_flow1d(variances).astype(
-            ">f8") if variances is not None else None,
+        fSumw2=_flow1d(variances).astype(">f8") if variances is not None else None,
         fXaxis=_to_axis(hist.axis),
     )
 
@@ -221,8 +216,7 @@ def write_hist2d(
         fTsumwy=float(values.sum(axis=0) @ y_centers),
         fTsumwy2=float(values.sum(axis=0) @ (y_centers**2)),
         fTsumwxy=float(x_centers @ (values @ y_centers)),
-        fSumw2=_flow2d(variances).astype(
-            ">f8") if variances is not None else None,
+        fSumw2=_flow2d(variances).astype(">f8") if variances is not None else None,
         fXaxis=_to_axis(hist.x, labels=x_labels),
         fYaxis=_to_axis(hist.y, labels=y_labels),
     )
@@ -259,11 +253,9 @@ def read_hist1d(
     hist = file[name]
     axis = axis_from_hist(hist, 0, fallback_name=axis_name or name)
     if axis_name is not None and axis_name != axis.name:
-        raise SchemaError(
-            f"{name}: stored axis name {axis.name!r} != {axis_name!r}")
+        raise SchemaError(f"{name}: stored axis name {axis.name!r} != {axis_name!r}")
     if unit is not None and unit != axis.unit:
-        raise SchemaError(
-            f"{name}: stored axis unit {axis.unit!r} != {unit!r}")
+        raise SchemaError(f"{name}: stored axis unit {axis.unit!r} != {unit!r}")
     values = np.asarray(hist.values(), dtype=np.float64)
     variances = _raw_variances_1d(hist)
     return Histogram1D(axis=axis, values=values, variances=variances)
@@ -286,17 +278,13 @@ def read_hist2d(
     x_axis = axis_from_hist(hist, 0, fallback_name=x_name or name)
     y_axis = axis_from_hist(hist, 1, fallback_name=y_name or name)
     if x_name is not None and x_name != x_axis.name:
-        raise SchemaError(
-            f"{name}: stored x-axis name {x_axis.name!r} != {x_name!r}")
+        raise SchemaError(f"{name}: stored x-axis name {x_axis.name!r} != {x_name!r}")
     if y_name is not None and y_name != y_axis.name:
-        raise SchemaError(
-            f"{name}: stored y-axis name {y_axis.name!r} != {y_name!r}")
+        raise SchemaError(f"{name}: stored y-axis name {y_axis.name!r} != {y_name!r}")
     if x_unit is not None and x_unit != x_axis.unit:
-        raise SchemaError(
-            f"{name}: stored x-axis unit {x_axis.unit!r} != {x_unit!r}")
+        raise SchemaError(f"{name}: stored x-axis unit {x_axis.unit!r} != {x_unit!r}")
     if y_unit is not None and y_unit != y_axis.unit:
-        raise SchemaError(
-            f"{name}: stored y-axis unit {y_axis.unit!r} != {y_unit!r}")
+        raise SchemaError(f"{name}: stored y-axis unit {y_axis.unit!r} != {y_unit!r}")
     values = np.asarray(hist.values(), dtype=np.float64)
     variances = _raw_variances_2d(hist, values.shape)
     return Histogram2D(

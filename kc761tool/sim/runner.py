@@ -141,9 +141,7 @@ def estimate_threads(
     if source_mode:
         histogram_bytes = SOURCE_MODE_DEPOSITION_BINS * 2 * BYTES_PER_FLOAT64
     else:
-        histogram_bytes = (
-            n_deposition * n_primary * 2 + n_primary * 2
-        ) * BYTES_PER_FLOAT64
+        histogram_bytes = (n_deposition * n_primary * 2 + n_primary * 2) * BYTES_PER_FLOAT64
         histogram_bytes += WINDOW_CHUNK * 2 * BYTES_PER_FLOAT64
     per_worker = histogram_bytes + G4_WORKER_BASELINE_BYTES
     available = available_memory_bytes()
@@ -185,9 +183,7 @@ def merge_matrix_worker_histograms(
     for path in paths:
         with uproot.open(path) as handle:
             if MATRIX_HIST_NAME not in handle or ZERO_DEPOSITION_HIST_NAME not in handle:
-                raise ValidationError(
-                    f"worker file {path!r} is missing the matrix histograms"
-                )
+                raise ValidationError(f"worker file {path!r} is missing the matrix histograms")
             matrix = handle[MATRIX_HIST_NAME]
             zero = handle[ZERO_DEPOSITION_HIST_NAME]
             deposition_edges = _axis_edges(matrix, 0)
@@ -250,8 +246,7 @@ def merge_source_worker_histograms(
             values = np.asarray(hist.values(), dtype=np.float64)
             if values.shape != (edges.size - 1,):
                 raise ValidationError(
-                    f"worker file {path!r}: spectrum shape {values.shape} does not "
-                    "match its axis"
+                    f"worker file {path!r}: spectrum shape {values.shape} does not match its axis"
                 )
             if reference is None:
                 reference = edges
@@ -275,8 +270,7 @@ def _build_serial_manager(detector, action_init, seed: int, verbose: int):  # no
 
     G4Random.setTheSeed(int(seed))
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
-        run_manager = G4RunManagerFactory.CreateRunManager(
-            G4RunManagerType.Serial)
+        run_manager = G4RunManagerFactory.CreateRunManager(G4RunManagerType.Serial)
     run_manager.SetUserInitialization(detector)
     from kc761tool.sim.physics import build_physics_list
 
@@ -310,14 +304,11 @@ def source_worker(
 
     spec = get_source(source_key)
     materials_map = materials.build_all_materials(spec)
-    construction = detector.build_detector(
-        spec, materials_map, check_overlaps=verbose > 0
-    )
+    construction = detector.build_detector(spec, materials_map, check_overlaps=verbose > 0)
     action_init = actions.build_source_action_initialization(
         spec, construction, output_stem, event_offset, seed, verbose
     )
-    run_manager = _build_serial_manager(
-        construction, action_init, seed, verbose)
+    run_manager = _build_serial_manager(construction, action_init, seed, verbose)
     physics.configure_radioactive_decay(spec)
     physics.configure_gps(spec, construction)
     run_manager.BeamOn(n_events)
@@ -337,9 +328,7 @@ def matrix_worker(
     from kc761tool.sim import actions, detector, materials
 
     materials_map = materials.build_all_materials()
-    construction = detector.build_detector(
-        None, materials_map, check_overlaps=verbose > 0
-    )
+    construction = detector.build_detector(None, materials_map, check_overlaps=verbose > 0)
     action_init = actions.build_matrix_action_initialization(
         column_slice,
         axis,
@@ -350,8 +339,7 @@ def matrix_worker(
         seed,
         verbose,
     )
-    run_manager = _build_serial_manager(
-        construction, action_init, seed, verbose)
+    run_manager = _build_serial_manager(construction, action_init, seed, verbose)
     run_manager.BeamOn(column_slice.total_events)
     return column_slice.total_events
 
@@ -364,9 +352,7 @@ def _worker_directory(output: Path) -> Path:
     return Path(tempfile.mkdtemp(prefix=f".{output.stem}-wip-", dir=output.parent))
 
 
-def _run_pool(
-    worker: Callable[..., int], arguments: Sequence[tuple], threads: int
-) -> None:
+def _run_pool(worker: Callable[..., int], arguments: Sequence[tuple], threads: int) -> None:
     """Run every worker in its own spawned process.
 
     Geant4 forbids constructing a second run manager in one process
@@ -472,8 +458,7 @@ def run_matrix(
     product = read_product(calib_path, strict=strict)
     if not isinstance(product, CalibProduct):
         raise ValidationError(f"{calib_path}: expected a calib product")
-    deposition_edges = np.asarray(
-        product.deposition_to_channel.y.edges, dtype=np.float64)
+    deposition_edges = np.asarray(product.deposition_to_channel.y.edges, dtype=np.float64)
     n_deposition = int(deposition_edges.size) - 1
     if n_deposition > MAX_CHANNELS:
         raise ValidationError(channels_limit_message(n_deposition))
@@ -484,22 +469,18 @@ def run_matrix(
         axis.n_columns,
         explicit=threads,
     )
-    slices = tuple(
-        chunk for chunk in schedule.slices(workers) if chunk.total_events > 0
-    )
+    slices = tuple(chunk for chunk in schedule.slices(workers) if chunk.total_events > 0)
     output_path = Path(output)
     work_dir = _worker_directory(output_path)
     try:
         stems = [str(work_dir / f"w{index}") for index in range(len(slices))]
         full = [
-            (stems[index], slices[index], axis,
-             source, deposition_edges, seed, verbose)
+            (stems[index], slices[index], axis, source, deposition_edges, seed, verbose)
             for index in range(len(slices))
         ]
         _run_pool(matrix_worker, full, workers)
         paths = [stem + ".root" for stem in stems]
-        counts, dep_edges, primary_edges, zero_counts = merge_matrix_worker_histograms(
-            paths)
+        counts, dep_edges, primary_edges, zero_counts = merge_matrix_worker_histograms(paths)
         return _write_matrix_product(
             counts,
             dep_edges,
@@ -550,8 +531,7 @@ def _write_mc_spectrum(
     expected = source_mode_deposition_edges_kev()
     if not np.array_equal(energy_edges_kev, expected):
         raise ValidationError(
-            "source-mode spectrum axis does not match the fixed source-mode "
-            "deposition axis"
+            "source-mode spectrum axis does not match the fixed source-mode deposition axis"
         )
     variances = certificates.source_spectrum_variance(values)
     certificates.verify_source_spectrum_variance(values, variances)
@@ -658,13 +638,11 @@ def prepare_interactive(
 
     spec = get_source(source_key)
     materials_map = materials.build_all_materials(spec)
-    construction = detector.build_detector(
-        spec, materials_map, check_overlaps=verbose > 0)
+    construction = detector.build_detector(spec, materials_map, check_overlaps=verbose > 0)
     action_init = actions.build_source_action_initialization(
         spec, construction, "interactive", 0, seed, verbose
     )
-    run_manager = _build_serial_manager(
-        construction, action_init, seed, verbose)
+    run_manager = _build_serial_manager(construction, action_init, seed, verbose)
     physics.configure_radioactive_decay(spec)
     physics.configure_gps(spec, construction)
     return run_manager

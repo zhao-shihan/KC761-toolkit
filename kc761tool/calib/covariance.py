@@ -69,16 +69,13 @@ def calibration_covariance(
     if dof < 1:
         raise ValidationError(f"covariance scale needs dof >= 1, got {dof}")
     if not np.isfinite(chi2) or chi2 < 0.0:
-        raise ValidationError(
-            f"chi2 must be finite and non-negative, got {chi2!r}")
+        raise ValidationError(f"chi2 must be finite and non-negative, got {chi2!r}")
 
-    fisher = np.asarray(fisher_information(
-        jac, np.sqrt(var)), dtype=np.float64)
+    fisher = np.asarray(fisher_information(jac, np.sqrt(var)), dtype=np.float64)
     fisher = 0.5 * (fisher + fisher.T)
     diagonal = np.diag(fisher)
     if np.any(diagonal <= 0.0) or not np.isfinite(diagonal).all():
-        raise SolverError(
-            "fisher diagonal is not strictly positive; parameters are not identified")
+        raise SolverError("fisher diagonal is not strictly positive; parameters are not identified")
     scale = np.sqrt(diagonal)
     preconditioned = fisher / np.outer(scale, scale)
 
@@ -87,8 +84,7 @@ def calibration_covariance(
     f_cs = preconditioned[core, N_REPORTED:]
     f_ss = preconditioned[N_REPORTED:, N_REPORTED:]
     if f_ss.size:
-        f_ss_inverse = np.linalg.pinv(
-            f_ss, rcond=_SCALE_GAUGE_RCOND, hermitian=True)
+        f_ss_inverse = np.linalg.pinv(f_ss, rcond=_SCALE_GAUGE_RCOND, hermitian=True)
         schur = f_cc - f_cs @ f_ss_inverse @ f_cs.T
     else:
         schur = f_cc
@@ -96,10 +92,8 @@ def calibration_covariance(
     try:
         core_scaled = np.linalg.inv(schur)
     except np.linalg.LinAlgError as exc:
-        raise SolverError(
-            f"calibration core Schur complement is singular: {exc}") from exc
-    core_covariance = core_scaled / \
-        np.outer(scale[:N_REPORTED], scale[:N_REPORTED])
+        raise SolverError(f"calibration core Schur complement is singular: {exc}") from exc
+    core_covariance = core_scaled / np.outer(scale[:N_REPORTED], scale[:N_REPORTED])
 
     transform = np.zeros((N_REPORTED, N_REPORTED), dtype=np.float64)
     transform[:4, :4] = internal_jacobian(channel_max=channel_max)

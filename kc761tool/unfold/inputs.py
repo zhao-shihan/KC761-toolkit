@@ -50,15 +50,12 @@ def coerce_calib(
     if isinstance(value, CalibProduct):
         return value, None
     path = Path(value)
-    product = _load_path(path, strict=strict,
-                         expected="calib", cls=CalibProduct)
+    product = _load_path(path, strict=strict, expected="calib", cls=CalibProduct)
     assert isinstance(product, CalibProduct)
     return product, path
 
 
-def coerce_sim(
-    value: str | Path | SimProduct, *, strict: bool
-) -> tuple[SimProduct, Path | None]:
+def coerce_sim(value: str | Path | SimProduct, *, strict: bool) -> tuple[SimProduct, Path | None]:
     """Return a simulation product and the path it came from (if any)."""
     if isinstance(value, SimProduct):
         return value, None
@@ -75,8 +72,7 @@ def coerce_spectrum(
     if isinstance(value, SpectrumProduct):
         return value, None
     path = Path(value)
-    product = _load_path(path, strict=strict,
-                         expected="spectrum", cls=SpectrumProduct)
+    product = _load_path(path, strict=strict, expected="spectrum", cls=SpectrumProduct)
     assert isinstance(product, SpectrumProduct)
     return product, path
 

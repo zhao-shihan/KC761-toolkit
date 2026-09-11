@@ -164,16 +164,13 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
         raise UsageError("select exactly one source key or matrix mode")
     if not source_selected and matrix is None:
         raise UsageError(
-            "select a source (" +
-            ", ".join(f"--{key}" for key in _SOURCE_FLAG_ORDER) + ") "
+            "select a source (" + ", ".join(f"--{key}" for key in _SOURCE_FLAG_ORDER) + ") "
             "or a matrix mode (--plane-front-gamma/--sphere-gamma)"
         )
 
     if matrix is not None:
         if args.events is None:
-            raise UsageError(
-                "matrix modes require --events (only the source mode is interactive)"
-            )
+            raise UsageError("matrix modes require --events (only the source mode is interactive)")
         mode, calib = matrix
         output = _resolve_output(
             args, f"{Path(calib).stem}-{mode}-n{args.events}-s{args.seed}.root"
@@ -208,15 +205,12 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
                 "or pass --events for a batch run"
             )
         if args.dry_run:
-            print(
-                f"kc761tool sim (dry-run): interactive {args.source_key} session")
+            print(f"kc761tool sim (dry-run): interactive {args.source_key} session")
             return 0
         _run_interactive(args)
         return 0
 
-    output = _resolve_output(
-        args, f"{args.source_key}-n{args.events}-s{args.seed}.root"
-    )
+    output = _resolve_output(args, f"{args.source_key}-n{args.events}-s{args.seed}.root")
     if args.dry_run:
         _print_dry_run(args.source_key, None, output, args)
         return 0
@@ -294,25 +288,20 @@ def _run_batch(args: argparse.Namespace, *, strict: bool, logger) -> int:
             config_path=config.config_path,
         )
         if dry_run:
-            print(
-                f"kc761tool sim (dry-run) [run {index}]: {shlex.join(command)}")
+            print(f"kc761tool sim (dry-run) [run {index}]: {shlex.join(command)}")
             continue
         if config.resume and target.exists():
             try:
                 verify_product(target, strict=False)
             except Kc761toolError as exc:
-                logger.error(
-                    "[run %d] existing output %s is invalid: %s", index, target, exc
-                )
+                logger.error("[run %d] existing output %s is invalid: %s", index, target, exc)
                 failures += 1
                 continue
-            logger.info("[run %d] resume: %s is valid; skipping",
-                        index, target)
+            logger.info("[run %d] resume: %s is valid; skipping", index, target)
             continue
         completed = subprocess.run(command, cwd=REPO_ROOT, check=False)
         if completed.returncode != 0:
-            logger.error("[run %d] failed with exit code %d",
-                         index, completed.returncode)
+            logger.error("[run %d] failed with exit code %d", index, completed.returncode)
             failures += 1
         else:
             logger.info("[run %d] wrote %s", index, target)
@@ -323,9 +312,7 @@ def _run_output(run: SimRunSpec) -> Path:
     if run.output is not None:
         return run.output
     if run.source_key is not None:
-        return default_output(
-            "sim", f"{run.source_key}-n{run.events}-s{run.seed}.root"
-        )
+        return default_output("sim", f"{run.source_key}-n{run.events}-s{run.seed}.root")
     assert run.calib is not None
     assert run.matrix_mode is not None
     return default_output(
@@ -362,6 +349,5 @@ def _expand_run_argv(
         command.append("--force")
     if strict:
         command.append("--strict")
-    command += ["--log-level", log_level,
-                "--provenance-input", str(config_path)]
+    command += ["--log-level", log_level, "--provenance-input", str(config_path)]
     return command

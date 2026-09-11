@@ -75,8 +75,7 @@ def build_matrix_run_action(  # noqa: ANN201
     """
     from geant4_pybind import G4doubleVector, G4RootAnalysisManager, G4UserRunAction
 
-    deposition_edges = G4doubleVector(
-        [float(edge) for edge in deposition_edges_kev])
+    deposition_edges = G4doubleVector([float(edge) for edge in deposition_edges_kev])
     primary_edges = G4doubleVector([float(edge) for edge in primary_edges_kev])
 
     class _RunAction(G4UserRunAction):
@@ -130,8 +129,7 @@ def build_source_event_action(event_offset: int, base_seed: int):  # noqa: ANN20
             self._event_index += 1
             global_start = event_offset + self._event_index
             if global_start % SOURCE_MODE_EVENT_BLOCK == 0:
-                set_the_seed(block_seed(
-                    base_seed, global_start // SOURCE_MODE_EVENT_BLOCK))
+                set_the_seed(block_seed(base_seed, global_start // SOURCE_MODE_EVENT_BLOCK))
 
         def AddDeposit(self, global_time: float, edep: float) -> None:
             self._deposits.append((global_time, edep))
@@ -170,8 +168,7 @@ def build_matrix_event_action(state: GammaEventState, deposition_bounds_kev):  #
     """
     from geant4_pybind import G4RootAnalysisManager, G4UserEventAction, keV
 
-    low, high = (float(deposition_bounds_kev[0]), float(
-        deposition_bounds_kev[-1]))
+    low, high = (float(deposition_bounds_kev[0]), float(deposition_bounds_kev[-1]))
     inv_kev = 1.0 / keV
 
     class _EventAction(G4UserEventAction):
@@ -230,8 +227,7 @@ def build_stepping_action(detector, event_action):  # noqa: ANN001, ANN201
                 return
             deposit = step.GetTotalEnergyDeposit()
             if deposit > 0.0:
-                self._add_deposit(
-                    step.GetPreStepPoint().GetGlobalTime(), deposit)
+                self._add_deposit(step.GetPreStepPoint().GetGlobalTime(), deposit)
 
     return _SteppingAction()
 
@@ -312,10 +308,7 @@ def build_matrix_action_initialization(  # noqa: ANN201
             event_action = build_matrix_event_action(
                 state, (deposition_edges_kev[0], deposition_edges_kev[-1])
             )
-            self.SetUserAction(
-                make_gamma_generator(column_slice, axis,
-                                     source, base_seed, state)
-            )
+            self.SetUserAction(make_gamma_generator(column_slice, axis, source, base_seed, state))
             self.SetUserAction(
                 build_matrix_run_action(
                     output_stem,

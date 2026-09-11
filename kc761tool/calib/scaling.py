@@ -64,9 +64,7 @@ def scale_bounds(
     """
     scale = float(initial_scale)
     if not np.isfinite(scale) or scale <= 0.0:
-        raise ValidationError(
-            f"initial_scale must be positive and finite, got {initial_scale!r}"
-        )
+        raise ValidationError(f"initial_scale must be positive and finite, got {initial_scale!r}")
     s0_bounds = (
         float(channel_low) + S0_MARGIN,
         float(channel_high) - S0_MARGIN,
@@ -83,9 +81,7 @@ def scale_bounds(
 def _check_scale_params(scale_params: NDArray[np.float64]) -> NDArray[np.float64]:
     params = as_float_array("scale_params", scale_params, ndim=1)
     if params.size != N_SCALE:
-        raise ValidationError(
-            f"scale_params must have {N_SCALE} entries, got {params.size}"
-        )
+        raise ValidationError(f"scale_params must have {N_SCALE} entries, got {params.size}")
     return params
 
 
@@ -118,9 +114,7 @@ def _bezier_parameter(
     d = channels - channel_low
     discriminant = a * a + (channel_low - 2.0 * float(s0) + channel_high) * d
     if np.any(discriminant < 0.0):
-        raise ValidationError(
-            "Bezier discriminant is negative; s0 is outside the window (F-CAL-2)"
-        )
+        raise ValidationError("Bezier discriminant is negative; s0 is outside the window (F-CAL-2)")
     return d / (a + np.sqrt(discriminant))
 
 
@@ -134,10 +128,7 @@ def scale_curve(
     params = _check_scale_params(scale_params)
     _check_window(channel_low, channel_high, float(params[0]))
     channel_values = as_float_array("channels", channels)
-    t = _bezier_parameter(
-        channel_values, float(channel_low), float(
-            channel_high), float(params[0])
-    )
+    t = _bezier_parameter(channel_values, float(channel_low), float(channel_high), float(params[0]))
     s1, s2, s3 = (float(value) for value in params[1:])
     return s1 + (2.0 * (s2 - s1) + (s1 - 2.0 * s2 + s3) * t) * t
 
@@ -158,8 +149,7 @@ def scale_curve_grad(
     channel_values = as_float_array("channels", channels)
     s0, s1, s2, s3 = (float(value) for value in params)
 
-    t = _bezier_parameter(channel_values, float(
-        channel_low), float(channel_high), s0)
+    t = _bezier_parameter(channel_values, float(channel_low), float(channel_high), s0)
     omt = 1.0 - t
     value = s1 + (2.0 * (s2 - s1) + (s1 - 2.0 * s2 + s3) * t) * t
 
@@ -168,13 +158,12 @@ def scale_curve_grad(
     gradient[2] = 2.0 * omt * t
     gradient[3] = t * t
 
-    dx_dt = 2.0 * (s0 - float(channel_low)) + 2.0 * (
-        float(channel_low) - 2.0 * s0 + float(channel_high)
-    ) * t
+    dx_dt = (
+        2.0 * (s0 - float(channel_low))
+        + 2.0 * (float(channel_low) - 2.0 * s0 + float(channel_high)) * t
+    )
     if np.any(dx_dt <= 0.0):
-        raise ValidationError(
-            "Bezier abscissa is not strictly increasing on the window (F-CAL-2)"
-        )
+        raise ValidationError("Bezier abscissa is not strictly increasing on the window (F-CAL-2)")
     ds_dt = 2.0 * (s2 - s1) + 2.0 * (s1 - 2.0 * s2 + s3) * t
     gradient[0] = ds_dt * (-2.0 * t * omt / dx_dt)
     return value, gradient

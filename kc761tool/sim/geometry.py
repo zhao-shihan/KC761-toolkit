@@ -44,8 +44,7 @@ class DetectorGeometry:
         for name in _PROVENANCE:
             value = float(getattr(self, name))
             if not (value > 0.0):
-                raise ValidationError(
-                    f"geometry field {name} must be positive, got {value!r}")
+                raise ValidationError(f"geometry field {name} must be positive, got {value!r}")
 
     @property
     def housing_half_x_mm(self) -> float:

@@ -50,17 +50,27 @@ def support_bounds(
     for the lower edge, ``left`` for the upper edge) has a single definition.
     """
     radius = n_sigma * sigma
-    starts = np.searchsorted(bin_centers, centers -
-                             radius, side="right").astype(np.int64)
-    stops = np.searchsorted(bin_centers, centers + radius,
-                            side="left").astype(np.int64)
+    starts = np.searchsorted(bin_centers, centers - radius, side="right").astype(np.int64)
+    stops = np.searchsorted(bin_centers, centers + radius, side="left").astype(np.int64)
     return starts, stops
 
 
 @numba.njit(cache=True, parallel=True)
 def _pattern_fill_grad(  # noqa: ANN001
-    edges, centers, sigma, n_sigma, starts, stops, offsets,
-    rows, cols, raw, d_lo, d_hi, d_c, d_sigma,
+    edges,
+    centers,
+    sigma,
+    n_sigma,
+    starts,
+    stops,
+    offsets,
+    rows,
+    cols,
+    raw,
+    d_lo,
+    d_hi,
+    d_c,
+    d_sigma,
 ):
     """Fill the F-KERN-4 flat arrays; each column writes a disjoint slice."""
     for column in prange(centers.size):
@@ -137,8 +147,7 @@ class KernelGradients:
 
 def _check_n_sigma(n_sigma: float) -> float:
     if not np.isfinite(n_sigma) or n_sigma < 1.0:
-        raise ValidationError(
-            f"n_sigma must be finite and >= 1, got {n_sigma!r}")
+        raise ValidationError(f"n_sigma must be finite and >= 1, got {n_sigma!r}")
     return float(n_sigma)
 
 
@@ -258,8 +267,7 @@ def _pattern_flat(  # noqa: ANN001
     raw = np.empty(total, dtype=np.float64)
     if not gradients:
         _pattern_fill_value(
-            edges, centers, sigma, float(
-                n_sigma), starts, stops, offsets, rows, cols, raw
+            edges, centers, sigma, float(n_sigma), starts, stops, offsets, rows, cols, raw
         )
         return rows, cols, raw, None, None, None, None
     d_lo = np.empty(total, dtype=np.float64)
@@ -267,8 +275,20 @@ def _pattern_flat(  # noqa: ANN001
     d_c = np.empty(total, dtype=np.float64)
     d_sigma = np.empty(total, dtype=np.float64)
     _pattern_fill_grad(
-        edges, centers, sigma, float(n_sigma), starts, stops, offsets,
-        rows, cols, raw, d_lo, d_hi, d_c, d_sigma,
+        edges,
+        centers,
+        sigma,
+        float(n_sigma),
+        starts,
+        stops,
+        offsets,
+        rows,
+        cols,
+        raw,
+        d_lo,
+        d_hi,
+        d_c,
+        d_sigma,
     )
     return rows, cols, raw, d_lo, d_hi, d_c, d_sigma
 
@@ -346,8 +366,7 @@ def _kernel_pattern(
     bin_centers = 0.5 * (edges[:-1] + edges[1:])
     starts, stops = support_bounds(bin_centers, centers, sigma, n_sigma)
     total = int(np.maximum(stops - starts, 0).sum())
-    flat = _pattern_flat(edges, centers, sigma, n_sigma,
-                         starts, stops, total, gradients)
+    flat = _pattern_flat(edges, centers, sigma, n_sigma, starts, stops, total, gradients)
     return _finish_pattern(*flat, centers.size, gradients)
 
 
@@ -365,18 +384,15 @@ def verify_column_sums(
     within ``expected_atol`` of 1.
     """
     if not isinstance(n_channels, int) or n_channels < 1:
-        raise ValidationError(
-            f"n_channels must be a positive int, got {n_channels!r}")
+        raise ValidationError(f"n_channels must be a positive int, got {n_channels!r}")
     sums = np.zeros(n_channels, dtype=np.float64)
     if triples.values.size:
         if np.any(triples.rows < 0) or np.any(triples.rows >= n_channels):
-            raise ValidationError(
-                "kernel triple rows outside the channel range")
+            raise ValidationError("kernel triple rows outside the channel range")
         if np.any(triples.cols < 0):
             raise ValidationError("kernel triple columns must be non-negative")
         if not np.isfinite(triples.values).all() or np.any(triples.values < 0.0):
-            raise ValidationError(
-                "kernel triple values must be finite and non-negative")
+            raise ValidationError("kernel triple values must be finite and non-negative")
         np.add.at(sums, triples.cols, triples.values)
     if strict:
         bad = (sums > expected_atol) & (np.abs(sums - 1.0) > expected_atol)

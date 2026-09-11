@@ -47,16 +47,14 @@ def strict_enabled(cli_flag: bool = False) -> bool:
     if value in _FALSY:
         return False
     raise UsageError(
-        f"{STRICT_ENV_VAR} must be a boolean value "
-        f"(one of {sorted(_TRUTHY | _FALSY)}), got {raw!r}"
+        f"{STRICT_ENV_VAR} must be a boolean value (one of {sorted(_TRUTHY | _FALSY)}), got {raw!r}"
     )
 
 
 def log_level(name: str) -> int:
     """Map a CLI log-level name to the corresponding logging level."""
     if name not in LOG_LEVELS:
-        raise UsageError(
-            f"unknown log level {name!r}; expected one of {LOG_LEVELS}")
+        raise UsageError(f"unknown log level {name!r}; expected one of {LOG_LEVELS}")
     return int(getattr(logging, name.upper()))
 
 

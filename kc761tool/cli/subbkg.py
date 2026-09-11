@@ -95,9 +95,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
             f"{signal.spectrum.axis.unit!r} vs {background.spectrum.axis.unit!r}"
         )
     if not np.array_equal(signal.spectrum.axis.edges, background.spectrum.axis.edges):
-        raise ValidationError(
-            "signal/background binning mismatch: the channel axes differ"
-        )
+        raise ValidationError("signal/background binning mismatch: the channel axes differ")
     t_signal = float(signal.daq_time_s)
     t_background = float(background.daq_time_s)
     if t_signal <= 0.0 or t_background <= 0.0:
@@ -108,13 +106,9 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     scale = t_signal / t_background
 
     signal_values = np.asarray(signal.spectrum.values, dtype=np.float64)
-    background_values = np.asarray(
-        background.spectrum.values, dtype=np.float64)
-    signal_error = np.sqrt(np.asarray(
-        signal.spectrum.variances, dtype=np.float64))
-    background_error = np.sqrt(
-        np.asarray(background.spectrum.variances, dtype=np.float64)
-    )
+    background_values = np.asarray(background.spectrum.values, dtype=np.float64)
+    signal_error = np.sqrt(np.asarray(signal.spectrum.variances, dtype=np.float64))
+    background_error = np.sqrt(np.asarray(background.spectrum.variances, dtype=np.float64))
     signal_error = np.maximum(signal_error, 1.0)
     background_error = np.maximum(background_error, 1.0)
     values = signal_values - scale * background_values
@@ -125,9 +119,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
 
     product = SpectrumProduct(
         format_version=SCHEMA_VERSION,
-        spectrum=Histogram1D(
-            axis=signal.spectrum.axis, values=values, variances=variances
-        ),
+        spectrum=Histogram1D(axis=signal.spectrum.axis, values=values, variances=variances),
         daq_time_s=t_signal,
         source_file=str(signal_path),
         provenance=build_provenance(
@@ -138,9 +130,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
         ),
     )
     path = write_product(product, output, force=args.force, strict=strict)
-    logger.info(
-        "wrote %s (%d bins, scale r = %.6g)", path, values.size, scale
-    )
+    logger.info("wrote %s (%d bins, scale r = %.6g)", path, values.size, scale)
     return 0
 
 

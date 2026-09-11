@@ -68,8 +68,7 @@ def verify_event_accounting(
             f"counts has {counts.shape[1]} primary columns, totals has {totals.size}"
         )
     if np.any(counts < 0.0) or np.any(zero_counts < 0.0) or np.any(totals < 0.0):
-        raise CertificateError(
-            "F-SIM-1", "counts, zero counts and totals must be non-negative")
+        raise CertificateError("F-SIM-1", "counts, zero counts and totals must be non-negative")
     recorded = counts.sum(axis=0) + zero_counts
     if np.any(np.abs(recorded - totals) > _RTOL * np.maximum(1.0, totals)):
         offending = int(np.argmax(np.abs(recorded - totals)))
@@ -85,35 +84,25 @@ def verify_event_accounting(
         )
 
 
-def verify_binomial_variance(
-    counts: NDArray[np.float64], totals: NDArray[np.float64]
-) -> None:
+def verify_binomial_variance(counts: NDArray[np.float64], totals: NDArray[np.float64]) -> None:
     """F-SIM-2 production guard: the stored variance must equal the exact form."""
     counts = np.asarray(counts, dtype=np.float64)
     totals = np.asarray(totals, dtype=np.float64)
     expected = binomial_variance(counts, totals)
     if np.any(expected < 0.0):
-        raise CertificateError(
-            "F-SIM-2", "exact binomial variance is negative")
+        raise CertificateError("F-SIM-2", "exact binomial variance is negative")
     if np.any(counts > totals[None, :] + _RTOL):
-        raise CertificateError(
-            "F-SIM-2", "a deposition bin exceeds its column total")
+        raise CertificateError("F-SIM-2", "a deposition bin exceeds its column total")
 
 
-def verify_efficiency(
-    counts: NDArray[np.float64], totals: NDArray[np.float64]
-) -> None:
+def verify_efficiency(counts: NDArray[np.float64], totals: NDArray[np.float64]) -> None:
     """F-SIM-3: the detection efficiency ``column_sum_j / N_j`` lies in [0, 1]."""
     counts = np.asarray(counts, dtype=np.float64)
     totals = np.asarray(totals, dtype=np.float64)
     detected = counts.sum(axis=0)
-    efficiency = np.divide(
-        detected, totals, out=np.zeros_like(totals), where=totals > 0.0
-    )
+    efficiency = np.divide(detected, totals, out=np.zeros_like(totals), where=totals > 0.0)
     if np.any(efficiency < -_RTOL) or np.any(efficiency > 1.0 + _RTOL):
-        raise CertificateError(
-            "F-SIM-3", "derived detection efficiency leaves [0, 1]"
-        )
+        raise CertificateError("F-SIM-3", "derived detection efficiency leaves [0, 1]")
 
 
 def verify_source_spectrum_variance(

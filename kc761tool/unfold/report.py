@@ -35,8 +35,7 @@ def render_report(
     """Render the unfold report as a newline-joined string."""
     lines: list[str] = ["=== KC761 unfold ===", f"mode: {result.mode}"]
     if result.mode == UNFOLD_MODE_CALIB_ONLY:
-        lines.append(
-            "calib_only: relabeled the channel axis to E(i +- 1/2); no solve")
+        lines.append("calib_only: relabeled the channel axis to E(i +- 1/2); no solve")
         if result.unfolded is not None:
             values = np.asarray(result.unfolded.values, dtype=np.float64)
             lines.append(
@@ -73,10 +72,8 @@ def render_report(
     lines.append(f"active solution bins: {result.n_active}")
     if result.sigma_total is not None:
         total_band = np.asarray(result.sigma_total.values, dtype=np.float64)
-        stat_band = np.asarray(
-            result.sigma_statistical.values, dtype=np.float64)
-        syst_band = np.asarray(
-            result.sigma_systematic.values, dtype=np.float64)
+        stat_band = np.asarray(result.sigma_statistical.values, dtype=np.float64)
+        syst_band = np.asarray(result.sigma_systematic.values, dtype=np.float64)
         lines.append(f"total band: {_band_summary(total_band)}")
         lines.append(f"stat band:  {_band_summary(stat_band)}")
         lines.append(f"syst band:  {_band_summary(syst_band)}")
@@ -105,8 +102,7 @@ def render_report(
         )
         for label, flags in calib.scale_bound_flags:
             if any(flags):
-                lines.append(
-                    f"scale bound flag: {label} -> {tuple(int(f) for f in flags)}")
+                lines.append(f"scale bound flag: {label} -> {tuple(int(f) for f in flags)}")
     return "\n".join(lines)
 
 

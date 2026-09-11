@@ -138,17 +138,13 @@ def _load(path: str | Path) -> tuple[dict[str, object], Path]:
     except tomllib.TOMLDecodeError as exc:
         raise UsageError(f"{config_path}: invalid TOML: {exc}") from exc
     except (UnicodeDecodeError, ValueError) as exc:
-        raise UsageError(
-            f"{config_path}: invalid TOML text encoding: {exc}") from exc
+        raise UsageError(f"{config_path}: invalid TOML text encoding: {exc}") from exc
     except OSError as exc:
-        raise UsageError(
-            f"{config_path}: cannot read config file: {exc}") from exc
+        raise UsageError(f"{config_path}: cannot read config file: {exc}") from exc
     return data, config_path.resolve()
 
 
-def _config_table(
-    path: str | Path, name: str
-) -> tuple[dict[str, object], Path, Path]:
+def _config_table(path: str | Path, name: str) -> tuple[dict[str, object], Path, Path]:
     """Return ``(table, base_dir, resolved_config_path)`` for one subcommand.
 
     ``base_dir`` is the current working directory (D-163): relative paths in a
@@ -162,18 +158,14 @@ def _config_table(
             f"expected config_version and any of {', '.join(CONFIG_TABLES)}"
         )
     if "config_version" not in data:
-        raise UsageError(
-            f"{config_path}: config_version = {CONFIG_VERSION} is required")
+        raise UsageError(f"{config_path}: config_version = {CONFIG_VERSION} is required")
     version = data["config_version"]
     if isinstance(version, bool) or not isinstance(version, int):
         raise UsageError(
-            f"{config_path}: config_version must be the integer {CONFIG_VERSION}, "
-            f"got {version!r}"
+            f"{config_path}: config_version must be the integer {CONFIG_VERSION}, got {version!r}"
         )
     if version != CONFIG_VERSION:
-        raise UsageError(
-            f"{config_path}: config_version must be {CONFIG_VERSION}, got {version!r}"
-        )
+        raise UsageError(f"{config_path}: config_version must be {CONFIG_VERSION}, got {version!r}")
     if name not in data:
         raise UsageError(f"{config_path}: missing [{name}] section")
     table = data[name]
@@ -198,8 +190,7 @@ def _check_keys(
         )
     missing = [key for key in required if key not in table]
     if missing:
-        raise UsageError(
-            f"{context}: missing required key(s): {', '.join(missing)}")
+        raise UsageError(f"{context}: missing required key(s): {', '.join(missing)}")
 
 
 def _as_str(table: dict[str, object], key: str, context: str) -> str:
@@ -233,9 +224,7 @@ def _as_bool(table: dict[str, object], key: str, context: str) -> bool:
     return value
 
 
-def _optional_bool(
-    table: dict[str, object], key: str, default: bool, context: str
-) -> bool:
+def _optional_bool(table: dict[str, object], key: str, default: bool, context: str) -> bool:
     return _as_bool(table, key, context) if key in table else default
 
 
@@ -243,9 +232,7 @@ def _optional_int(table: dict[str, object], key: str, context: str) -> int | Non
     return _as_int(table, key, context) if key in table else None
 
 
-def _optional_float(
-    table: dict[str, object], key: str, default: float, context: str
-) -> float:
+def _optional_float(table: dict[str, object], key: str, default: float, context: str) -> float:
     return _as_float(table, key, context) if key in table else default
 
 
@@ -262,8 +249,7 @@ def _positive(value: float, context: str, key: str) -> float:
 
 def _non_negative(value: float, context: str, key: str) -> float:
     if value < 0.0:
-        raise UsageError(
-            f"{context}: {key!r} must be non-negative, got {value!r}")
+        raise UsageError(f"{context}: {key!r} must be non-negative, got {value!r}")
     return value
 
 
@@ -295,8 +281,7 @@ def load_sim_config(
     )
     raw_runs = table.get("runs")
     if not isinstance(raw_runs, list) or not raw_runs:
-        raise UsageError(
-            "[sim]: runs must be a non-empty array of tables ([[sim.runs]])")
+        raise UsageError("[sim]: runs must be a non-empty array of tables ([[sim.runs]])")
     runs: list[SimRunSpec] = []
     for index, raw in enumerate(raw_runs):
         context = f"[sim.runs][{index}]"
@@ -304,29 +289,27 @@ def load_sim_config(
             raw,
             context,
             required=("events",),
-            optional=("source", "mode", "calib", "threads",
-                      "seed", "verbose", "output"),
+            optional=("source", "mode", "calib", "threads", "seed", "verbose", "output"),
         )
         has_source = "source" in run
         has_mode = "mode" in run
         if has_source == has_mode:
-            raise UsageError(
-                f"{context}: specify exactly one of 'source' or 'mode'")
+            raise UsageError(f"{context}: specify exactly one of 'source' or 'mode'")
         events = _as_int(run, "events", context)
         if events < 1:
-            raise UsageError(
-                f"{context}: 'events' must be >= 1, got {events!r}")
+            raise UsageError(f"{context}: 'events' must be >= 1, got {events!r}")
         threads = _optional_int(run, "threads", context)
         if threads is not None and threads < 1:
-            raise UsageError(
-                f"{context}: 'threads' must be >= 1, got {threads!r}")
+            raise UsageError(f"{context}: 'threads' must be >= 1, got {threads!r}")
         seed = _as_int(run, "seed", context) if "seed" in run else default_seed
         verbose = _optional_int(run, "verbose", context) or 0
         if verbose < 0:
-            raise UsageError(
-                f"{context}: 'verbose' must be >= 0, got {verbose!r}")
-        output = _resolve(base, _as_str(run, "output", context), context, "output") \
-            if "output" in run else None
+            raise UsageError(f"{context}: 'verbose' must be >= 0, got {verbose!r}")
+        output = (
+            _resolve(base, _as_str(run, "output", context), context, "output")
+            if "output" in run
+            else None
+        )
         if has_source:
             source_key = _as_str(run, "source", context)
             if source_key not in source_keys:
@@ -335,8 +318,7 @@ def load_sim_config(
                     f"expected one of {tuple(source_keys)}"
                 )
             if "calib" in run:
-                raise UsageError(
-                    f"{context}: a source run must not set 'calib'")
+                raise UsageError(f"{context}: a source run must not set 'calib'")
             runs.append(
                 SimRunSpec(
                     source_key=source_key,
@@ -361,8 +343,7 @@ def load_sim_config(
             SimRunSpec(
                 source_key=None,
                 matrix_mode=matrix_mode,
-                calib=_resolve(base, _as_str(
-                    run, "calib", context), context, "calib"),
+                calib=_resolve(base, _as_str(run, "calib", context), context, "calib"),
                 events=events,
                 threads=threads,
                 seed=seed,
@@ -404,9 +385,7 @@ def load_calib_config(path: str | Path, *, default_syst_frac: float) -> CalibCon
         )
         label = _as_str(entry, "label", context)
         if ("channel_low" in entry) != ("channel_high" in entry):
-            raise UsageError(
-                f"{context}: channel_low and channel_high must be given together"
-            )
+            raise UsageError(f"{context}: channel_low and channel_high must be given together")
         channel_low: int | None = None
         channel_high: int | None = None
         if "channel_low" in entry:
@@ -426,18 +405,19 @@ def load_calib_config(path: str | Path, *, default_syst_frac: float) -> CalibCon
         )
         datasets.append(
             CalibDatasetConfig(
-                data=_resolve(base, _as_str(
-                    entry, "data", context), context, "data"),
-                mc=_resolve(base, _as_str(
-                    entry, "mc", context), context, "mc"),
+                data=_resolve(base, _as_str(entry, "data", context), context, "data"),
+                mc=_resolve(base, _as_str(entry, "mc", context), context, "mc"),
                 label=label,
                 channel_low=channel_low,
                 channel_high=channel_high,
                 syst_frac=syst_frac,
             )
         )
-    output = _resolve(base, _as_str(table, "output", "[calib]"), "[calib]", "output") \
-        if "output" in table else None
+    output = (
+        _resolve(base, _as_str(table, "output", "[calib]"), "[calib]", "output")
+        if "output" in table
+        else None
+    )
     return CalibConfig(
         config_path=config_path,
         datasets=tuple(datasets),
@@ -457,14 +437,15 @@ def load_compose_config(path: str | Path) -> ComposeConfig:
         optional=("output", "force", "dry_run"),
         context="[compose]",
     )
-    output = _resolve(base, _as_str(table, "output", "[compose]"), "[compose]", "output") \
-        if "output" in table else None
+    output = (
+        _resolve(base, _as_str(table, "output", "[compose]"), "[compose]", "output")
+        if "output" in table
+        else None
+    )
     return ComposeConfig(
         config_path=config_path,
-        calib=_resolve(base, _as_str(
-            table, "calib", "[compose]"), "[compose]", "calib"),
-        sim=_resolve(base, _as_str(
-            table, "sim", "[compose]"), "[compose]", "sim"),
+        calib=_resolve(base, _as_str(table, "calib", "[compose]"), "[compose]", "calib"),
+        sim=_resolve(base, _as_str(table, "sim", "[compose]"), "[compose]", "sim"),
         output=output,
         force=_optional_bool(table, "force", False, "[compose]"),
         dry_run=_optional_bool(table, "dry_run", False, "[compose]"),
@@ -505,75 +486,62 @@ def load_unfold_config(path: str | Path, *, default_syst_frac: float) -> UnfoldC
     energy_high: float | None = None
     alpha: float | None = None
     if calib_only:
-        banned = [key for key in (
-            "sim", "energy_low", "energy_high", "alpha") if key in table]
+        banned = [key for key in ("sim", "energy_low", "energy_high", "alpha") if key in table]
         if banned:
             raise UsageError(
-                "[unfold]: calib_only does not use "
-                f"{', '.join(banned)}; remove it/them"
+                f"[unfold]: calib_only does not use {', '.join(banned)}; remove it/them"
             )
     else:
         if "sim" not in table:
-            raise UsageError(
-                "[unfold]: 'sim' is required unless calib_only = true")
+            raise UsageError("[unfold]: 'sim' is required unless calib_only = true")
         if "energy_low" not in table or "energy_high" not in table:
             raise UsageError(
                 "[unfold]: energy_low and energy_high are required unless calib_only = true"
             )
         if "alpha" not in table:
-            raise UsageError(
-                "[unfold]: 'alpha' is required unless calib_only = true")
-        sim = _resolve(base, _as_str(
-            table, "sim", "[unfold]"), "[unfold]", "sim")
+            raise UsageError("[unfold]: 'alpha' is required unless calib_only = true")
+        sim = _resolve(base, _as_str(table, "sim", "[unfold]"), "[unfold]", "sim")
         energy_low = _as_float(table, "energy_low", "[unfold]")
         energy_high = _as_float(table, "energy_high", "[unfold]")
         if not energy_low < energy_high:
             raise UsageError(
                 f"[unfold]: energy_low ({energy_low}) must be < energy_high ({energy_high})"
             )
-        alpha = _positive(
-            _as_float(table, "alpha", "[unfold]"), "[unfold]", "alpha")
+        alpha = _positive(_as_float(table, "alpha", "[unfold]"), "[unfold]", "alpha")
     parsed_order = _optional_int(table, "difference_order", "[unfold]")
     difference_order = 2 if parsed_order is None else parsed_order
     if difference_order not in (1, 2):
-        raise UsageError(
-            f"[unfold]: 'difference_order' must be 1 or 2, got {difference_order!r}"
-        )
+        raise UsageError(f"[unfold]: 'difference_order' must be 1 or 2, got {difference_order!r}")
     pad_nsigma = _non_negative(
-        _optional_float(table, "pad_nsigma", 5.0,
-                        "[unfold]"), "[unfold]", "pad_nsigma"
+        _optional_float(table, "pad_nsigma", 5.0, "[unfold]"), "[unfold]", "pad_nsigma"
     )
     syst_frac = _non_negative(
         _optional_float(table, "syst_frac", default_syst_frac, "[unfold]"),
         "[unfold]",
         "syst_frac",
     )
-    output = _resolve(base, _as_str(table, "output", "[unfold]"), "[unfold]", "output") \
-        if "output" in table else None
+    output = (
+        _resolve(base, _as_str(table, "output", "[unfold]"), "[unfold]", "output")
+        if "output" in table
+        else None
+    )
     snip_threshold = _positive(
-        _optional_float(table, "snip_threshold",
-                        DEFAULT_SNIP_THRESHOLD_SIGMA, "[unfold]"),
+        _optional_float(table, "snip_threshold", DEFAULT_SNIP_THRESHOLD_SIGMA, "[unfold]"),
         "[unfold]",
         "snip_threshold",
     )
     snip_protect = _non_negative(
-        _optional_float(table, "snip_protect",
-                        DEFAULT_SNIP_PROTECT_SIGMA, "[unfold]"),
+        _optional_float(table, "snip_protect", DEFAULT_SNIP_PROTECT_SIGMA, "[unfold]"),
         "[unfold]",
         "snip_protect",
     )
-    snip_floor = _optional_float(
-        table, "snip_floor", DEFAULT_SNIP_FLOOR, "[unfold]")
+    snip_floor = _optional_float(table, "snip_floor", DEFAULT_SNIP_FLOOR, "[unfold]")
     if not 0.0 <= snip_floor <= 1.0:
-        raise UsageError(
-            f"[unfold]: 'snip_floor' must lie in [0, 1], got {snip_floor!r}")
+        raise UsageError(f"[unfold]: 'snip_floor' must lie in [0, 1], got {snip_floor!r}")
     snip_iterations = _optional_int(table, "snip_iterations", "[unfold]")
     if snip_iterations is not None and snip_iterations < 1:
-        raise UsageError(
-            f"[unfold]: 'snip_iterations' must be >= 1, got {snip_iterations!r}"
-        )
-    snip_max_iterations = _optional_int(
-        table, "snip_max_iterations", "[unfold]")
+        raise UsageError(f"[unfold]: 'snip_iterations' must be >= 1, got {snip_iterations!r}")
+    snip_max_iterations = _optional_int(table, "snip_max_iterations", "[unfold]")
     if snip_max_iterations is None:
         snip_max_iterations = DEFAULT_SNIP_MAX_ITERATIONS
     if snip_max_iterations < 1:
@@ -582,10 +550,8 @@ def load_unfold_config(path: str | Path, *, default_syst_frac: float) -> UnfoldC
         )
     return UnfoldConfig(
         config_path=config_path,
-        data=_resolve(base, _as_str(
-            table, "data", "[unfold]"), "[unfold]", "data"),
-        calib=_resolve(base, _as_str(
-            table, "calib", "[unfold]"), "[unfold]", "calib"),
+        data=_resolve(base, _as_str(table, "data", "[unfold]"), "[unfold]", "data"),
+        calib=_resolve(base, _as_str(table, "calib", "[unfold]"), "[unfold]", "calib"),
         sim=sim,
         calib_only=calib_only,
         energy_low_kev=energy_low,

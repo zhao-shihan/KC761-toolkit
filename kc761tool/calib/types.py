@@ -58,13 +58,11 @@ class FitSettings:
 
     def __post_init__(self) -> None:
         if self.maxiter < 1:
-            raise ValidationError(
-                f"maxiter must be >= 1, got {self.maxiter!r}")
+            raise ValidationError(f"maxiter must be >= 1, got {self.maxiter!r}")
         for name in ("ftol", "xtol", "gtol"):
             value = getattr(self, name)
             if not np.isfinite(value) or value <= 0.0:
-                raise ValidationError(
-                    f"{name} must be positive and finite, got {value!r}")
+                raise ValidationError(f"{name} must be positive and finite, got {value!r}")
 
 
 @dataclass(frozen=True)

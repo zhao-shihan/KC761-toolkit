@@ -96,8 +96,7 @@ class Axis:
         if not np.isfinite(edges).all():
             raise SchemaError(f"axis {self.name!r}: edges must be finite")
         if not np.all(np.diff(edges) > 0.0):
-            raise SchemaError(
-                f"axis {self.name!r}: edges must be strictly increasing")
+            raise SchemaError(f"axis {self.name!r}: edges must be strictly increasing")
         object.__setattr__(self, "edges", edges)
 
     @property
@@ -116,15 +115,13 @@ class Axis:
             raise SchemaError(
                 f"axis {self.name!r}: bin range [{low}, {high}] outside [0, {self.n_bins - 1}]"
             )
-        return Axis(name=self.name, edges=self.edges[low: high + 2], unit=self.unit)
+        return Axis(name=self.name, edges=self.edges[low : high + 2], unit=self.unit)
 
 
 def check_same_edges(left: Axis, right: Axis) -> None:
     """Require two axes to share identical edges (exact comparison)."""
     if left.edges.shape != right.edges.shape or not np.array_equal(left.edges, right.edges):
-        raise SchemaError(
-            f"axes {left.name!r} and {right.name!r} have different edges"
-        )
+        raise SchemaError(f"axes {left.name!r} and {right.name!r} have different edges")
 
 
 def channel_axis(n_channels: int) -> Axis:
@@ -142,9 +139,7 @@ def channel_axis(n_channels: int) -> Axis:
     )
 
 
-def energy_axis(
-    edges_kev: NDArray[np.float64], *, name: str = ENERGY_AXIS_NAME
-) -> Axis:
+def energy_axis(edges_kev: NDArray[np.float64], *, name: str = ENERGY_AXIS_NAME) -> Axis:
     """Variable energy axis in keV (F-BIN-1)."""
     return Axis(name=name, edges=np.asarray(edges_kev, dtype=np.float64), unit=UNIT_KEV)
 

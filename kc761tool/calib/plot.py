@@ -121,8 +121,7 @@ def _footer_row(fig, gs, row: int):
 
 def _title_panel(ax, txt: str) -> None:
     ax.axis("off")
-    ax.text(0.5, 0.5, txt, transform=ax.transAxes,
-            ha="center", va="center", fontsize=16)
+    ax.text(0.5, 0.5, txt, transform=ax.transAxes, ha="center", va="center", fontsize=16)
 
 
 def _parameter_text(result: FitResult) -> str:
@@ -131,7 +130,7 @@ def _parameter_text(result: FitResult) -> str:
         lo_s = f"{lo:.3g}"
         hi_s = f"{hi:.3g}"
         if lo_s == hi_s:
-            return f"{v_s}"r"$\,\pm\,$"f"{hi_s}"
+            return f"{v_s}" r"$\,\pm\,$" f"{hi_s}"
         return f"{v_s}$^\\text{{+{hi_s}}}_\\text{{-{lo_s}}}$"
 
     def rows(names, vals, los, his):
@@ -182,9 +181,7 @@ def _parameter_panel(ax, txt: str) -> None:
 
 def _log_x_axis(ax) -> None:
     ax.set_xscale("log")
-    ax.tick_params(
-        axis="x", which="both", labelrotation=_LOG_X_LABELROTATION, labelsize=9
-    )
+    ax.tick_params(axis="x", which="both", labelrotation=_LOG_X_LABELROTATION, labelsize=9)
 
 
 def _positive_start(edges: np.ndarray) -> int:
@@ -202,8 +199,7 @@ def _spectrum_panel(
     pos = e_ref > 0.0
     e_curve = np.geomspace(e_ref[pos][0], e_ref[pos][-1], 300)
     ch_curve = np.interp(e_curve, e_ref[pos], ch_ref[pos])
-    scale_e = scale_curve(ds.scale_params, ch_curve,
-                          ds.channel_low, ds.channel_high)
+    scale_e = scale_curve(ds.scale_params, ch_curve, ds.channel_low, ds.channel_high)
     (line_scale,) = ax2.plot(
         e_curve, scale_e, "--", color=_COLOR_SCALE, lw=0.5, zorder=1, label="Scale s(ch)"
     )
@@ -269,8 +265,7 @@ def _spectrum_panel(
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Counts")
     ax.legend(
-        [data_handle, (line_fit, band_handle),
-         (stairs_handle, mc_unc_handle), line_scale],
+        [data_handle, (line_fit, band_handle), (stairs_handle, mc_unc_handle), line_scale],
         [
             "Data (bkg-subtracted)",
             "Best fit (folded MC)",
@@ -316,12 +311,9 @@ def _residual_panel(
 
 
 def _mark_energy_line(ax, x: float, y: float, *, hline: bool) -> None:
-    ax.plot([x, x], [ax.get_ylim()[0], y], ":",
-            color=_COLOR_REF_LINE, lw=1.0, zorder=1.5)
+    ax.plot([x, x], [ax.get_ylim()[0], y], ":", color=_COLOR_REF_LINE, lw=1.0, zorder=1.5)
     if hline:
-        ax.plot(
-            [ax.get_xlim()[0], x], [y, y], ":", color=_COLOR_REF_LINE, lw=1.0, zorder=1.5
-        )
+        ax.plot([ax.get_xlim()[0], x], [y, y], ":", color=_COLOR_REF_LINE, lw=1.0, zorder=1.5)
 
 
 def _calibration_panel(
@@ -329,8 +321,7 @@ def _calibration_panel(
 ) -> None:
     channel = np.linspace(0.0, result.channel_max, 400)
     energy = energy_kev(channel, calibration, channel_max=result.channel_max)
-    basis = np.stack([np.ones_like(channel), channel,
-                     channel**2, channel**3], axis=1)
+    basis = np.stack([np.ones_like(channel), channel, channel**2, channel**3], axis=1)
     covariance = np.asarray(result.param_cov, dtype=float)[:4, :4]
     err = _CALIB_BAND_SCALE * np.sqrt(
         np.maximum(np.einsum("ij,jk,ik->i", basis, covariance, basis), 0.0)
@@ -363,11 +354,8 @@ def _calibration_panel(
     ax.grid(alpha=0.3)
     calib_label = "$E(ch) = c_0 + c_1 ch + c_2 ch^2 + c_3 ch^3$"
     if band_handle is not None:
-        calib_label += (
-            f" (1$\\sigma$ band $\\mathbf{{\\times {_CALIB_BAND_SCALE:g}}}$)"
-        )
-    ax.legend([(line_handle, band_handle)], [
-              calib_label], fontsize=8, loc="upper left")
+        calib_label += f" (1$\\sigma$ band $\\mathbf{{\\times {_CALIB_BAND_SCALE:g}}}$)"
+    ax.legend([(line_handle, band_handle)], [calib_label], fontsize=8, loc="upper left")
 
 
 def _resolution_panel(
@@ -379,11 +367,9 @@ def _resolution_panel(
     sigma = resolution_sigma_kev(energy, resol_params)
     _, gradient = resolution_sigma_grad(energy, resol_params)
     relative = 100.0 * sigma / energy
-    (line_handle,) = ax.plot(energy, coeff *
-                             relative, "-", color=_COLOR_RESOL, lw=1.5)
+    (line_handle,) = ax.plot(energy, coeff * relative, "-", color=_COLOR_RESOL, lw=1.5)
     covariance = np.asarray(result.param_cov, dtype=float)[4:, 4:]
-    variance = np.maximum(
-        np.einsum("ij,jk,ik->i", gradient.T, covariance, gradient.T), 0.0)
+    variance = np.maximum(np.einsum("ij,jk,ik->i", gradient.T, covariance, gradient.T), 0.0)
     err = _RESOL_BAND_SCALE * 100.0 * np.sqrt(variance) / energy
     band_handle = ax.fill_between(
         energy,
@@ -401,24 +387,17 @@ def _resolution_panel(
         if not (energy[0] <= e_ref <= energy_max):
             continue
         y_ref = (
-            coeff
-            * 100.0
-            * float(resolution_sigma_kev(np.array([e_ref]), resol_params)[0])
-            / e_ref
+            coeff * 100.0 * float(resolution_sigma_kev(np.array([e_ref]), resol_params)[0]) / e_ref
         )
         _mark_energy_line(ax, e_ref, y_ref, hline=True)
     ax.set_xlabel("Energy (keV)")
-    ax.set_ylabel(
-        f"Energy resolution ({"FWHM" if _RESOL_AS_FWHM else r"$\\sigma$"}, %)")
+    ax.set_ylabel(f"Energy resolution ({'FWHM' if _RESOL_AS_FWHM else r'$\\sigma$'}, %)")
     ax.set_title(title, fontsize=10)
     ax.grid(alpha=0.3)
-    resol_label = (
-        r"$\text{FWHM}(E)\,/\,E$" if _RESOL_AS_FWHM else r"$\sigma(E)\,/\,E$"
-    )
+    resol_label = r"$\text{FWHM}(E)\,/\,E$" if _RESOL_AS_FWHM else r"$\sigma(E)\,/\,E$"
     if band_handle is not None:
         resol_label += f" (1$\\sigma$ band $\\mathbf{{\\times {_RESOL_BAND_SCALE:g}}}$)"
-    ax.legend([(line_handle, band_handle)], [
-              resol_label], fontsize=8, loc="upper right")
+    ax.legend([(line_handle, band_handle)], [resol_label], fontsize=8, loc="upper right")
 
 
 def plot_fit(
@@ -429,8 +408,7 @@ def plot_fit(
     force: bool = False,
 ) -> Path:
     """Render the fit result into ``path`` (D-153)."""
-    calibration = InternalCalibration.from_array(
-        np.asarray(result.core_internal)[:4])
+    calibration = InternalCalibration.from_array(np.asarray(result.core_internal)[:4])
     n = len(details)
     fig, gs = _figure_grid(n)
     note = f"({n} datasets)" if n > 1 else ""
@@ -447,8 +425,7 @@ def plot_fit(
             f"{label}  [ch {ds.channel_low} - {ds.channel_high}]  "
             f"$\\chi^2 = {ds.chi2:.1f}$, {ds.data_counts.size} bins"
         )
-        _spectrum_panel(ax_spec, ds, calibration,
-                        result.channel_max, spec_title)
+        _spectrum_panel(ax_spec, ds, calibration, result.channel_max, spec_title)
         lo = _positive_start(ds.energy_edges_kev)
         _residual_panel(
             ax_pull,

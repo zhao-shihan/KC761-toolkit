@@ -129,12 +129,7 @@ class Ellipsoid:
 
     def volume_cm3(self) -> float:
         return (
-            4.0
-            / 3.0
-            * math.pi
-            * (self.semi_x / 10.0)
-            * (self.semi_y / 10.0)
-            * (self.semi_z / 10.0)
+            4.0 / 3.0 * math.pi * (self.semi_x / 10.0) * (self.semi_y / 10.0) * (self.semi_z / 10.0)
         )
 
 
@@ -242,12 +237,9 @@ class SourceSpec:
                 f"source key must be a non-empty trimmed string, got {self.key!r}"
             )
         if not self.provenance:
-            raise ValidationError(
-                f"source {self.key!r}: provenance must be non-empty")
+            raise ValidationError(f"source {self.key!r}: provenance must be non-empty")
         if self.container is None and self.container_offset is not None:
-            raise ValidationError(
-                f"source {self.key!r}: 'container_offset' requires a 'container'"
-            )
+            raise ValidationError(f"source {self.key!r}: 'container_offset' requires a 'container'")
         if self.density is not None and self.mass_g is not None:
             raise ValidationError(
                 f"source {self.key!r}: 'density' and 'mass_g' are mutually exclusive"
@@ -259,8 +251,7 @@ class SourceSpec:
                 )
             if self.container_offset is not None:
                 raise ValidationError(
-                    f"source {self.key!r}: 'container_offset' is not supported "
-                    "for a Cup container"
+                    f"source {self.key!r}: 'container_offset' is not supported for a Cup container"
                 )
         if (
             isinstance(self.container, Tube)
@@ -272,8 +263,7 @@ class SourceSpec:
                 "sit on a beta shield"
             )
         if self.shield is not None and self.container is None:
-            raise ValidationError(
-                f"source {self.key!r}: a shielded source requires a container")
+            raise ValidationError(f"source {self.key!r}: a shielded source requires a container")
 
     @property
     def effective_density(self) -> float | None:
@@ -455,9 +445,7 @@ def get_source(key: str) -> SourceSpec:
     try:
         return SOURCES[key]
     except KeyError as exc:
-        raise ValidationError(
-            f"unknown source key {key!r}; expected one of {SOURCE_KEYS}"
-        ) from exc
+        raise ValidationError(f"unknown source key {key!r}; expected one of {SOURCE_KEYS}") from exc
 
 
 # --------------------------------------------------------------------------
@@ -501,15 +489,10 @@ class PrimaryAxis:
         if len(edges) < 2:
             raise ValidationError("primary axis needs at least two edges")
         if any(b <= a for a, b in zip(edges, edges[1:], strict=False)):
-            raise ValidationError(
-                "primary axis edges are not strictly increasing")
-        active = tuple(
-            column for column in range(len(edges) - 1) if edges[column + 1] > 0.0
-        )
+            raise ValidationError("primary axis edges are not strictly increasing")
+        active = tuple(column for column in range(len(edges) - 1) if edges[column + 1] > 0.0)
         if not active:
-            raise ValidationError(
-                "primary axis has no active column (no positive upper edge)"
-            )
+            raise ValidationError("primary axis has no active column (no positive upper edge)")
         object.__setattr__(self, "edges_kev", edges)
         object.__setattr__(self, "active", active)
 
@@ -536,8 +519,7 @@ class PrimaryAxis:
     def sample_energy_kev(self, column: int, u: float) -> float:
         """Sample ``E_gamma`` uniformly inside an active column (F-SIM-1)."""
         if not 0.0 <= u < 1.0:
-            raise ValidationError(
-                f"uniform draw u must lie in [0, 1), got {u!r}")
+            raise ValidationError(f"uniform draw u must lie in [0, 1), got {u!r}")
         lo, hi = self.energy_bounds_kev(column)
         return lo + u * (hi - lo)
 
@@ -616,17 +598,14 @@ class ColumnSchedule:
             )
         for column, count in enumerate(self.counts):
             if count < 0:
-                raise ValidationError(
-                    f"column {column} has negative count {count}")
+                raise ValidationError(f"column {column} has negative count {count}")
             if column not in self.axis.active and count != 0:
-                raise ValidationError(
-                    f"inactive column {column} has {count} events")
+                raise ValidationError(f"inactive column {column} has {count} events")
 
     @classmethod
     def fixed_total(cls, axis: PrimaryAxis, n_events: int) -> ColumnSchedule:
         if n_events < 0:
-            raise ValidationError(
-                f"n_events must be non-negative, got {n_events!r}")
+            raise ValidationError(f"n_events must be non-negative, got {n_events!r}")
         active = axis.active
         base, remainder = divmod(n_events, len(active))
         counts = [0] * axis.n_columns
@@ -660,7 +639,7 @@ class ColumnSchedule:
         start = 0
         for worker in range(workers):
             size = base + (1 if worker < remainder else 0)
-            chunk = pairs[start: start + size]
+            chunk = pairs[start : start + size]
             start += size
             if chunk:
                 slices.append(ColumnSlice.from_pairs(chunk))
@@ -703,9 +682,7 @@ class ColumnSlice:
     def locate(self, local_event: int) -> tuple[int, int]:
         """Map a zero-based local event index to ``(column, within_column)``."""
         if not 0 <= local_event < self.total_events:
-            raise ValidationError(
-                f"local event {local_event} outside [0, {self.total_events})"
-            )
+            raise ValidationError(f"local event {local_event} outside [0, {self.total_events})")
         start = 0
         for column, count in zip(self.columns, self.counts, strict=True):
             if local_event < start + count:

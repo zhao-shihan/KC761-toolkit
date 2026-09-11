@@ -99,8 +99,7 @@ def add_config_options(parser: argparse.ArgumentParser) -> None:
 def default_output(command: str, filename: str) -> Path:
     """Return the D-19 default product path ``work/<command>/<filename>``."""
     if not filename or Path(filename).name != filename:
-        raise UsageError(
-            f"invalid default output name {filename!r} for {command}")
+        raise UsageError(f"invalid default output name {filename!r} for {command}")
     return REPO_ROOT / "work" / command / filename
 
 
@@ -151,8 +150,7 @@ def reject_run_options(
         dest for dest, default in run_defaults.items() if getattr(args, dest, None) != default
     )
     if offending:
-        rendered = ", ".join(
-            f"--{dest.replace('_', '-')}" for dest in offending)
+        rendered = ", ".join(f"--{dest.replace('_', '-')}" for dest in offending)
         raise UsageError(
             f"kc761tool {command}: --config is mutually exclusive with the "
             f"run-selection options; remove: {rendered}"

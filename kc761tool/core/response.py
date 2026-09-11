@@ -105,23 +105,20 @@ def build_response_matrix(
     """
     edges = _check_edges("deposition_edges_kev", deposition_edges_kev)
     maximum = require_positive("channel_max", channel_max)
-    channel_edges_kev = energy_kev(
-        channel_grid.edges(), calibration, channel_max=maximum)
+    channel_edges_kev = energy_kev(channel_grid.edges(), calibration, channel_max=maximum)
     if not np.all(np.diff(channel_edges_kev) > 0.0):
         raise ValidationError(
             "calibrated channel edges are not strictly increasing; "
             "F-MODEL-3 requires a monotone calibration"
         )
     deposition_centers = 0.5 * (edges[:-1] + edges[1:])
-    sigma = resolution_sigma_kev(
-        deposition_centers, resol_params, strict=strict)
+    sigma = resolution_sigma_kev(deposition_centers, resol_params, strict=strict)
     if strict and np.any(sigma <= 0.0):
         raise CertificateError(
             "F-MODEL-5",
             "zero resolution width on the deposition grid; strict mode refuses to build C",
         )
-    triples = response_triples(
-        channel_edges_kev, deposition_centers, sigma, n_sigma=n_sigma)
+    triples = response_triples(channel_edges_kev, deposition_centers, sigma, n_sigma=n_sigma)
     matrix = csr_from_column_triples(
         triples.rows,
         triples.cols,
@@ -158,8 +155,7 @@ def compose_response(
     n_deposition = response.matrix.shape[1]
     if counts.shape[0] != n_deposition:
         raise ValidationError(
-            f"deposition_counts has {counts.shape[0]} deposition bins, "
-            f"response has {n_deposition}"
+            f"deposition_counts has {counts.shape[0]} deposition bins, response has {n_deposition}"
         )
     if totals.size != counts.shape[1] or primary_edges.size != counts.shape[1] + 1:
         raise ValidationError(
@@ -219,7 +215,7 @@ def slice_response(
         )
     return replace(
         composed,
-        matrix=composed.matrix[channel_low: channel_high + 1],
+        matrix=composed.matrix[channel_low : channel_high + 1],
         channel_low=channel_low,
         channel_high=channel_high,
     )
@@ -227,9 +223,22 @@ def slice_response(
 
 @numba.njit(cache=True, parallel=True)
 def _fused_parameter_jacobian(  # noqa: ANN001
-    edges, centers, sigma, n_sigma, starts, stops, offsets,
-    edge_gradient, sigma_grad,
-    rows, cols, values, d_lo, d_hi, d_sigma, normalized,
+    edges,
+    centers,
+    sigma,
+    n_sigma,
+    starts,
+    stops,
+    offsets,
+    edge_gradient,
+    sigma_grad,
+    rows,
+    cols,
+    values,
+    d_lo,
+    d_hi,
+    d_sigma,
+    normalized,
 ):
     """F-RESP-4 chain plus F-KERN-2 quotient in one parallel pass (D-174).
 
@@ -264,8 +273,7 @@ def _fused_parameter_jacobian(  # noqa: ANN001
             denominator += value
             for parameter in range(4):
                 sums[parameter] += (
-                    lo * edge_gradient[parameter, row]
-                    + hi * edge_gradient[parameter, row + 1]
+                    lo * edge_gradient[parameter, row] + hi * edge_gradient[parameter, row + 1]
                 )
             for resolution in range(3):
                 sums[4 + resolution] += ds * sigma_grad[resolution, column]
@@ -308,14 +316,11 @@ def response_parameter_jacobian(
     """
     edges = _check_edges("deposition_edges_kev", deposition_edges_kev)
     maximum = require_positive("channel_max", channel_max)
-    channel_edges_kev = energy_kev(
-        channel_grid.edges(), calibration, channel_max=maximum)
+    channel_edges_kev = energy_kev(channel_grid.edges(), calibration, channel_max=maximum)
     if not np.all(np.diff(channel_edges_kev) > 0.0):
-        raise ValidationError(
-            "calibrated channel edges are not strictly increasing")
+        raise ValidationError("calibrated channel edges are not strictly increasing")
     deposition_centers = 0.5 * (edges[:-1] + edges[1:])
-    sigma, sigma_grad = resolution_sigma_grad(
-        deposition_centers, resol_params, strict=strict)
+    sigma, sigma_grad = resolution_sigma_grad(deposition_centers, resol_params, strict=strict)
     if strict and np.any(sigma <= 0.0):
         raise CertificateError(
             "F-MODEL-5",
@@ -332,8 +337,7 @@ def response_parameter_jacobian(
     )  # shape (4, n_channels + 1)
 
     bin_centers = 0.5 * (channel_edges_kev[:-1] + channel_edges_kev[1:])
-    starts, stops = support_bounds(
-        bin_centers, deposition_centers, sigma, n_sigma)
+    starts, stops = support_bounds(bin_centers, deposition_centers, sigma, n_sigma)
     lengths = np.maximum(stops - starts, 0)
     total = int(lengths.sum())
     offsets = np.cumsum(lengths) - lengths
@@ -363,8 +367,7 @@ def response_parameter_jacobian(
         normalized,
     )
     return [
-        csr_from_column_triples(rows, cols, normalized[parameter], shape)
-        for parameter in range(7)
+        csr_from_column_triples(rows, cols, normalized[parameter], shape) for parameter in range(7)
     ]
 
 
@@ -385,11 +388,9 @@ def compose_parameter_jacobian(
     counts = as_float_array("deposition_counts", deposition_counts, ndim=2)
     totals = as_float_array("column_totals", column_totals, ndim=1)
     if totals.shape != (counts.shape[1],):
-        raise ValidationError(
-            "column_totals must match deposition_counts columns")
+        raise ValidationError("column_totals must match deposition_counts columns")
     normalized = np.zeros_like(counts)
-    np.divide(counts, totals[None, :], out=normalized,
-              where=(totals > 0.0)[None, :])
+    np.divide(counts, totals[None, :], out=normalized, where=(totals > 0.0)[None, :])
     if columns is not None:
         normalized = normalized[:, columns]
     # A dense BLAS-3 product beats the sparse SpMM for these 2048-scale
@@ -406,8 +407,7 @@ def verify_response_columns(response: ResponseMatrix, *, strict: bool) -> NDArra
     """F-RESP-1 certificate: C columns sum to 1 or are exactly zero."""
     matrix = response.matrix
     if not np.isfinite(matrix.data).all() or np.any(matrix.data < 0.0):
-        raise ValidationError(
-            "response matrix contains negative or non-finite values")
+        raise ValidationError("response matrix contains negative or non-finite values")
     sums = response.column_sums
     expected = (sums > 0.5).astype(np.float64)
     bad = np.abs(sums - expected) > RESPONSE_COLUMN_TOL
@@ -436,8 +436,7 @@ def verify_composed_columns(
     counts = as_float_array("deposition_counts", deposition_counts, ndim=2)
     totals = as_float_array("column_totals", column_totals, ndim=1)
     reachable = response.column_sums > 0.5
-    detected = counts[reachable].sum(axis=0) if np.any(
-        reachable) else np.zeros(counts.shape[1])
+    detected = counts[reachable].sum(axis=0) if np.any(reachable) else np.zeros(counts.shape[1])
     expected = np.zeros(counts.shape[1])
     np.divide(detected, totals, out=expected, where=totals > 0.0)
     bad = np.abs(composed.column_sums - expected) > RESPONSE_COLUMN_TOL

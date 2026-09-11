@@ -67,8 +67,7 @@ def factor_dense_spd(dense: NDArray[np.float64]) -> SpdFactor:
     try:
         factor = linalg.cho_factor(symmetric, lower=True, check_finite=False)
     except linalg.LinAlgError as exc:
-        raise SolverError(
-            f"normal matrix is not positive definite: {exc}") from exc
+        raise SolverError(f"normal matrix is not positive definite: {exc}") from exc
     return SpdFactor("dense", dense=factor)
 
 
@@ -88,9 +87,7 @@ def prefer_dense_normal(matrix: sparse.spmatrix) -> bool:
     return entries <= DENSE_NORMAL_LIMIT and matrix.nnz > DENSE_NORMAL_DENSITY * entries
 
 
-def weighted_normal(
-    matrix: sparse.spmatrix, weights: NDArray[np.float64]
-) -> sparse.csr_matrix:
+def weighted_normal(matrix: sparse.spmatrix, weights: NDArray[np.float64]) -> sparse.csr_matrix:
     """Return ``matrix.T @ diag(weights) @ matrix`` (half-Hessian ``A``).
 
     Uses dense BLAS when :func:`prefer_dense_normal` holds and falls back to the
@@ -122,20 +119,16 @@ def weighted_normal_and_rhs(
     if rhs is not None:
         rhs_array = np.asarray(rhs, dtype=np.float64).reshape(-1)
         if rhs_array.size != cisr.shape[0]:
-            raise ValueError(
-                f"rhs has {rhs_array.size} entries, matrix has {cisr.shape[0]} rows"
-            )
+            raise ValueError(f"rhs has {rhs_array.size} entries, matrix has {cisr.shape[0]} rows")
     if prefer_dense_normal(cisr):
         dense = cisr.toarray()
         hessian = (dense.T * weights_array) @ dense
         hessian = 0.5 * (hessian + hessian.T)
-        gradient = None if rhs_array is None else dense.T @ (
-            weights_array * rhs_array)
+        gradient = None if rhs_array is None else dense.T @ (weights_array * rhs_array)
         return sparse.csr_matrix(hessian), gradient
     weighted = cisr.T @ sparse.diags(weights_array)
     hessian = (weighted @ cisr).tocsr()
-    gradient = None if rhs_array is None else np.asarray(
-        weighted @ rhs_array, dtype=np.float64)
+    gradient = None if rhs_array is None else np.asarray(weighted @ rhs_array, dtype=np.float64)
     return hessian, gradient
 
 
@@ -189,16 +182,14 @@ def factor_spd(matrix: sparse.spmatrix) -> SpdFactor:
     sub = matrix.tocsc()
     size = int(sub.shape[0])
     if sub.shape[0] != sub.shape[1] or size == 0:
-        raise SolverError(
-            f"normal matrix must be non-empty and square, got {sub.shape}")
+        raise SolverError(f"normal matrix must be non-empty and square, got {sub.shape}")
     if prefer_dense_factor(sub):
         return factor_dense_spd(sub.toarray())
     bandwidth = half_bandwidth(sub)
     if bandwidth * BAND_FRACTION < size:
         banded = to_banded(sub, bandwidth)
         try:
-            factor = linalg.cholesky_banded(
-                banded, lower=True, check_finite=False)
+            factor = linalg.cholesky_banded(banded, lower=True, check_finite=False)
         except linalg.LinAlgError as exc:
             raise SolverError(f"banded Cholesky failed: {exc}") from exc
         return SpdFactor("banded", banded=(factor, True))

@@ -71,8 +71,7 @@ def configure_radioactive_decay(source: SourceSpec) -> None:
     )
     if source.nucleus_limits is not None:
         amin, amax, zmin, zmax = source.nucleus_limits
-        ui.ApplyCommand(
-            f"/process/had/rdm/nucleusLimits {amin} {amax} {zmin} {zmax}")
+        ui.ApplyCommand(f"/process/had/rdm/nucleusLimits {amin} {amax} {zmin} {zmax}")
 
 
 def gps_volume_commands(geometry) -> list[str]:  # noqa: ANN001
@@ -87,8 +86,7 @@ def gps_volume_commands(geometry) -> list[str]:  # noqa: ANN001
             ]
         case Cylinder():
             if geometry.axis not in ("y", "z"):
-                raise ValidationError(
-                    f"unsupported cylinder axis: {geometry.axis!r}")
+                raise ValidationError(f"unsupported cylinder axis: {geometry.axis!r}")
             commands = [
                 "/gps/pos/shape Cylinder",
                 f"/gps/pos/radius {geometry.radius} mm",
@@ -137,9 +135,7 @@ def configure_gps(source: SourceSpec, detector) -> None:  # noqa: ANN001
         ui.ApplyCommand(command)
     center = detector.source_center
     # "centre" is the Geant4 UI command name and is kept verbatim (D-182).
-    ui.ApplyCommand(
-        f"/gps/pos/centre {center.x / mm} {center.y / mm} {center.z / mm} mm"
-    )
+    ui.ApplyCommand(f"/gps/pos/centre {center.x / mm} {center.y / mm} {center.z / mm} mm")
 
 
 __all__ = [

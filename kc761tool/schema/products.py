@@ -50,8 +50,7 @@ PRODUCT_KINDS: Final[tuple[str, ...]] = (
 #: kind and are separated by the ``mode`` meta field.
 UNFOLD_MODE_FULL: Final = "unfold"
 UNFOLD_MODE_CALIB_ONLY: Final = "calib_only"
-UNFOLD_MODES: Final[tuple[str, ...]] = (
-    UNFOLD_MODE_FULL, UNFOLD_MODE_CALIB_ONLY)
+UNFOLD_MODES: Final[tuple[str, ...]] = (UNFOLD_MODE_FULL, UNFOLD_MODE_CALIB_ONLY)
 
 # --- object names (single source) -----------------------------------------
 OBJ_DEPOSITION_TO_CHANNEL: Final = "deposition_to_channel"
@@ -327,9 +326,7 @@ def dispatch_key_for_meta(product_kind: object, mode: object) -> str:
         return "unfold_calib_only" if mode == UNFOLD_MODE_CALIB_ONLY else "unfold"
     if isinstance(product_kind, str) and product_kind in OBJECT_NAMES:
         return product_kind
-    raise SchemaError(
-        f"unknown product_kind {product_kind!r}; expected one of {PRODUCT_KINDS}"
-    )
+    raise SchemaError(f"unknown product_kind {product_kind!r}; expected one of {PRODUCT_KINDS}")
 
 
 @dataclass(frozen=True)
@@ -397,8 +394,7 @@ class CalibProduct:
     covariance_scale: float = 1.0
     fit_status: str = "unknown"
     scales: tuple[tuple[str, tuple[float, float, float, float]], ...] = ()
-    scale_bound_flags: tuple[tuple[str,
-                                   tuple[bool, bool, bool, bool]], ...] = ()
+    scale_bound_flags: tuple[tuple[str, tuple[bool, bool, bool, bool]], ...] = ()
     resol_clamp_count: int = 0
     resol_clamp_energy_low_kev: float = 0.0
     resol_clamp_energy_high_kev: float = 0.0
@@ -482,12 +478,7 @@ class McSpectrumProduct:
 
 
 Product = (
-    CalibProduct
-    | SimProduct
-    | ComposeProduct
-    | UnfoldProduct
-    | SpectrumProduct
-    | McSpectrumProduct
+    CalibProduct | SimProduct | ComposeProduct | UnfoldProduct | SpectrumProduct | McSpectrumProduct
 )
 
 
@@ -506,8 +497,7 @@ def dispatch_key_for(product: Product) -> str:
     if isinstance(product, UnfoldProduct):
         if product.mode not in UNFOLD_MODES:
             raise SchemaError(
-                f"unfold product has invalid mode {product.mode!r}; "
-                f"expected one of {UNFOLD_MODES}"
+                f"unfold product has invalid mode {product.mode!r}; expected one of {UNFOLD_MODES}"
             )
         return "unfold_calib_only" if product.mode == UNFOLD_MODE_CALIB_ONLY else "unfold"
     raise SchemaError(f"unsupported product type {type(product).__name__}")
