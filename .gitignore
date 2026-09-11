@@ -1,6 +1,7 @@
 __pycache__/
 .cache/
 .DS_Store/
+.hypothesis/
 .ipynb_checkpoints/
 .kilo/
 .pytest_cache/
