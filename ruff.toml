@@ -1,6 +1,11 @@
 target-version = "py312"
 line-length = 100
 
+# The generated kernels are byte-checked against their manifest digest (D-77);
+# reformatting them here would make the manifest stale and trigger a
+# regeneration that reverts the formatting (D-184).
+extend-exclude = ["kc761tool/core/_gen"]
+
 [lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
 

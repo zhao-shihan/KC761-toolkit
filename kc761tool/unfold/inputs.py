@@ -9,10 +9,13 @@ The helpers here enforce the axis contract bitwise:
 
 When an upstream product recorded the sha256 of one of our inputs, the digest
 is re-checked against the file on disk (``fingerprint_for``/``input_sha256``).
+A mismatch is a warning outside strict mode and a ``ProvenanceError`` under
+``strict`` (D-184); the axis contract above is enforced in every mode.
 """
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -140,12 +143,17 @@ def check_data_channel_axis(calib: CalibProduct, data: SpectrumProduct) -> None:
         )
 
 
-def check_recorded_input(product: Product, path: Path | None) -> None:
-    """Verify a recorded input digest when the upstream product stored one.
+def check_recorded_input(product: Product, path: Path | None, *, strict: bool = False) -> None:
+    """Check a recorded input digest when the upstream product stored one.
 
     ``product`` is the upstream product whose provenance may reference
     ``path`` (for example a simulation generated against a calibration file).
-    Matching is exact/resolved-path, never by basename (schema.io).
+    Matching is exact/resolved-path, never by basename (schema.io). A recorded
+    digest that does not match the file on disk warns outside strict mode and
+    raises :class:`ProvenanceError` under ``strict`` (D-184); the axis contract
+    checked by :func:`check_deposition_axes` stays mandatory in every mode.
+    When the upstream product recorded no digest for ``path``, there is
+    nothing to compare and the check is a no-op.
     """
     if path is None:
         return
@@ -153,11 +161,21 @@ def check_recorded_input(product: Product, path: Path | None) -> None:
     if recorded is None:
         return
     actual = sha256_file(path)
-    if recorded != actual:
-        raise ProvenanceError(
-            f"input digest mismatch for {path}: the upstream {dispatch_key_for(product)!r} "
-            f"product recorded {recorded}, the file is {actual}"
-        )
+    if recorded == actual:
+        return
+    message = (
+        f"recorded input digest mismatch for {path}: the upstream "
+        f"{dispatch_key_for(product)!r} product recorded {recorded}, the file is {actual}"
+    )
+    if strict:
+        raise ProvenanceError(message)
+    warnings.warn(
+        "D-184: " + message + "; reusing this product with the current calibration "
+        "file is allowed because the deposition and channel axes still match "
+        "bitwise (D-114)",
+        RuntimeWarning,
+        stacklevel=3,
+    )
 
 
 __all__ = [

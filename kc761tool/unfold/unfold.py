@@ -3,7 +3,9 @@
 ``run_unfold`` is the entry for ``kc761tool unfold``. It loads the data, calib
 and simulation products, checks the axis contract (D-114), composes the
 full-primary response, solves the padded window (F-UNF-3), propagates the
-strict stat/syst bands (F-UNC-1..3) and writes the unfold product.
+strict stat/syst bands (F-UNC-1..3) and writes the unfold product. A stale
+recorded calibration digest warns outside strict mode and raises under
+``strict`` (D-184).
 """
 
 from __future__ import annotations
@@ -312,7 +314,7 @@ def run_unfold(
         snip_max_iterations=snip_max_iterations,
     )
     sim_product, sim_path = coerce_sim(sim, strict=strict)
-    check_recorded_input(sim_product, calib_path)
+    check_recorded_input(sim_product, calib_path, strict=strict)
 
     calibration = internal_calibration(calib_product)
     resol_params = resolution_params(calib_product)

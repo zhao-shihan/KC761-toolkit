@@ -3,6 +3,8 @@
 ``run_compose`` is the entry for ``kc761tool compose``; it reads a calibration
 product and a matrix-mode simulation product, checks their axes bitwise
 (D-114), composes the full-primary response and writes the inspection artifact.
+A recorded calibration digest that no longer matches warns outside strict mode
+and raises ``ProvenanceError`` under ``strict`` (D-184).
 """
 
 from __future__ import annotations
@@ -94,7 +96,7 @@ def run_compose(
         validate_output_path(output, force=force)
     calib_product, calib_path = coerce_calib(calib, strict=strict)
     sim_product, sim_path = coerce_sim(sim, strict=strict)
-    check_recorded_input(sim_product, calib_path)
+    check_recorded_input(sim_product, calib_path, strict=strict)
 
     response, composed, efficiency = compose_from_products(
         calib_product, sim_product, strict=strict

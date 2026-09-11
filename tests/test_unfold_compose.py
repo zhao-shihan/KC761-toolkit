@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import replace
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from kc761tool.schema.products import (
     Histogram2D,
     InputFingerprint,
     Provenance,
+    SimProduct,
 )
 from kc761tool.unfold import run_compose
 from tests.test_unfold_support import (
@@ -97,10 +99,8 @@ def test_primary_totals_axis_mismatch_is_rejected(tmp_path: Path) -> None:
         run_compose(calib_path, sim_path)
 
 
-def test_recorded_input_digest_mismatch_is_rejected(tmp_path: Path) -> None:
-    calib = make_calib_product()
-    sim = make_sim_product(calib)
-    calib_path = write(tmp_path / "calib.root", calib)
+def _with_stale_digest(sim: SimProduct, calib_path: Path) -> SimProduct:
+    """Return ``sim`` recording a wrong sha256 for ``calib_path`` (D-184 fixture)."""
     provenance = Provenance(
         created_utc="1970-01-01T00:00:00Z",
         producer="test",
@@ -112,9 +112,34 @@ def test_recorded_input_digest_mismatch_is_rejected(tmp_path: Path) -> None:
         dependency_versions=(),
         inputs=(InputFingerprint(path=str(calib_path), sha256="0" * 64),),
     )
-    broken = replace(sim, provenance=provenance)
-    sim_path = write(tmp_path / "sim.root", broken)
+    return replace(sim, provenance=provenance)
+
+
+def test_recorded_input_digest_mismatch_warns_outside_strict_mode(tmp_path: Path) -> None:
+    """D-184: a stale recorded digest is a warning, not a failure, by default."""
+    calib = make_calib_product()
+    sim = make_sim_product(calib)
+    calib_path = write(tmp_path / "calib.root", calib)
+    sim_path = write(tmp_path / "sim.root", _with_stale_digest(sim, calib_path))
+    with pytest.warns(RuntimeWarning, match="D-184"):
+        result = run_compose(calib_path, sim_path)
+    assert result.product is None
+
+
+def test_recorded_input_digest_mismatch_is_rejected_under_strict(tmp_path: Path) -> None:
+    calib = make_calib_product()
+    sim = make_sim_product(calib)
+    calib_path = write(tmp_path / "calib.root", calib)
+    sim_path = write(tmp_path / "sim.root", _with_stale_digest(sim, calib_path))
     with pytest.raises(ProvenanceError, match="digest mismatch"):
+        run_compose(calib_path, sim_path, strict=True)
+
+
+def test_absent_recorded_input_digest_stays_silent(tmp_path: Path) -> None:
+    """D-184: no recorded fingerprint for the calibration path is not a defect."""
+    _, _, calib_path, sim_path = _inputs(tmp_path)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         run_compose(calib_path, sim_path)
 
 
