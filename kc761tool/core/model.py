@@ -49,7 +49,8 @@ N_RESOL = 3
 N_REPORTED_PARAMS = N_CALIB + N_RESOL
 """Reported fit parameters ``(c0..c3, b0..b2)`` (single source; F-RESP-4)."""
 
-PARAM_NAMES_REPORTED: tuple[str, ...] = ("c0", "c1", "c2", "c3", "b0", "b1", "b2")
+PARAM_NAMES_REPORTED: tuple[str, ...] = (
+    "c0", "c1", "c2", "c3", "b0", "b1", "b2")
 
 
 @dataclass(frozen=True)
@@ -91,7 +92,8 @@ class ReportedCalibration:
 def _resol_params(resol_params: NDArray[np.float64]) -> NDArray[np.float64]:
     params = as_float_array("resol_params", resol_params, ndim=1)
     if params.size != N_RESOL:
-        raise ValidationError(f"resol_params must have {N_RESOL} entries, got {params.size}")
+        raise ValidationError(
+            f"resol_params must have {N_RESOL} entries, got {params.size}")
     return params
 
 

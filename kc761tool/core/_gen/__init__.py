@@ -56,7 +56,8 @@ def stale_files() -> list[str]:
 
 def _regenerate() -> None:
     generator = _REPO_ROOT / GENERATOR_REL
-    spec = importlib.util.spec_from_file_location("kc761tool_generate_kernels", generator)
+    spec = importlib.util.spec_from_file_location(
+        "kc761tool_generate_kernels", generator)
     if spec is None or spec.loader is None:  # pragma: no cover - corrupted checkout
         raise Kc761toolError(f"cannot load the kernel generator: {generator}")
     module = importlib.util.module_from_spec(spec)
@@ -83,7 +84,8 @@ def ensure_fresh() -> None:
         remaining = stale_files()
         if remaining:  # pragma: no cover - regeneration is deterministic
             raise Kc761toolError(
-                "kernel regeneration did not converge; stale: " + ", ".join(remaining)
+                "kernel regeneration did not converge; stale: " +
+                ", ".join(remaining)
             )
     _LOADED = True
 

@@ -96,7 +96,8 @@ class Axis:
         if not np.isfinite(edges).all():
             raise SchemaError(f"axis {self.name!r}: edges must be finite")
         if not np.all(np.diff(edges) > 0.0):
-            raise SchemaError(f"axis {self.name!r}: edges must be strictly increasing")
+            raise SchemaError(
+                f"axis {self.name!r}: edges must be strictly increasing")
         object.__setattr__(self, "edges", edges)
 
     @property
@@ -115,7 +116,7 @@ class Axis:
             raise SchemaError(
                 f"axis {self.name!r}: bin range [{low}, {high}] outside [0, {self.n_bins - 1}]"
             )
-        return Axis(name=self.name, edges=self.edges[low : high + 2], unit=self.unit)
+        return Axis(name=self.name, edges=self.edges[low: high + 2], unit=self.unit)
 
 
 def check_same_edges(left: Axis, right: Axis) -> None:

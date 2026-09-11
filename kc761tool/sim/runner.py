@@ -275,7 +275,8 @@ def _build_serial_manager(detector, action_init, seed: int, verbose: int):  # no
 
     G4Random.setTheSeed(int(seed))
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
-        run_manager = G4RunManagerFactory.CreateRunManager(G4RunManagerType.Serial)
+        run_manager = G4RunManagerFactory.CreateRunManager(
+            G4RunManagerType.Serial)
     run_manager.SetUserInitialization(detector)
     from kc761tool.sim.physics import build_physics_list
 
@@ -315,7 +316,8 @@ def source_worker(
     action_init = actions.build_source_action_initialization(
         spec, construction, output_stem, event_offset, seed, verbose
     )
-    run_manager = _build_serial_manager(construction, action_init, seed, verbose)
+    run_manager = _build_serial_manager(
+        construction, action_init, seed, verbose)
     physics.configure_radioactive_decay(spec)
     physics.configure_gps(spec, construction)
     run_manager.BeamOn(n_events)
@@ -348,7 +350,8 @@ def matrix_worker(
         seed,
         verbose,
     )
-    run_manager = _build_serial_manager(construction, action_init, seed, verbose)
+    run_manager = _build_serial_manager(
+        construction, action_init, seed, verbose)
     run_manager.BeamOn(column_slice.total_events)
     return column_slice.total_events
 
@@ -469,7 +472,8 @@ def run_matrix(
     product = read_product(calib_path, strict=strict)
     if not isinstance(product, CalibProduct):
         raise ValidationError(f"{calib_path}: expected a calib product")
-    deposition_edges = np.asarray(product.deposition_to_channel.y.edges, dtype=np.float64)
+    deposition_edges = np.asarray(
+        product.deposition_to_channel.y.edges, dtype=np.float64)
     n_deposition = int(deposition_edges.size) - 1
     if n_deposition > MAX_CHANNELS:
         raise ValidationError(channels_limit_message(n_deposition))
@@ -488,12 +492,14 @@ def run_matrix(
     try:
         stems = [str(work_dir / f"w{index}") for index in range(len(slices))]
         full = [
-            (stems[index], slices[index], axis, source, deposition_edges, seed, verbose)
+            (stems[index], slices[index], axis,
+             source, deposition_edges, seed, verbose)
             for index in range(len(slices))
         ]
         _run_pool(matrix_worker, full, workers)
         paths = [stem + ".root" for stem in stems]
-        counts, dep_edges, primary_edges, zero_counts = merge_matrix_worker_histograms(paths)
+        counts, dep_edges, primary_edges, zero_counts = merge_matrix_worker_histograms(
+            paths)
         return _write_matrix_product(
             counts,
             dep_edges,
@@ -652,11 +658,13 @@ def prepare_interactive(
 
     spec = get_source(source_key)
     materials_map = materials.build_all_materials(spec)
-    construction = detector.build_detector(spec, materials_map, check_overlaps=verbose > 0)
+    construction = detector.build_detector(
+        spec, materials_map, check_overlaps=verbose > 0)
     action_init = actions.build_source_action_initialization(
         spec, construction, "interactive", 0, seed, verbose
     )
-    run_manager = _build_serial_manager(construction, action_init, seed, verbose)
+    run_manager = _build_serial_manager(
+        construction, action_init, seed, verbose)
     physics.configure_radioactive_decay(spec)
     physics.configure_gps(spec, construction)
     return run_manager

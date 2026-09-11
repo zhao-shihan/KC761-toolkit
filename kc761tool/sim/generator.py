@@ -41,9 +41,11 @@ def splitmix64(value: int) -> int:
 def _stream_seed(base_seed: int, tag: int, index: int) -> int:
     """Map ``(base_seed, tag, index)`` to a positive 63-bit G4 seed (F-SIM-7)."""
     if base_seed < 0 or base_seed >= _TWO_POW_63:
-        raise ValidationError(f"base seed must lie in [0, 2**63), got {base_seed!r}")
+        raise ValidationError(
+            f"base seed must lie in [0, 2**63), got {base_seed!r}")
     if index < 0:
-        raise ValidationError(f"stream index must be non-negative, got {index!r}")
+        raise ValidationError(
+            f"stream index must be non-negative, got {index!r}")
     mixed = splitmix64((base_seed + tag) & _MASK64)
     mixed = splitmix64((mixed + index) & _MASK64)
     return mixed % _TWO_POW_63
@@ -66,7 +68,8 @@ def lambertian_cos_sin(cos_u: float) -> tuple[float, float]:
     distribution about the local normal; ``sin_t`` is clamped for round-off.
     """
     if not 0.0 <= cos_u < 1.0:
-        raise ValidationError(f"lambertian draw must lie in [0, 1), got {cos_u!r}")
+        raise ValidationError(
+            f"lambertian draw must lie in [0, 1), got {cos_u!r}")
     cos_t = math.sqrt(cos_u)
     return cos_t, math.sqrt(max(0.0, 1.0 - cos_t * cos_t))
 
@@ -227,7 +230,8 @@ def make_gamma_generator(
                 )
             self._gun.SetParticleEnergy(e_gamma_kev * keV)
             self._gun.SetParticlePosition(
-                G4ThreeVector(position[0] * mm, position[1] * mm, position[2] * mm)
+                G4ThreeVector(position[0] * mm,
+                              position[1] * mm, position[2] * mm)
             )
             self._gun.SetParticleMomentumDirection(
                 G4ThreeVector(direction[0], direction[1], direction[2])

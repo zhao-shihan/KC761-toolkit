@@ -50,7 +50,8 @@ def coerce_calib(
     if isinstance(value, CalibProduct):
         return value, None
     path = Path(value)
-    product = _load_path(path, strict=strict, expected="calib", cls=CalibProduct)
+    product = _load_path(path, strict=strict,
+                         expected="calib", cls=CalibProduct)
     assert isinstance(product, CalibProduct)
     return product, path
 
@@ -74,7 +75,8 @@ def coerce_spectrum(
     if isinstance(value, SpectrumProduct):
         return value, None
     path = Path(value)
-    product = _load_path(path, strict=strict, expected="spectrum", cls=SpectrumProduct)
+    product = _load_path(path, strict=strict,
+                         expected="spectrum", cls=SpectrumProduct)
     assert isinstance(product, SpectrumProduct)
     return product, path
 

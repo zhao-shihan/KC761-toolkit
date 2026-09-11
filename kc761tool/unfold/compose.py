@@ -68,7 +68,8 @@ def compose_from_products(
         response,
         counts,
         totals,
-        primary_edges_kev=np.asarray(sim.primary_to_deposition.y.edges, dtype=np.float64),
+        primary_edges_kev=np.asarray(
+            sim.primary_to_deposition.y.edges, dtype=np.float64),
     )
     verify_composed_columns(composed, response, counts, totals, strict=strict)
     efficiency = Histogram1D(
@@ -109,7 +110,8 @@ def run_compose(
             producer=producer,
             command=command,
             arguments=tuple(arguments),
-            inputs=[path for path in (calib_path, sim_path) if path is not None]
+            inputs=[path for path in (
+                calib_path, sim_path) if path is not None]
             + list(extra_inputs),
         )
         product = ComposeProduct(
@@ -126,7 +128,8 @@ def run_compose(
             primary_efficiency=efficiency,
             provenance=provenance,
         )
-        product_path = write_product(product, output, force=force, strict=strict)
+        product_path = write_product(
+            product, output, force=force, strict=strict)
 
     return ComposeResult(
         response=response,

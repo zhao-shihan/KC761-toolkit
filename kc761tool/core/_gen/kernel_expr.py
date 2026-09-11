@@ -31,14 +31,12 @@ def gaussian_bin_probability(e_lo, e_hi, c, sigma):
     return -1/2*erf(x0*(c - e_hi)) + (1/2)*erf(x0*(c - e_lo))
 
 
-
 def taper(offset, sigma, n_sigma):
     """F-KERN-2: smoothstep support taper, 1 on the plateau, 0 beyond n_sigma."""
     offset = np.asarray(offset, dtype=np.float64)
     sigma = np.asarray(sigma, dtype=np.float64)
     x0 = np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(offset))/sigma))
     return x0**2*(3 - 2*x0)
-
 
 
 def taper_grad(offset, sigma, n_sigma):
@@ -56,7 +54,6 @@ def taper_grad(offset, sigma, n_sigma):
     )
 
 
-
 def tapered_bin(e_lo, e_hi, c, sigma, center, n_sigma):
     """F-KERN-2: tapered (unnormalized) bin probability."""
     e_lo = np.asarray(e_lo, dtype=np.float64)
@@ -68,7 +65,6 @@ def tapered_bin(e_lo, e_hi, c, sigma, center, n_sigma):
     x1 = np.minimum(1, np.maximum(0, x0*(n_sigma*sigma - np.abs(c - center))))
     x2 = (1/2)*np.sqrt(2)*x0
     return (1/2)*x1**2*(2*x1 - 3)*(erf(x2*(c - e_hi)) - erf(x2*(c - e_lo)))
-
 
 
 def tapered_bin_grad(e_lo, e_hi, c, sigma, center, n_sigma):
@@ -111,10 +107,10 @@ def tapered_bin_grad(e_lo, e_hi, c, sigma, center, n_sigma):
         x13*x15,
         -x15*x16,
         x20*(-x10*x14*x3*x9*(x13 - x16) + 3*x17*x18*x19),
-        x20*((1/2)*x1*x10*x14*x2*x9*(x21*np.exp(-x12*x21**2) - x22*np.exp(-x12*x22**2)) - 3*x18*x19*(n_sigma - x8)),
+        x20*((1/2)*x1*x10*x14*x2*x9*(x21*np.exp(-x12*x21**2) -
+             x22*np.exp(-x12*x22**2)) - 3*x18*x19*(n_sigma - x8)),
         3*x17*x18*x20*x6,
     )
-
 
 
 @_jit
@@ -157,7 +153,8 @@ def scalar_tapered_bin_grad(e_lo, e_hi, c, sigma, center, n_sigma):
         x13*x15,
         -x15*x16,
         x20*(-x10*x14*x3*x9*(x13 - x16) + 3*x17*x18*x19),
-        x20*((1/2)*x1*x10*x14*x2*x9*(x21*math.exp(-x12*x21**2) - x22*math.exp(-x12*x22**2)) - 3*x18*x19*(n_sigma - x8)),
+        x20*((1/2)*x1*x10*x14*x2*x9*(x21*math.exp(-x12*x21**2) -
+             x22*math.exp(-x12*x22**2)) - 3*x18*x19*(n_sigma - x8)),
         3*x17*x18*x20*x6,
     )
 
@@ -167,7 +164,6 @@ def scalar_normalize_derivative(values, d_values, denominator, d_denominator):
     """F-KERN-2/F-KERN-4 scalar derivative rendering of the same sympy expression."""
     x0 = 1/denominator
     return x0*(-d_denominator*values*x0 + d_values)
-
 
 
 def normalize(values, denominator):
@@ -186,4 +182,3 @@ def normalize_derivative(values, d_values, denominator, d_denominator):
     d_denominator = np.asarray(d_denominator, dtype=np.float64)
     x0 = denominator**(-1.0)
     return x0*(-d_denominator*values*x0 + d_values)
-

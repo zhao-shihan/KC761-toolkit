@@ -63,12 +63,13 @@ def _scale_bound_flags(
     flags: list[tuple[str, tuple[bool, bool, bool, bool]]] = []
     for index, spec in enumerate(model.specs):
         start = N_CORE + N_SCALE * index
-        values = theta[start : start + N_SCALE]
-        bounds = model.bounds[start : start + N_SCALE]
+        values = theta[start: start + N_SCALE]
+        bounds = model.bounds[start: start + N_SCALE]
         entry: list[bool] = []
         for value, (low, high) in zip(values, bounds, strict=True):
             tolerance = _BOUND_FLAG_TOL * max(1.0, abs(high - low))
-            entry.append(bool(value <= low + tolerance or value >= high - tolerance))
+            entry.append(
+                bool(value <= low + tolerance or value >= high - tolerance))
         flags.append((spec.label, (entry[0], entry[1], entry[2], entry[3])))
     return tuple(flags)
 
@@ -123,16 +124,19 @@ def run_fit(
         validate_output_path(output, force=force)
         if plot:
             plot_target = (
-                Path(plot_path) if plot_path is not None else Path(output).with_suffix(".pdf")
+                Path(plot_path) if plot_path is not None else Path(
+                    output).with_suffix(".pdf")
             )
             validate_output_path(plot_target, force=plot_force)
     resolved_settings = settings if settings is not None else FitSettings()
-    model = CalibrationModel(specs, channel_max=channel_max, settings=resolved_settings)
+    model = CalibrationModel(
+        specs, channel_max=channel_max, settings=resolved_settings)
 
     lower = np.asarray([bound[0] for bound in model.bounds], dtype=np.float64)
     upper = np.asarray([bound[1] for bound in model.bounds], dtype=np.float64)
     if np.any(upper - lower <= 0.0):
-        raise ValidationError("calibration bounds must satisfy lo < hi for every parameter")
+        raise ValidationError(
+            "calibration bounds must satisfy lo < hi for every parameter")
 
     if progress is not None and (
         not np.isfinite(progress_every_s) or progress_every_s < 0.0
@@ -181,7 +185,8 @@ def run_fit(
         residual_values = model.residuals(theta)
         variance = model.variance(theta)
         return -(model.jacobian(theta) / sigma[:, None]) - 0.5 * (
-            model.variance_gradient(theta) * (residual_values / variance)[:, None]
+            model.variance_gradient(
+                theta) * (residual_values / variance)[:, None]
         )
 
     with warnings.catch_warnings(record=True) as caught:
@@ -205,7 +210,8 @@ def run_fit(
             f"finite={bool(np.all(np.isfinite(theta)))})"
         )
 
-    clamp_events = sum("F-MODEL-5" in str(warning.message) for warning in caught)
+    clamp_events = sum("F-MODEL-5" in str(warning.message)
+                       for warning in caught)
     if clamp_events:
         warnings.warn(
             f"F-MODEL-5 clamp was active in {clamp_events} fit evaluation(s); "
@@ -218,9 +224,11 @@ def run_fit(
     core_calib = np.asarray(core_internal[:4], dtype=np.float64)
     resol = np.asarray(core_internal[4:], dtype=np.float64)
     calibration = InternalCalibration.from_array(core_calib)
-    verify_energy_monotonicity(calibration, channel_max=model.channel_max, strict=strict)
+    verify_energy_monotonicity(
+        calibration, channel_max=model.channel_max, strict=strict)
 
-    export_edges = channel_derived_edges_kev(core_calib, model.n_channels, model.channel_max)
+    export_edges = channel_derived_edges_kev(
+        core_calib, model.n_channels, model.channel_max)
     export_centers = 0.5 * (export_edges[:-1] + export_edges[1:])
     verify_resolution_positivity(export_centers, resol, strict=strict)
     clamped = resolution_clamped_mask(export_centers, resol)
@@ -249,7 +257,8 @@ def run_fit(
     status = STATUS_CONVERGED if success else STATUS_STOPPED
     message = str(optimization.message)
     if strict and not success:
-        raise SolverError(f"calibration fit did not converge in strict mode: {message}")
+        raise SolverError(
+            f"calibration fit did not converge in strict mode: {message}")
 
     scales = tuple(
         ScaleResult(
@@ -293,7 +302,8 @@ def run_fit(
             provenance=provenance,
             strict=strict,
         )
-        product_path = write_product(product, output, force=force, strict=strict)
+        product_path = write_product(
+            product, output, force=force, strict=strict)
 
     result = FitResult(
         success=success,
@@ -330,7 +340,8 @@ def run_fit(
             target = Path(output).with_suffix(".pdf")
         if target is not None:
             result = replace(
-                result, plot_path=plot_fit(result, details, path=target, force=plot_force)
+                result, plot_path=plot_fit(
+                    result, details, path=target, force=plot_force)
             )
     return result
 

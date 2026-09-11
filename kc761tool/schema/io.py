@@ -181,7 +181,8 @@ def _json_loads(text: str, field: str) -> object:
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
-        raise SchemaError(f"meta field {field!r} is not valid JSON: {exc}") from exc
+        raise SchemaError(
+            f"meta field {field!r} is not valid JSON: {exc}") from exc
 
 
 # --------------------------------------------------------------------------
@@ -318,7 +319,8 @@ def refuse_overwrite(path: str | Path, *, force: bool = False) -> None:
             f"refusing to overwrite existing {target}; pass --force to replace it"
         )
     if target.is_dir():
-        raise SchemaError(f"target {target} is a directory, not a product file")
+        raise SchemaError(
+            f"target {target} is a directory, not a product file")
 
 
 def validate_output_path(path: str | Path, *, force: bool = False) -> None:
@@ -339,7 +341,8 @@ def validate_output_path(path: str | Path, *, force: bool = False) -> None:
     try:
         parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise UsageError(f"cannot create output directory {parent}: {exc}") from exc
+        raise UsageError(
+            f"cannot create output directory {parent}: {exc}") from exc
     if not os.access(parent, os.W_OK):
         raise UsageError(f"output directory is not writable: {parent}")
 
@@ -387,14 +390,16 @@ def _encode_common_meta(product: Product) -> dict[str, float | int | str]:
         META_GIT_DIRTY: 1 if provenance.git_dirty else 0,
         META_PYTHON_VERSION: provenance.python_version,
         META_DEPENDENCY_VERSIONS: _json_dumps(
-            [[name, version] for name, version in provenance.dependency_versions]
+            [[name, version]
+                for name, version in provenance.dependency_versions]
         ),
         META_COMMAND: provenance.command,
         META_ARGUMENTS_JSON: _json_dumps(
             [[name, value] for name, value in provenance.arguments]
         ),
         META_INPUTS_JSON: _json_dumps(
-            [{"path": fp.path, "sha256": fp.sha256} for fp in provenance.inputs]
+            [{"path": fp.path, "sha256": fp.sha256}
+                for fp in provenance.inputs]
         ),
     }
 
@@ -409,13 +414,15 @@ def _coerce_setting(field: str, type_: type, raw: str) -> float | int | str:
         if type_ is float:
             value = float(text)
             if not np.isfinite(value):
-                raise ValidationError(f"unfold setting {field!r} must be finite, got {raw!r}")
+                raise ValidationError(
+                    f"unfold setting {field!r} must be finite, got {raw!r}")
             return value
     except ValueError as exc:
         raise SchemaError(
             f"unfold setting {field!r} is not a valid {type_.__name__}: {raw!r}"
         ) from exc
-    raise SchemaError(f"unfold setting {field!r} has unsupported type {type_!r}")
+    raise SchemaError(
+        f"unfold setting {field!r} has unsupported type {type_!r}")
 
 
 def _encode_meta(product: Product, dispatch: str) -> dict[str, float | int | str]:
@@ -446,8 +453,10 @@ def _encode_meta(product: Product, dispatch: str) -> dict[str, float | int | str
             ]
         )
         meta[META_RESOL_CLAMP_COUNT] = int(product.resol_clamp_count)
-        meta[META_RESOL_CLAMP_ENERGY_LOW_KEV] = float(product.resol_clamp_energy_low_kev)
-        meta[META_RESOL_CLAMP_ENERGY_HIGH_KEV] = float(product.resol_clamp_energy_high_kev)
+        meta[META_RESOL_CLAMP_ENERGY_LOW_KEV] = float(
+            product.resol_clamp_energy_low_kev)
+        meta[META_RESOL_CLAMP_ENERGY_HIGH_KEV] = float(
+            product.resol_clamp_energy_high_kev)
     elif dispatch == "sim":
         assert isinstance(product, SimProduct)
         meta[META_MODE] = int(product.mode)
@@ -464,7 +473,8 @@ def _encode_meta(product: Product, dispatch: str) -> dict[str, float | int | str
         if dispatch == "unfold":
             provided = dict(product.settings)
             if len(provided) != len(product.settings):
-                raise SchemaError("unfold settings contain duplicate field names")
+                raise SchemaError(
+                    "unfold settings contain duplicate field names")
             expected = set(UNFOLD_SETTING_TYPES)
             if set(provided) != expected:
                 raise SchemaError(
@@ -499,7 +509,8 @@ def _decode_float_list(meta: Mapping[str, Any], field: str, length: int) -> tupl
     values: list[float] = []
     for item in raw:
         if isinstance(item, bool) or not isinstance(item, (int, float)):
-            raise SchemaError(f"meta field {field!r} contains a non-numeric entry")
+            raise SchemaError(
+                f"meta field {field!r} contains a non-numeric entry")
         values.append(float(item))
     return tuple(values)
 
@@ -519,7 +530,8 @@ def _decode_scales(
             )
         label, params = entry
         if not isinstance(label, str) or not label:
-            raise SchemaError(f"meta field {field!r} has a non-string or empty label")
+            raise SchemaError(
+                f"meta field {field!r} has a non-string or empty label")
         if not isinstance(params, list) or len(params) != 4:
             raise SchemaError(
                 f"meta field {field!r} label {label!r} must carry four s parameters"
@@ -550,7 +562,8 @@ def _decode_scale_flags(
             )
         label, values = entry
         if not isinstance(label, str) or not label:
-            raise SchemaError(f"meta field {field!r} has a non-string or empty label")
+            raise SchemaError(
+                f"meta field {field!r} has a non-string or empty label")
         if not isinstance(values, list) or len(values) != 4:
             raise SchemaError(
                 f"meta field {field!r} label {label!r} must carry four flags"
@@ -563,7 +576,8 @@ def _decode_scale_flags(
 def _decode_provenance(meta: Mapping[str, Any]) -> Provenance:
     arguments_raw = _json_loads(meta[META_ARGUMENTS_JSON], META_ARGUMENTS_JSON)
     if not isinstance(arguments_raw, list):
-        raise SchemaError(f"meta field {META_ARGUMENTS_JSON!r} must be a JSON list")
+        raise SchemaError(
+            f"meta field {META_ARGUMENTS_JSON!r} must be a JSON list")
     arguments: list[tuple[str, str]] = []
     for entry in arguments_raw:
         if not isinstance(entry, list) or len(entry) != 2:
@@ -572,7 +586,8 @@ def _decode_provenance(meta: Mapping[str, Any]) -> Provenance:
             )
         arguments.append((str(entry[0]), str(entry[1])))
 
-    dependencies_raw = _json_loads(meta[META_DEPENDENCY_VERSIONS], META_DEPENDENCY_VERSIONS)
+    dependencies_raw = _json_loads(
+        meta[META_DEPENDENCY_VERSIONS], META_DEPENDENCY_VERSIONS)
     if not isinstance(dependencies_raw, list):
         raise SchemaError(
             f"meta field {META_DEPENDENCY_VERSIONS!r} must be a JSON list"
@@ -587,7 +602,8 @@ def _decode_provenance(meta: Mapping[str, Any]) -> Provenance:
 
     inputs_raw = _json_loads(meta[META_INPUTS_JSON], META_INPUTS_JSON)
     if not isinstance(inputs_raw, list):
-        raise SchemaError(f"meta field {META_INPUTS_JSON!r} must be a JSON list")
+        raise SchemaError(
+            f"meta field {META_INPUTS_JSON!r} must be a JSON list")
     inputs: list[InputFingerprint] = []
     for entry in inputs_raw:
         if not isinstance(entry, dict) or set(entry) != {"path", "sha256"}:
@@ -629,7 +645,8 @@ def _check_hist1d(name: str, hist: Histogram1D, *, require_variance: bool) -> No
         raise ValidationError(f"{name} contains non-finite values")
     if hist.variances is None:
         if require_variance:
-            raise SchemaError(f"{name}: missing required fSumw2 variance buffer")
+            raise SchemaError(
+                f"{name}: missing required fSumw2 variance buffer")
         return
     variances = np.asarray(hist.variances, dtype=np.float64)
     if variances.shape != values.shape:
@@ -644,12 +661,14 @@ def _check_hist2d(name: str, hist: Histogram2D, *, require_variance: bool) -> No
     shape = (hist.x.n_bins, hist.y.n_bins)
     values = np.asarray(hist.values, dtype=np.float64)
     if values.shape != shape:
-        raise SchemaError(f"{name}: values shape {values.shape} does not match axes {shape}")
+        raise SchemaError(
+            f"{name}: values shape {values.shape} does not match axes {shape}")
     if not np.isfinite(values).all():
         raise ValidationError(f"{name} contains non-finite values")
     if hist.variances is None:
         if require_variance:
-            raise SchemaError(f"{name}: missing required fSumw2 variance buffer")
+            raise SchemaError(
+                f"{name}: missing required fSumw2 variance buffer")
         return
     variances = np.asarray(hist.variances, dtype=np.float64)
     if variances.shape != shape:
@@ -670,7 +689,8 @@ def _check_meta_fields(meta: Mapping[str, Any], dispatch: str) -> None:
     for field, type_ in expected.items():
         value = meta[field]
         if isinstance(value, np.ndarray):
-            raise SchemaError(f"meta field {field!r} must have exactly one entry")
+            raise SchemaError(
+                f"meta field {field!r} must have exactly one entry")
         if type_ is str:
             if not isinstance(value, str):
                 raise SchemaError(f"meta field {field!r} must be a string")
@@ -681,7 +701,8 @@ def _check_meta_fields(meta: Mapping[str, Any], dispatch: str) -> None:
             if isinstance(value, bool) or not isinstance(value, float):
                 raise SchemaError(f"meta field {field!r} must be a float")
         else:  # pragma: no cover - contract table only uses int/float/str
-            raise SchemaError(f"meta field {field!r} has unsupported type {type_!r}")
+            raise SchemaError(
+                f"meta field {field!r} has unsupported type {type_!r}")
     if meta[META_FORMAT_VERSION] != SCHEMA_VERSION:
         raise SchemaError(
             f"unsupported format_version {meta[META_FORMAT_VERSION]!r}; "
@@ -749,7 +770,8 @@ def _check_product_bodies(product: Product) -> None:
             or product.sigma_total is None
             or product.refolded is None
         ):
-            raise SchemaError("unfold product is missing one or more required objects")
+            raise SchemaError(
+                "unfold product is missing one or more required objects")
         if len(dict(product.settings)) != len(product.settings):
             raise SchemaError("unfold settings contain duplicate field names")
         if set(dict(product.settings)) != set(UNFOLD_SETTING_TYPES):
@@ -757,14 +779,17 @@ def _check_product_bodies(product: Product) -> None:
                 "unfold settings mismatch: expected "
                 f"{sorted(UNFOLD_SETTING_TYPES)}"
             )
-        _check_hist1d(OBJ_SPECTRUM_UNFOLDED, product.spectrum, require_variance=False)
+        _check_hist1d(OBJ_SPECTRUM_UNFOLDED, product.spectrum,
+                      require_variance=False)
         for name, band in (
             (OBJ_SIGMA_STATISTICAL, product.sigma_statistical),
             (OBJ_SIGMA_SYSTEMATIC, product.sigma_systematic),
             (OBJ_SIGMA_TOTAL, product.sigma_total),
         ):
-            _check_hist1d(name, band, require_variance=name in _REQUIRED_VARIANCE["unfold"])
-        _check_hist1d(OBJ_SPECTRUM_REFOLDED, product.refolded, require_variance=False)
+            _check_hist1d(
+                name, band, require_variance=name in _REQUIRED_VARIANCE["unfold"])
+        _check_hist1d(OBJ_SPECTRUM_REFOLDED, product.refolded,
+                      require_variance=False)
     elif dispatch == "unfold_calib_only":
         assert isinstance(product, UnfoldProduct)
         if (
@@ -773,10 +798,13 @@ def _check_product_bodies(product: Product) -> None:
             or product.sigma_total is not None
             or product.refolded is not None
         ):
-            raise SchemaError("calib_only product must not carry bands or refolded")
+            raise SchemaError(
+                "calib_only product must not carry bands or refolded")
         if product.settings:
-            raise SchemaError("calib_only product must not carry unfold settings")
-        _check_hist1d(OBJ_SPECTRUM_CALIBRATED, product.spectrum, require_variance=False)
+            raise SchemaError(
+                "calib_only product must not carry unfold settings")
+        _check_hist1d(OBJ_SPECTRUM_CALIBRATED,
+                      product.spectrum, require_variance=False)
     elif dispatch == "spectrum":
         assert isinstance(product, SpectrumProduct)
         _check_hist1d(
@@ -827,20 +855,26 @@ def _require_same_edges(left: Axis, right: Axis, formula_id: str) -> None:
 def _certify_calib(product: CalibProduct) -> None:
     params = np.asarray(product.params_reported, dtype=np.float64)
     if params.shape != (4,) or not np.isfinite(params).all():
-        raise CertificateError("F-MODEL-2", "reported parameters must be finite (4 values)")
+        raise CertificateError(
+            "F-MODEL-2", "reported parameters must be finite (4 values)")
     resol = np.asarray(product.resol_params, dtype=np.float64)
     if resol.shape != (3,) or not np.isfinite(resol).all():
-        raise CertificateError("F-MODEL-4", "resolution parameters must be finite (3 values)")
+        raise CertificateError(
+            "F-MODEL-4", "resolution parameters must be finite (3 values)")
     if not np.isfinite(product.channel_max) or product.channel_max <= 0.0:
-        raise CertificateError("F-MODEL-1", "channel_max must be positive and finite")
+        raise CertificateError(
+            "F-MODEL-1", "channel_max must be positive and finite")
     if not np.isfinite(product.chi2) or product.chi2 < 0.0:
-        raise CertificateError("F-CAL-1", "chi2 must be finite and non-negative")
+        raise CertificateError(
+            "F-CAL-1", "chi2 must be finite and non-negative")
     if product.dof < 0:
         raise CertificateError("F-CAL-1", "dof must be non-negative")
     if not np.isfinite(product.covariance_scale) or product.covariance_scale <= 0.0:
-        raise CertificateError("F-COV-2", "covariance_scale must be positive and finite")
+        raise CertificateError(
+            "F-COV-2", "covariance_scale must be positive and finite")
     if product.resol_clamp_count < 0:
-        raise CertificateError("F-MODEL-5", "resol_clamp_count must be non-negative")
+        raise CertificateError(
+            "F-MODEL-5", "resol_clamp_count must be non-negative")
     for label, params in product.scales:
         if not label:
             raise CertificateError("F-CAL-2", "scale labels must be non-empty")
@@ -849,7 +883,8 @@ def _certify_calib(product: CalibProduct) -> None:
                 "F-CAL-2", f"scale parameters for {label!r} must be four finite numbers"
             )
 
-    matrix = sparse.csr_matrix(np.asarray(product.deposition_to_channel.values, dtype=np.float64))
+    matrix = sparse.csr_matrix(np.asarray(
+        product.deposition_to_channel.values, dtype=np.float64))
     response = ResponseMatrix(
         matrix=matrix,
         column_sums=np.asarray(matrix.sum(axis=0), dtype=np.float64).ravel(),
@@ -874,17 +909,22 @@ def _certify_sim(product: SimProduct) -> None:
     counts = np.asarray(product.primary_to_deposition.values, dtype=np.float64)
     totals = np.asarray(product.primary_column_totals.values, dtype=np.float64)
     if np.any(counts < 0.0):
-        raise CertificateError("F-SIM-2", "simulation counts must be non-negative")
+        raise CertificateError(
+            "F-SIM-2", "simulation counts must be non-negative")
     if not np.isfinite(totals).all() or np.any(totals < 0.0):
-        raise CertificateError("F-SIM-1", "per-column totals must be finite and non-negative")
+        raise CertificateError(
+            "F-SIM-1", "per-column totals must be finite and non-negative")
     if np.any(counts > totals[None, :] + _CERT_RTOL):
-        raise CertificateError("F-SIM-1", "a deposition bin exceeds its column total")
+        raise CertificateError(
+            "F-SIM-1", "a deposition bin exceeds its column total")
     column_sums = counts.sum(axis=0)
     if np.any(column_sums > totals + _CERT_RTOL):
-        raise CertificateError("F-SIM-1", "a column sum exceeds its column total")
+        raise CertificateError(
+            "F-SIM-1", "a column sum exceeds its column total")
     empty = totals == 0.0
     if np.any(counts[:, empty] != 0.0):
-        raise CertificateError("F-SIM-1", "a zero-total column carries non-zero counts")
+        raise CertificateError(
+            "F-SIM-1", "a zero-total column carries non-zero counts")
     if not np.isclose(totals.sum(), float(product.n_events), rtol=0.0, atol=_CERT_RTOL):
         raise CertificateError(
             "F-SIM-1",
@@ -896,9 +936,11 @@ def _certify_sim(product: SimProduct) -> None:
     expected = totals[None, :] * probabilities * (1.0 - probabilities)
     variances = product.primary_to_deposition.variances
     if variances is None:
-        raise CertificateError("F-SIM-2", "primary_to_deposition has no fSumw2 buffer")
+        raise CertificateError(
+            "F-SIM-2", "primary_to_deposition has no fSumw2 buffer")
     if np.any(np.abs(variances - expected) > _CERT_RTOL * np.maximum(1.0, expected)):
-        raise CertificateError("F-SIM-2", "fSumw2 does not match N_j p (1 - p)")
+        raise CertificateError(
+            "F-SIM-2", "fSumw2 does not match N_j p (1 - p)")
     efficiency = np.divide(
         column_sums, totals, out=np.zeros_like(totals), where=totals > 0.0
     )
@@ -915,7 +957,8 @@ def _certify_compose(product: ComposeProduct) -> None:
     an exactly-zero C column, which F-RESP-1 explicitly allows (D-99).
     """
     g_axis = product.primary_to_deposition.y
-    _require_same_edges(product.deposition_to_channel.x, product.response_matrix.x, "F-RESP-3")
+    _require_same_edges(product.deposition_to_channel.x,
+                        product.response_matrix.x, "F-RESP-3")
     _require_same_edges(
         product.primary_to_deposition.x, product.deposition_to_channel.y, "F-RESP-3"
     )
@@ -923,11 +966,14 @@ def _certify_compose(product: ComposeProduct) -> None:
     _require_same_edges(g_axis, product.response_matrix.y, "F-RESP-3")
     _require_same_edges(g_axis, product.primary_efficiency.axis, "F-RESP-3")
 
-    c_values = np.asarray(product.deposition_to_channel.values, dtype=np.float64)
-    g_values = np.asarray(product.primary_to_deposition.values, dtype=np.float64)
+    c_values = np.asarray(
+        product.deposition_to_channel.values, dtype=np.float64)
+    g_values = np.asarray(
+        product.primary_to_deposition.values, dtype=np.float64)
     r_values = np.asarray(product.response_matrix.values, dtype=np.float64)
     totals = np.asarray(product.primary_column_totals.values, dtype=np.float64)
-    efficiency = np.asarray(product.primary_efficiency.values, dtype=np.float64)
+    efficiency = np.asarray(
+        product.primary_efficiency.values, dtype=np.float64)
 
     response = ResponseMatrix(
         matrix=sparse.csr_matrix(c_values),
@@ -954,7 +1000,8 @@ def _check_band_storage(name: str, band: Histogram1D) -> None:
     if band.variances is None:
         raise CertificateError("F-IO-1", f"{name} has no fSumw2 buffer (D-15)")
     if not np.allclose(band.variances, band.values**2, rtol=_CERT_RTOL, atol=_CERT_RTOL):
-        raise CertificateError("F-IO-1", f"{name}: fSumw2 != content**2 (D-15)")
+        raise CertificateError(
+            "F-IO-1", f"{name}: fSumw2 != content**2 (D-15)")
 
 
 def _certify_unfold(product: UnfoldProduct) -> None:
@@ -969,8 +1016,10 @@ def _certify_unfold(product: UnfoldProduct) -> None:
         _require_same_edges(band.axis, product.spectrum.axis, "F-UNC-3")
         _check_band_storage(name, band)
     bands = UncertaintyBands(
-        sigma_stat=np.asarray(product.sigma_statistical.values, dtype=np.float64),
-        sigma_syst=np.asarray(product.sigma_systematic.values, dtype=np.float64),
+        sigma_stat=np.asarray(
+            product.sigma_statistical.values, dtype=np.float64),
+        sigma_syst=np.asarray(
+            product.sigma_systematic.values, dtype=np.float64),
         sigma_total=np.asarray(product.sigma_total.values, dtype=np.float64),
         components=(),
     )
@@ -978,22 +1027,26 @@ def _certify_unfold(product: UnfoldProduct) -> None:
     if product.refolded is not None and np.any(
         np.asarray(product.refolded.values, dtype=np.float64) < -_CERT_RTOL
     ):
-        raise CertificateError("F-RESP-2", "refolded spectrum must be non-negative")
+        raise CertificateError(
+            "F-RESP-2", "refolded spectrum must be non-negative")
 
 
 def _certify_unfold_calib_only(product: UnfoldProduct) -> None:
     if product.mode != UNFOLD_MODE_CALIB_ONLY:
-        raise CertificateError("F-IO-1", "calib_only certificate on a non-calib_only product")
+        raise CertificateError(
+            "F-IO-1", "calib_only certificate on a non-calib_only product")
 
 
 def _certify_spectrum(product: SpectrumProduct) -> None:
     if not np.isfinite(product.daq_time_s) or product.daq_time_s <= 0.0:
-        raise CertificateError("F-IO-1", "daq_time_s must be positive and finite")
+        raise CertificateError(
+            "F-IO-1", "daq_time_s must be positive and finite")
     variances = product.spectrum.variances
     if variances is None:
         raise CertificateError("F-IO-1", "spectrum has no fSumw2 buffer")
     if np.any(np.asarray(variances, dtype=np.float64) < 0.0):
-        raise CertificateError("F-IO-1", "spectrum fSumw2 must be non-negative")
+        raise CertificateError(
+            "F-IO-1", "spectrum fSumw2 must be non-negative")
 
 
 def _certify_mc_spectrum(product: McSpectrumProduct) -> None:
@@ -1004,22 +1057,27 @@ def _certify_mc_spectrum(product: McSpectrumProduct) -> None:
         raise CertificateError("F-SIM-2", "mc_spectrum has no fSumw2 buffer")
     variances = np.asarray(variances, dtype=np.float64)
     if np.any(values < 0.0):
-        raise CertificateError("F-SIM-2", "mc_spectrum counts must be non-negative")
+        raise CertificateError(
+            "F-SIM-2", "mc_spectrum counts must be non-negative")
     if np.any(variances < 0.0):
-        raise CertificateError("F-SIM-2", "mc_spectrum fSumw2 must be non-negative")
+        raise CertificateError(
+            "F-SIM-2", "mc_spectrum fSumw2 must be non-negative")
     total = float(values.sum())
-    expected = np.zeros_like(values) if total == 0.0 else values * (1.0 - values / total)
+    expected = np.zeros_like(
+        values) if total == 0.0 else values * (1.0 - values / total)
     if np.any(np.abs(variances - expected) > _CERT_RTOL * np.maximum(1.0, expected)):
         raise CertificateError(
             "F-SIM-2",
             "mc_spectrum fSumw2 does not match c (1 - c/P) with P = sum(counts)",
         )
     if product.n_events < 0:
-        raise CertificateError("F-SIM-1", "mc_spectrum n_events must be non-negative")
+        raise CertificateError(
+            "F-SIM-1", "mc_spectrum n_events must be non-negative")
     if product.workers < 1:
         raise CertificateError("F-SIM-1", "mc_spectrum workers must be >= 1")
     if not np.isfinite(product.geometry_param_mm):
-        raise CertificateError("F-SIM-1", "mc_spectrum geometry_param_mm must be finite")
+        raise CertificateError(
+            "F-SIM-1", "mc_spectrum geometry_param_mm must be finite")
 
 
 def _run_certificates(product: Product, dispatch: str) -> None:
@@ -1059,18 +1117,22 @@ def _strict_file_checks(path: str | Path, dispatch: str) -> None:
         with uproot.open(path) as file:
             hist = file[OBJ_SPECTRUM]
             if not _uproot.histogram_has_variance(hist):
-                raise CertificateError("F-IO-1", "spectrum has no fSumw2 buffer")
+                raise CertificateError(
+                    "F-IO-1", "spectrum has no fSumw2 buffer")
             raw = np.asarray(hist.member("fSumw2"), dtype=np.float64)
             if np.any(raw < 0.0):
-                raise CertificateError("F-IO-1", "raw spectrum fSumw2 has negative entries")
+                raise CertificateError(
+                    "F-IO-1", "raw spectrum fSumw2 has negative entries")
     elif dispatch == "mc_spectrum":
         with uproot.open(path) as file:
             hist = file[OBJ_MC_SPECTRUM]
             if not _uproot.histogram_has_variance(hist):
-                raise CertificateError("F-SIM-2", "mc_spectrum has no fSumw2 buffer")
+                raise CertificateError(
+                    "F-SIM-2", "mc_spectrum has no fSumw2 buffer")
             raw = np.asarray(hist.member("fSumw2"), dtype=np.float64)
             if np.any(raw < 0.0):
-                raise CertificateError("F-SIM-2", "raw mc_spectrum fSumw2 is negative")
+                raise CertificateError(
+                    "F-SIM-2", "raw mc_spectrum fSumw2 is negative")
 
 
 # --------------------------------------------------------------------------
@@ -1124,9 +1186,11 @@ def _build_product(file: Any, dispatch: str, meta: Mapping[str, Any]) -> Product
     if dispatch == "calib":
         return CalibProduct(
             format_version=format_version,
-            deposition_to_channel=_uproot.read_hist2d(file, OBJ_DEPOSITION_TO_CHANNEL),
+            deposition_to_channel=_uproot.read_hist2d(
+                file, OBJ_DEPOSITION_TO_CHANNEL),
             param_cov=_uproot.read_hist2d(file, OBJ_PARAM_COV),
-            params_reported=_decode_float_list(meta, META_PARAMS_REPORTED_JSON, 4),
+            params_reported=_decode_float_list(
+                meta, META_PARAMS_REPORTED_JSON, 4),
             resol_params=_decode_float_list(meta, META_RESOL_PARAMS_JSON, 3),
             channel_max=float(meta[META_CHANNEL_MAX]),
             provenance=provenance,
@@ -1135,16 +1199,21 @@ def _build_product(file: Any, dispatch: str, meta: Mapping[str, Any]) -> Product
             covariance_scale=float(meta[META_COVARIANCE_SCALE]),
             fit_status=str(meta[META_FIT_STATUS]),
             scales=_decode_scales(meta, META_SCALES_JSON),
-            scale_bound_flags=_decode_scale_flags(meta, META_SCALE_BOUND_FLAGS_JSON),
+            scale_bound_flags=_decode_scale_flags(
+                meta, META_SCALE_BOUND_FLAGS_JSON),
             resol_clamp_count=int(meta[META_RESOL_CLAMP_COUNT]),
-            resol_clamp_energy_low_kev=float(meta[META_RESOL_CLAMP_ENERGY_LOW_KEV]),
-            resol_clamp_energy_high_kev=float(meta[META_RESOL_CLAMP_ENERGY_HIGH_KEV]),
+            resol_clamp_energy_low_kev=float(
+                meta[META_RESOL_CLAMP_ENERGY_LOW_KEV]),
+            resol_clamp_energy_high_kev=float(
+                meta[META_RESOL_CLAMP_ENERGY_HIGH_KEV]),
         )
     if dispatch == "sim":
         return SimProduct(
             format_version=format_version,
-            primary_to_deposition=_uproot.read_hist2d(file, OBJ_PRIMARY_TO_DEPOSITION),
-            primary_column_totals=_uproot.read_hist1d(file, OBJ_PRIMARY_COLUMN_TOTALS),
+            primary_to_deposition=_uproot.read_hist2d(
+                file, OBJ_PRIMARY_TO_DEPOSITION),
+            primary_column_totals=_uproot.read_hist1d(
+                file, OBJ_PRIMARY_COLUMN_TOTALS),
             mode=int(meta[META_MODE]),
             mode_name=str(meta[META_MODE_NAME]),
             geometry_name=str(meta[META_GEOMETRY_NAME]),
@@ -1159,14 +1228,19 @@ def _build_product(file: Any, dispatch: str, meta: Mapping[str, Any]) -> Product
         return ComposeProduct(
             format_version=format_version,
             response_matrix=_uproot.read_hist2d(file, OBJ_RESPONSE_MATRIX),
-            deposition_to_channel=_uproot.read_hist2d(file, OBJ_DEPOSITION_TO_CHANNEL),
-            primary_to_deposition=_uproot.read_hist2d(file, OBJ_PRIMARY_TO_DEPOSITION),
-            primary_column_totals=_uproot.read_hist1d(file, OBJ_PRIMARY_COLUMN_TOTALS),
-            primary_efficiency=_uproot.read_hist1d(file, OBJ_PRIMARY_EFFICIENCY),
+            deposition_to_channel=_uproot.read_hist2d(
+                file, OBJ_DEPOSITION_TO_CHANNEL),
+            primary_to_deposition=_uproot.read_hist2d(
+                file, OBJ_PRIMARY_TO_DEPOSITION),
+            primary_column_totals=_uproot.read_hist1d(
+                file, OBJ_PRIMARY_COLUMN_TOTALS),
+            primary_efficiency=_uproot.read_hist1d(
+                file, OBJ_PRIMARY_EFFICIENCY),
             provenance=provenance,
         )
     if dispatch == "unfold":
-        settings = tuple((field, str(meta[field])) for field in UNFOLD_SETTING_TYPES)
+        settings = tuple((field, str(meta[field]))
+                         for field in UNFOLD_SETTING_TYPES)
         return UnfoldProduct(
             format_version=format_version,
             mode=str(meta[META_MODE]),
@@ -1211,7 +1285,8 @@ def _build_product(file: Any, dispatch: str, meta: Mapping[str, Any]) -> Product
             workers=int(meta[META_WORKERS]),
             provenance=provenance,
         )
-    raise SchemaError(f"unsupported dispatch key {dispatch!r}")  # pragma: no cover
+    raise SchemaError(
+        f"unsupported dispatch key {dispatch!r}")  # pragma: no cover
 
 
 def _read(path: str | Path) -> Product:
@@ -1228,7 +1303,8 @@ def _read(path: str | Path) -> Product:
                     "contain exactly one object per name"
                 )
             if META_NTUPLE_NAME not in names:
-                raise SchemaError(f"{source}: product has no {META_NTUPLE_NAME!r} metadata")
+                raise SchemaError(
+                    f"{source}: product has no {META_NTUPLE_NAME!r} metadata")
             meta = _uproot.read_meta_tree(file)
             if META_PRODUCT_KIND not in meta or META_FORMAT_VERSION not in meta:
                 raise SchemaError(
@@ -1246,13 +1322,15 @@ def _read(path: str | Path) -> Product:
     except Kc761toolError:
         raise
     except Exception as exc:  # uproot raises several unrelated exception types
-        raise SchemaError(f"{source}: not a readable product file: {exc}") from exc
+        raise SchemaError(
+            f"{source}: not a readable product file: {exc}") from exc
 
 
 def _write_objects(file: Any, product: Product, dispatch: str) -> None:
     if dispatch == "calib":
         assert isinstance(product, CalibProduct)
-        _uproot.write_hist2d(file, OBJ_DEPOSITION_TO_CHANNEL, product.deposition_to_channel)
+        _uproot.write_hist2d(file, OBJ_DEPOSITION_TO_CHANNEL,
+                             product.deposition_to_channel)
         _uproot.write_hist2d(
             file,
             OBJ_PARAM_COV,
@@ -1262,15 +1340,22 @@ def _write_objects(file: Any, product: Product, dispatch: str) -> None:
         )
     elif dispatch == "sim":
         assert isinstance(product, SimProduct)
-        _uproot.write_hist2d(file, OBJ_PRIMARY_TO_DEPOSITION, product.primary_to_deposition)
-        _uproot.write_hist1d(file, OBJ_PRIMARY_COLUMN_TOTALS, product.primary_column_totals)
+        _uproot.write_hist2d(file, OBJ_PRIMARY_TO_DEPOSITION,
+                             product.primary_to_deposition)
+        _uproot.write_hist1d(file, OBJ_PRIMARY_COLUMN_TOTALS,
+                             product.primary_column_totals)
     elif dispatch == "compose":
         assert isinstance(product, ComposeProduct)
-        _uproot.write_hist2d(file, OBJ_RESPONSE_MATRIX, product.response_matrix)
-        _uproot.write_hist2d(file, OBJ_DEPOSITION_TO_CHANNEL, product.deposition_to_channel)
-        _uproot.write_hist2d(file, OBJ_PRIMARY_TO_DEPOSITION, product.primary_to_deposition)
-        _uproot.write_hist1d(file, OBJ_PRIMARY_COLUMN_TOTALS, product.primary_column_totals)
-        _uproot.write_hist1d(file, OBJ_PRIMARY_EFFICIENCY, product.primary_efficiency)
+        _uproot.write_hist2d(file, OBJ_RESPONSE_MATRIX,
+                             product.response_matrix)
+        _uproot.write_hist2d(file, OBJ_DEPOSITION_TO_CHANNEL,
+                             product.deposition_to_channel)
+        _uproot.write_hist2d(file, OBJ_PRIMARY_TO_DEPOSITION,
+                             product.primary_to_deposition)
+        _uproot.write_hist1d(file, OBJ_PRIMARY_COLUMN_TOTALS,
+                             product.primary_column_totals)
+        _uproot.write_hist1d(file, OBJ_PRIMARY_EFFICIENCY,
+                             product.primary_efficiency)
     elif dispatch == "unfold":
         assert isinstance(product, UnfoldProduct)
         _uproot.write_hist1d(file, OBJ_SPECTRUM_UNFOLDED, product.spectrum)
@@ -1278,8 +1363,10 @@ def _write_objects(file: Any, product: Product, dispatch: str) -> None:
         assert product.sigma_systematic is not None
         assert product.sigma_total is not None
         assert product.refolded is not None
-        _uproot.write_hist1d(file, OBJ_SIGMA_STATISTICAL, product.sigma_statistical)
-        _uproot.write_hist1d(file, OBJ_SIGMA_SYSTEMATIC, product.sigma_systematic)
+        _uproot.write_hist1d(file, OBJ_SIGMA_STATISTICAL,
+                             product.sigma_statistical)
+        _uproot.write_hist1d(file, OBJ_SIGMA_SYSTEMATIC,
+                             product.sigma_systematic)
         _uproot.write_hist1d(file, OBJ_SIGMA_TOTAL, product.sigma_total)
         _uproot.write_hist1d(file, OBJ_SPECTRUM_REFOLDED, product.refolded)
     elif dispatch == "unfold_calib_only":

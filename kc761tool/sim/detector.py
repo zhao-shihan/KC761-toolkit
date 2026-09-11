@@ -141,7 +141,8 @@ def build_detector(source, materials, *, geometry: DetectorGeometry = DEFAULT_GE
             source_z = (
                 container_position.z
                 - 0.5 * container.height * _mm
-                + (container.bottom_thickness + _geometry_half_z_mm(spec.geometry)) * _mm
+                + (container.bottom_thickness +
+                   _geometry_half_z_mm(spec.geometry)) * _mm
             )
             return _three(container_position.x, container_position.y, source_z)
         offset = spec.container_offset
@@ -176,7 +177,8 @@ def build_detector(source, materials, *, geometry: DetectorGeometry = DEFAULT_GE
                 geometry.housing_half_y_mm * _mm,
                 geometry.housing_half_z_mm * _mm,
             )
-            housing_lv = _logical(housing_solid, self.materials["ABS"], "Housing")
+            housing_lv = _logical(
+                housing_solid, self.materials["ABS"], "Housing")
             _placement(
                 None, _three(), housing_lv, "Housing", world_lv, False, 0, self.check_overlaps
             )
@@ -187,7 +189,8 @@ def build_detector(source, materials, *, geometry: DetectorGeometry = DEFAULT_GE
                 geometry.crystal_half_y_mm * _mm,
                 geometry.crystal_half_z_mm * _mm,
             )
-            crystal_lv = _logical(crystal_solid, self.materials["CsI_Tl"], "Crystal")
+            crystal_lv = _logical(
+                crystal_solid, self.materials["CsI_Tl"], "Crystal")
             self.crystal_lv = crystal_lv
             _placement(
                 None, _three(), crystal_lv, "Crystal", housing_lv, False, 0, self.check_overlaps
@@ -223,11 +226,14 @@ def build_detector(source, materials, *, geometry: DetectorGeometry = DEFAULT_GE
                 anchor_z = geometry.detector_front_z_mm + geometry.detector_gap_mm
 
             if spec.container is not None:
-                container_position = _container_position(spec.container, anchor_z)
+                container_position = _container_position(
+                    spec.container, anchor_z)
                 position = _source_position(spec, container_position)
-                self._construct_container(spec.container, container_position, world_lv)
+                self._construct_container(
+                    spec.container, container_position, world_lv)
             else:
-                position = _three(0.0, 0.0, _bare_center_z(spec.geometry, anchor_z) * _mm)
+                position = _three(0.0, 0.0, _bare_center_z(
+                    spec.geometry, anchor_z) * _mm)
             self.source_center = position
 
             if isinstance(spec.geometry, Sandwich):
@@ -242,8 +248,10 @@ def build_detector(source, materials, *, geometry: DetectorGeometry = DEFAULT_GE
             material = self.materials[spec.material]
             solid = self._build_source_solid(spec.geometry)
             source_lv = _logical(solid, material, "Source")
-            rotate_to_y = isinstance(spec.geometry, Cylinder) and spec.geometry.axis == "y"
-            self._place_volume(source_lv, "Source", position, world_lv, rotate_to_y)
+            rotate_to_y = isinstance(
+                spec.geometry, Cylinder) and spec.geometry.axis == "y"
+            self._place_volume(source_lv, "Source",
+                               position, world_lv, rotate_to_y)
 
         @staticmethod
         def _build_source_solid(source_geometry):  # noqa: ANN001, ANN205
@@ -291,14 +299,16 @@ def build_detector(source, materials, *, geometry: DetectorGeometry = DEFAULT_GE
                         _twopi,
                     )
                 case _:
-                    raise ValidationError(f"unsupported source geometry: {source_geometry!r}")
+                    raise ValidationError(
+                        f"unsupported source geometry: {source_geometry!r}")
 
         def _construct_sandwich(self, sandwich, position, world_lv):  # noqa: ANN001
             n_layers = len(sandwich.layers)
             z = position.z - 0.5 * sandwich.total_thickness * _mm
             for index, layer in enumerate(sandwich.layers):
                 half_thickness = 0.5 * layer.thickness * _mm
-                layer_center = _three(position.x, position.y, z + half_thickness)
+                layer_center = _three(
+                    position.x, position.y, z + half_thickness)
                 if layer.active:
                     name = "Source"
                 elif index == 0:
@@ -307,8 +317,10 @@ def build_detector(source, materials, *, geometry: DetectorGeometry = DEFAULT_GE
                     name = "SourceCladBack"
                 else:
                     name = f"SourceClad{index}"
-                solid = _tubs(name, 0.0, sandwich.radius * _mm, half_thickness, 0.0, _twopi)
-                layer_lv = _logical(solid, self.materials[layer.material], name)
+                solid = _tubs(name, 0.0, sandwich.radius *
+                              _mm, half_thickness, 0.0, _twopi)
+                layer_lv = _logical(
+                    solid, self.materials[layer.material], name)
                 _placement(
                     None,
                     layer_center,
@@ -365,7 +377,8 @@ def build_detector(source, materials, *, geometry: DetectorGeometry = DEFAULT_GE
                 0.0,
                 _twopi,
             )
-            tube_lv = _logical(tube_solid, self.materials[container.material], "SourceTube")
+            tube_lv = _logical(
+                tube_solid, self.materials[container.material], "SourceTube")
             self._place_volume(
                 tube_lv, "SourceTube", position, world_lv, container.axis == "y"
             )
@@ -411,7 +424,8 @@ def build_detector(source, materials, *, geometry: DetectorGeometry = DEFAULT_GE
                 _three(
                     position.x,
                     position.y,
-                    position.z - 0.5 * (cup.height - cup.bottom_thickness) * _mm,
+                    position.z - 0.5 *
+                    (cup.height - cup.bottom_thickness) * _mm,
                 ),
                 bottom_lv,
                 "SourceCupBottom",

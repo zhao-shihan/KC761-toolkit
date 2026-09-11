@@ -135,7 +135,8 @@ def scale_curve(
     _check_window(channel_low, channel_high, float(params[0]))
     channel_values = as_float_array("channels", channels)
     t = _bezier_parameter(
-        channel_values, float(channel_low), float(channel_high), float(params[0])
+        channel_values, float(channel_low), float(
+            channel_high), float(params[0])
     )
     s1, s2, s3 = (float(value) for value in params[1:])
     return s1 + (2.0 * (s2 - s1) + (s1 - 2.0 * s2 + s3) * t) * t
@@ -157,7 +158,8 @@ def scale_curve_grad(
     channel_values = as_float_array("channels", channels)
     s0, s1, s2, s3 = (float(value) for value in params)
 
-    t = _bezier_parameter(channel_values, float(channel_low), float(channel_high), s0)
+    t = _bezier_parameter(channel_values, float(
+        channel_low), float(channel_high), s0)
     omt = 1.0 - t
     value = s1 + (2.0 * (s2 - s1) + (s1 - 2.0 * s2 + s3) * t) * t
 

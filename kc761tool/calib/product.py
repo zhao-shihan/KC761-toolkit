@@ -73,10 +73,12 @@ def build_calib_product(
     """Assemble the calibration product from a fitted core (D-101/D-106)."""
     core = as_float_array("core_internal", core_internal, ndim=1)
     if core.size != 4:
-        raise ValidationError(f"core_internal must have 4 entries, got {core.size}")
+        raise ValidationError(
+            f"core_internal must have 4 entries, got {core.size}")
     resol = as_float_array("resol_params", resol_params, ndim=1)
     if resol.size != 3:
-        raise ValidationError(f"resol_params must have 3 entries, got {resol.size}")
+        raise ValidationError(
+            f"resol_params must have 3 entries, got {resol.size}")
     covariance = as_float_array("param_cov", param_cov, ndim=2)
     if covariance.shape != (N_REPORTED_PARAMS, N_REPORTED_PARAMS):
         raise ValidationError(f"param_cov must be 7x7, got {covariance.shape}")
@@ -84,7 +86,8 @@ def build_calib_product(
         raise ValidationError(f"n_channels must be >= 1, got {n_channels!r}")
 
     calibration = InternalCalibration.from_array(core)
-    energy_edges = channel_derived_edges_kev(core, int(n_channels), channel_max)
+    energy_edges = channel_derived_edges_kev(
+        core, int(n_channels), channel_max)
     response = build_response_matrix(
         energy_edges,
         calibration,

@@ -139,7 +139,8 @@ def _provenance(
         producer=producer,
         command=command,
         arguments=tuple(arguments),
-        inputs=[path for path in paths if path is not None] + list(extra_inputs),
+        inputs=[path for path in paths if path is not None] +
+        list(extra_inputs),
     )
 
 
@@ -193,7 +194,8 @@ def _run_calib_only(
             settings=(),
             provenance=provenance,
         )
-        product_path = write_product(product, output, force=force, strict=strict)
+        product_path = write_product(
+            product, output, force=force, strict=strict)
 
     result = UnfoldResult(
         mode=UNFOLD_MODE_CALIB_ONLY,
@@ -224,7 +226,8 @@ def _run_calib_only(
         if target is None and output is not None:
             target = Path(output).with_suffix(".pdf")
         if target is not None:
-            result = replace(result, plot_path=plot_unfold(result, path=target, force=plot_force))
+            result = replace(result, plot_path=plot_unfold(
+                result, path=target, force=plot_force))
     return result
 
 
@@ -339,9 +342,12 @@ def run_unfold(
         response=response,
         selection=selection,
         data_values=np.asarray(data_product.spectrum.values, dtype=np.float64),
-        data_variances=np.asarray(data_product.spectrum.variances, dtype=np.float64),
-        deposition_counts=np.asarray(sim_product.primary_to_deposition.values, dtype=np.float64),
-        column_totals=np.asarray(sim_product.primary_column_totals.values, dtype=np.float64),
+        data_variances=np.asarray(
+            data_product.spectrum.variances, dtype=np.float64),
+        deposition_counts=np.asarray(
+            sim_product.primary_to_deposition.values, dtype=np.float64),
+        column_totals=np.asarray(
+            sim_product.primary_column_totals.values, dtype=np.float64),
         calibration=calibration,
         resol_params=resol_params,
         channel_grid=channel_grid,
@@ -355,7 +361,7 @@ def run_unfold(
 
     report_slice = slice(selection.report_low, selection.report_high + 1)
     axis = energy_axis(
-        primary_edges[selection.report_low : selection.report_high + 2],
+        primary_edges[selection.report_low: selection.report_high + 2],
         name=_UNFOLDED_AXIS_NAME,
     )
     unfolded_values = outcome.mu_full[report_slice]
@@ -378,19 +384,20 @@ def run_unfold(
     refolded_axis = channel_axis(channel_grid.n_channels).slice(
         selection.channel_low, selection.channel_high
     )
-    refolded_full = np.asarray(composed.matrix @ outcome.mu_full, dtype=np.float64)
+    refolded_full = np.asarray(
+        composed.matrix @ outcome.mu_full, dtype=np.float64)
     refolded = Histogram1D(
         axis=refolded_axis,
-        values=refolded_full[selection.channel_low : selection.channel_high + 1],
+        values=refolded_full[selection.channel_low: selection.channel_high + 1],
         variances=None,
     )
     data_window = Histogram1D(
         axis=refolded_axis,
         values=np.asarray(data_product.spectrum.values, dtype=np.float64)[
-            selection.channel_low : selection.channel_high + 1
+            selection.channel_low: selection.channel_high + 1
         ],
         variances=np.asarray(data_product.spectrum.variances, dtype=np.float64)[
-            selection.channel_low : selection.channel_high + 1
+            selection.channel_low: selection.channel_high + 1
         ],
     )
 
@@ -424,7 +431,8 @@ def run_unfold(
             settings=settings_tuple,
             provenance=provenance,
         )
-        product_path = write_product(product, output, force=force, strict=strict)
+        product_path = write_product(
+            product, output, force=force, strict=strict)
 
     result = UnfoldResult(
         mode=UNFOLD_MODE_FULL,
@@ -458,7 +466,8 @@ def run_unfold(
         if target is None and output is not None:
             target = Path(output).with_suffix(".pdf")
         if target is not None:
-            result = replace(result, plot_path=plot_unfold(result, path=target, force=plot_force))
+            result = replace(result, plot_path=plot_unfold(
+                result, path=target, force=plot_force))
     return result
 
 

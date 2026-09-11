@@ -108,8 +108,10 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     scale = t_signal / t_background
 
     signal_values = np.asarray(signal.spectrum.values, dtype=np.float64)
-    background_values = np.asarray(background.spectrum.values, dtype=np.float64)
-    signal_error = np.sqrt(np.asarray(signal.spectrum.variances, dtype=np.float64))
+    background_values = np.asarray(
+        background.spectrum.values, dtype=np.float64)
+    signal_error = np.sqrt(np.asarray(
+        signal.spectrum.variances, dtype=np.float64))
     background_error = np.sqrt(
         np.asarray(background.spectrum.variances, dtype=np.float64)
     )

@@ -18,7 +18,8 @@ def as_float_array(name: str, value: object, *, ndim: int | None = None) -> NDAr
     """Convert ``value`` to ``float64`` and require the requested dimensionality."""
     array = np.asarray(value, dtype=np.float64)
     if ndim is not None and array.ndim != ndim:
-        raise ValidationError(f"{name} must be {ndim}-dimensional, got shape {array.shape}")
+        raise ValidationError(
+            f"{name} must be {ndim}-dimensional, got shape {array.shape}")
     if not np.isfinite(array).all():
         raise ValidationError(f"{name} contains non-finite values")
     return array
@@ -27,7 +28,8 @@ def as_float_array(name: str, value: object, *, ndim: int | None = None) -> NDAr
 def require_positive(name: str, value: float) -> float:
     """Require a finite, strictly positive scalar."""
     if not np.isfinite(value) or value <= 0.0:
-        raise ValidationError(f"{name} must be positive and finite, got {value!r}")
+        raise ValidationError(
+            f"{name} must be positive and finite, got {value!r}")
     return float(value)
 
 

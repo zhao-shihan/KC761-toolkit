@@ -79,15 +79,18 @@ def scaled_covariance(
     """
     matrix = as_float_array("fisher", fisher, ndim=2)
     if matrix.shape[0] != matrix.shape[1]:
-        raise ValidationError(f"fisher must be square, got shape {matrix.shape}")
+        raise ValidationError(
+            f"fisher must be square, got shape {matrix.shape}")
     if not np.isfinite(chi2) or chi2 < 0.0:
-        raise ValidationError(f"chi2 must be finite and non-negative, got {chi2!r}")
+        raise ValidationError(
+            f"chi2 must be finite and non-negative, got {chi2!r}")
     if not isinstance(dof, int) or dof < 1:
         raise ValidationError(f"dof must be a positive int, got {dof!r}")
     symmetric = 0.5 * (matrix + matrix.T)
     try:
         factor = linalg.cho_factor(symmetric, lower=True, check_finite=False)
-        inverse = linalg.cho_solve(factor, np.eye(matrix.shape[0]), check_finite=False)
+        inverse = linalg.cho_solve(factor, np.eye(
+            matrix.shape[0]), check_finite=False)
     except linalg.LinAlgError as exc:
         raise SolverError(f"fisher is not positive definite: {exc}") from exc
     scale = float(chi2) / float(dof)
@@ -124,33 +127,40 @@ def profile_covariance(
     if start.size < 1:
         raise ValidationError("parameters must not be empty")
     if not isinstance(profile_points, int) or profile_points < 5:
-        raise ValidationError(f"profile_points must be an int >= 5, got {profile_points!r}")
+        raise ValidationError(
+            f"profile_points must be an int >= 5, got {profile_points!r}")
     chi2_min = _scalar_objective(objective, start)
     hessian = _numerical_hessian(objective, start)
     if np.any(np.diag(hessian) <= 0.0):
-        raise SolverError("profile covariance requires a positive definite Hessian")
+        raise SolverError(
+            "profile covariance requires a positive definite Hessian")
     widths = np.empty(start.size, dtype=np.float64)
     for index in range(start.size):
         sigma0 = float(np.sqrt(2.0 / hessian[index, index]))
         offsets = np.linspace(-4.0 * sigma0, 4.0 * sigma0, profile_points)
         values = np.array(
             [
-                _profiled_objective(objective, start, index, float(start[index] + offset))
+                _profiled_objective(objective, start, index,
+                                    float(start[index] + offset))
                 - (chi2_min + 1.0)
                 for offset in offsets
             ]
         )
         widths[index] = 0.5 * (
-            _first_crossing(objective, start, index, offsets, values, +1.0, chi2_min + 1.0)
-            - _first_crossing(objective, start, index, offsets, values, -1.0, chi2_min + 1.0)
+            _first_crossing(objective, start, index, offsets,
+                            values, +1.0, chi2_min + 1.0)
+            - _first_crossing(objective, start, index, offsets,
+                              values, -1.0, chi2_min + 1.0)
         )
     scale = np.outer(widths, widths)
     fisher = 0.5 * hessian
     try:
         factor = linalg.cho_factor(fisher, lower=True, check_finite=False)
-        fisher_inverse = linalg.cho_solve(factor, np.eye(fisher.shape[0]), check_finite=False)
+        fisher_inverse = linalg.cho_solve(
+            factor, np.eye(fisher.shape[0]), check_finite=False)
     except linalg.LinAlgError as exc:
-        raise SolverError(f"profile Hessian is not positive definite: {exc}") from exc
+        raise SolverError(
+            f"profile Hessian is not positive definite: {exc}") from exc
     correlation = fisher_inverse / np.sqrt(
         np.outer(np.diag(fisher_inverse), np.diag(fisher_inverse))
     )
@@ -214,7 +224,8 @@ def _profiled_objective(
     index: int,
     value: float,
 ) -> float:
-    free = np.array([k for k in range(parameters.size) if k != index], dtype=np.int64)
+    free = np.array([k for k in range(parameters.size)
+                    if k != index], dtype=np.int64)
     if free.size == 0:
         point = parameters.copy()
         point[index] = value
@@ -230,7 +241,8 @@ def _profiled_objective(
         inner,
         parameters[free],
         method="Nelder-Mead",
-        options={"xatol": 1e-10, "fatol": 1e-12, "maxiter": 2000, "maxfev": 5000},
+        options={"xatol": 1e-10, "fatol": 1e-12,
+                 "maxiter": 2000, "maxfev": 5000},
     )
     if not result.success and not np.isfinite(result.fun):
         raise SolverError(f"profile re-optimization failed: {result.message}")
@@ -264,7 +276,8 @@ def _first_crossing(
             def profile(tau: float) -> float:
                 return (
                     _profiled_objective(
-                        objective, parameters, index, float(parameters[index] + tau)
+                        objective, parameters, index, float(
+                            parameters[index] + tau)
                     )
                     - target
                 )
@@ -279,7 +292,8 @@ def _first_crossing(
             )
             return float(parameters[index] + root)
         previous = offset
-    raise SolverError("profile crossing chi2_min + 1 not found within four sigma")
+    raise SolverError(
+        "profile crossing chi2_min + 1 not found within four sigma")
 
 
 def verify_covariance_psd(
@@ -292,11 +306,15 @@ def verify_covariance_psd(
     """F-COV-1/F-COV-2 certificate: symmetric with a non-negative spectrum."""
     matrix = as_float_array("covariance", estimate.matrix, ndim=2)
     if matrix.shape[0] != matrix.shape[1]:
-        raise ValidationError(f"covariance must be square, got shape {matrix.shape}")
-    asymmetry = float(np.max(np.abs(matrix - matrix.T))) if matrix.size else 0.0
-    eigenvalues = np.linalg.eigvalsh(0.5 * (matrix + matrix.T)) if matrix.size else np.zeros(1)
+        raise ValidationError(
+            f"covariance must be square, got shape {matrix.shape}")
+    asymmetry = float(np.max(np.abs(matrix - matrix.T))
+                      ) if matrix.size else 0.0
+    eigenvalues = np.linalg.eigvalsh(
+        0.5 * (matrix + matrix.T)) if matrix.size else np.zeros(1)
     smallest = float(np.min(eigenvalues))
-    scale = max(1.0, float(np.max(np.abs(eigenvalues))) if eigenvalues.size else 1.0)
+    scale = max(1.0, float(np.max(np.abs(eigenvalues)))
+                if eigenvalues.size else 1.0)
     if strict and (asymmetry > atol * scale or smallest < -atol * scale):
         raise CertificateError(
             formula_id,

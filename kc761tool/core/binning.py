@@ -57,6 +57,7 @@ def channels_limit_message(n_channels: int) -> str:
         f"alone needs {gib:.2f} GiB"
     )
 
+
 SOURCE_MODE_DEPOSITION_MAX_KEV: Final = 4096.0
 SOURCE_MODE_DEPOSITION_BINS: Final = 4096
 """Fixed uniform *source-mode* Monte-Carlo axis: ``0..4096 keV / 4096 bins``.
@@ -84,9 +85,11 @@ class ChannelGrid:
 
     def __post_init__(self) -> None:
         if not isinstance(self.n_channels, int):
-            raise ValidationError(f"n_channels must be an int, got {self.n_channels!r}")
+            raise ValidationError(
+                f"n_channels must be an int, got {self.n_channels!r}")
         if self.n_channels < 1:
-            raise ValidationError(f"n_channels must be >= 1, got {self.n_channels!r}")
+            raise ValidationError(
+                f"n_channels must be >= 1, got {self.n_channels!r}")
         if self.n_channels > MAX_CHANNELS:
             raise ValidationError(channels_limit_message(self.n_channels))
 
@@ -144,7 +147,8 @@ def working_window(
     ChannelGrid(n_channels)
     channel_max = require_positive("channel_max", channel_max)
     if not np.isfinite(pad_nsigma) or pad_nsigma < 0.0:
-        raise ValidationError(f"pad_nsigma must be finite and >= 0, got {pad_nsigma!r}")
+        raise ValidationError(
+            f"pad_nsigma must be finite and >= 0, got {pad_nsigma!r}")
     if not 0 <= channel_low <= channel_high < n_channels:
         raise ValidationError(
             f"window [{channel_low}, {channel_high}] outside [0, {n_channels - 1}]"
@@ -159,7 +163,8 @@ def working_window(
         ],
         dtype=np.float64,
     )
-    edge_energies = energy_kev(edge_channels, calibration, channel_max=channel_max)
+    edge_energies = energy_kev(
+        edge_channels, calibration, channel_max=channel_max)
     width_low = float(edge_energies[1] - edge_energies[0])
     width_high = float(edge_energies[3] - edge_energies[2])
     if width_low <= 0.0 or width_high <= 0.0:

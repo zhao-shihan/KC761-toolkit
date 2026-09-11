@@ -72,9 +72,11 @@ def _parse_duration(value: str, source: str) -> float:
             f"{source}: acquisition time '#{value}' is out of range "
             "(hours <= 23, minutes <= 59, seconds < 60)"
         )
-    total_seconds = (days * 24.0 + hours + minutes / 60.0 + seconds / 3600.0) * 3600.0
+    total_seconds = (days * 24.0 + hours + minutes /
+                     60.0 + seconds / 3600.0) * 3600.0
     if total_seconds <= 0.0:
-        raise Kc761toolError(f"{source}: acquisition time '#{value}' must be positive")
+        raise Kc761toolError(
+            f"{source}: acquisition time '#{value}' must be positive")
     return total_seconds
 
 
@@ -98,7 +100,7 @@ def parse_kc761_csv(
     daq_time_s = _parse_duration(match.group("time"), source)
 
     counts: list[float] = []
-    for line_number, raw in enumerate(lines[index + 1 :], start=index + 2):
+    for line_number, raw in enumerate(lines[index + 1:], start=index + 2):
         line = raw.strip()
         if not line:
             continue
@@ -147,7 +149,8 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     try:
         text = input_path.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError as exc:
-        raise Kc761toolError(f"{input_path}: not a valid UTF-8 CSV file: {exc}") from exc
+        raise Kc761toolError(
+            f"{input_path}: not a valid UTF-8 CSV file: {exc}") from exc
     counts, daq_time_s = parse_kc761_csv(text, source=str(input_path))
     from kc761tool.schema.axes import channel_axis
     from kc761tool.schema.io import build_provenance, write_product
@@ -174,7 +177,8 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
         ),
     )
     path = write_product(product, output, force=args.force, strict=strict)
-    logger.info("wrote %s (%d channels, daq_time_s=%.6g)", path, counts.size, daq_time_s)
+    logger.info("wrote %s (%d channels, daq_time_s=%.6g)",
+                path, counts.size, daq_time_s)
     return 0
 
 

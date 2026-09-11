@@ -51,7 +51,8 @@ def internal_jacobian(channel_max):
             [1, 0, 0, 0],
             [0, 1, 0, 0],
             [0, -(3/2)/channel_max, 2/channel_max, -(1/2)/channel_max],
-            [0, (2/3)/channel_max**2, -(4/3)/channel_max**2, (2/3)/channel_max**2],
+            [0, (2/3)/channel_max**2, -(4/3) /
+             channel_max**2, (2/3)/channel_max**2],
         ],
         dtype=np.float64,
     )
@@ -79,6 +80,8 @@ def resolution_sigma_grad(energy_kev, b0, b1, b2, resol_e_ref_kev):
     """F-MODEL-4: sigma and d(sigma)/d(b0, b1, b2), shape (3, *energy.shape)."""
     energy_kev = np.asarray(energy_kev, dtype=np.float64)
     return (
-        np.sqrt(b0**2*(1 - 1/2*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev)**2 + (1/2)*b1**2*(2 - (energy_kev + np.abs(energy_kev))/resol_e_ref_kev)*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev + (1/4)*b2**2*(energy_kev + np.abs(energy_kev))**2/resol_e_ref_kev**2),
-        np.stack(np.broadcast_arrays(b0*(1 - 1/2*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev)**2/np.sqrt(b0**2*(1 - 1/2*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev)**2 + (1/2)*b1**2*(2 - (energy_kev + np.abs(energy_kev))/resol_e_ref_kev)*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev + (1/4)*b2**2*(energy_kev + np.abs(energy_kev))**2/resol_e_ref_kev**2), (1/2)*b1*(2 - (energy_kev + np.abs(energy_kev))/resol_e_ref_kev)*(energy_kev + np.abs(energy_kev))/(resol_e_ref_kev*np.sqrt(b0**2*(1 - 1/2*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev)**2 + (1/2)*b1**2*(2 - (energy_kev + np.abs(energy_kev))/resol_e_ref_kev)*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev + (1/4)*b2**2*(energy_kev + np.abs(energy_kev))**2/resol_e_ref_kev**2)), (1/4)*b2*(energy_kev + np.abs(energy_kev))**2/(resol_e_ref_kev**2*np.sqrt(b0**2*(1 - 1/2*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev)**2 + (1/2)*b1**2*(2 - (energy_kev + np.abs(energy_kev))/resol_e_ref_kev)*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev + (1/4)*b2**2*(energy_kev + np.abs(energy_kev))**2/resol_e_ref_kev**2))), axis=0),
+        np.sqrt(b0**2*(1 - 1/2*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev)**2 + (1/2)*b1**2*(2 - (energy_kev + np.abs(energy_kev)) /
+                resol_e_ref_kev)*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev + (1/4)*b2**2*(energy_kev + np.abs(energy_kev))**2/resol_e_ref_kev**2),
+        np.stack(np.broadcast_arrays(b0*(1 - 1/2*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev)**2/np.sqrt(b0**2*(1 - 1/2*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev)**2 + (1/2)*b1**2*(2 - (energy_kev + np.abs(energy_kev))/resol_e_ref_kev)*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev + (1/4)*b2**2*(energy_kev + np.abs(energy_kev))**2/resol_e_ref_kev**2), (1/2)*b1*(2 - (energy_kev + np.abs(energy_kev))/resol_e_ref_kev)*(energy_kev + np.abs(energy_kev))/(resol_e_ref_kev*np.sqrt(b0**2*(1 - 1/2*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev)
+                 ** 2 + (1/2)*b1**2*(2 - (energy_kev + np.abs(energy_kev))/resol_e_ref_kev)*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev + (1/4)*b2**2*(energy_kev + np.abs(energy_kev))**2/resol_e_ref_kev**2)), (1/4)*b2*(energy_kev + np.abs(energy_kev))**2/(resol_e_ref_kev**2*np.sqrt(b0**2*(1 - 1/2*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev)**2 + (1/2)*b1**2*(2 - (energy_kev + np.abs(energy_kev))/resol_e_ref_kev)*(energy_kev + np.abs(energy_kev))/resol_e_ref_kev + (1/4)*b2**2*(energy_kev + np.abs(energy_kev))**2/resol_e_ref_kev**2))), axis=0),
     )

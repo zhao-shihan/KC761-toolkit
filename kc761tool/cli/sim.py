@@ -164,7 +164,8 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
         raise UsageError("select exactly one source key or matrix mode")
     if not source_selected and matrix is None:
         raise UsageError(
-            "select a source (" + ", ".join(f"--{key}" for key in _SOURCE_FLAG_ORDER) + ") "
+            "select a source (" +
+            ", ".join(f"--{key}" for key in _SOURCE_FLAG_ORDER) + ") "
             "or a matrix mode (--plane-front-gamma/--sphere-gamma)"
         )
 
@@ -207,7 +208,8 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
                 "or pass --events for a batch run"
             )
         if args.dry_run:
-            print(f"kc761tool sim (dry-run): interactive {args.source_key} session")
+            print(
+                f"kc761tool sim (dry-run): interactive {args.source_key} session")
             return 0
         _run_interactive(args)
         return 0
@@ -292,7 +294,8 @@ def _run_batch(args: argparse.Namespace, *, strict: bool, logger) -> int:
             config_path=config.config_path,
         )
         if dry_run:
-            print(f"kc761tool sim (dry-run) [run {index}]: {shlex.join(command)}")
+            print(
+                f"kc761tool sim (dry-run) [run {index}]: {shlex.join(command)}")
             continue
         if config.resume and target.exists():
             try:
@@ -303,11 +306,13 @@ def _run_batch(args: argparse.Namespace, *, strict: bool, logger) -> int:
                 )
                 failures += 1
                 continue
-            logger.info("[run %d] resume: %s is valid; skipping", index, target)
+            logger.info("[run %d] resume: %s is valid; skipping",
+                        index, target)
             continue
         completed = subprocess.run(command, cwd=REPO_ROOT, check=False)
         if completed.returncode != 0:
-            logger.error("[run %d] failed with exit code %d", index, completed.returncode)
+            logger.error("[run %d] failed with exit code %d",
+                         index, completed.returncode)
             failures += 1
         else:
             logger.info("[run %d] wrote %s", index, target)
@@ -357,5 +362,6 @@ def _expand_run_argv(
         command.append("--force")
     if strict:
         command.append("--strict")
-    command += ["--log-level", log_level, "--provenance-input", str(config_path)]
+    command += ["--log-level", log_level,
+                "--provenance-input", str(config_path)]
     return command

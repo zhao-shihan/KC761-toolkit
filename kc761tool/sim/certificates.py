@@ -68,7 +68,8 @@ def verify_event_accounting(
             f"counts has {counts.shape[1]} primary columns, totals has {totals.size}"
         )
     if np.any(counts < 0.0) or np.any(zero_counts < 0.0) or np.any(totals < 0.0):
-        raise CertificateError("F-SIM-1", "counts, zero counts and totals must be non-negative")
+        raise CertificateError(
+            "F-SIM-1", "counts, zero counts and totals must be non-negative")
     recorded = counts.sum(axis=0) + zero_counts
     if np.any(np.abs(recorded - totals) > _RTOL * np.maximum(1.0, totals)):
         offending = int(np.argmax(np.abs(recorded - totals)))
@@ -92,9 +93,11 @@ def verify_binomial_variance(
     totals = np.asarray(totals, dtype=np.float64)
     expected = binomial_variance(counts, totals)
     if np.any(expected < 0.0):
-        raise CertificateError("F-SIM-2", "exact binomial variance is negative")
+        raise CertificateError(
+            "F-SIM-2", "exact binomial variance is negative")
     if np.any(counts > totals[None, :] + _RTOL):
-        raise CertificateError("F-SIM-2", "a deposition bin exceeds its column total")
+        raise CertificateError(
+            "F-SIM-2", "a deposition bin exceeds its column total")
 
 
 def verify_efficiency(

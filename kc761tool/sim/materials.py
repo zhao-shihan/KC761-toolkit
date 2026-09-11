@@ -30,7 +30,8 @@ CSI_TL_ATOMIC_MASS_G_MOL: Final[dict[str, float]] = {
     "I": 126.90447,
     "Tl": 204.3833,
 }
-CSI_TL_MOLAR_AMOUNTS: Final[dict[str, float]] = {"Cs": 999.5, "I": 999.5, "Tl": 1.0}
+CSI_TL_MOLAR_AMOUNTS: Final[dict[str, float]] = {
+    "Cs": 999.5, "I": 999.5, "Tl": 1.0}
 
 ABS_DENSITY_G_CM3: Final = 1.05
 ABS_MASS_FRACTIONS: Final[tuple[tuple[str, float], ...]] = (
@@ -57,7 +58,8 @@ CUSTOM_MATERIAL_ATOMS: Final[dict[str, tuple[tuple[str, int], ...]]] = {
 #: Custom materials built unconditionally from mass fractions by
 #: :func:`build_all_materials`; source geometries (containers, shields,
 #: sandwiches) may reference them without supplying a density.
-PREBUILT_MATERIALS: Final[frozenset[str]] = frozenset({"CsI_Tl", "ABS", "R4600"})
+PREBUILT_MATERIALS: Final[frozenset[str]] = frozenset(
+    {"CsI_Tl", "ABS", "R4600"})
 
 MATERIAL_PROVENANCE: Final[dict[str, str]] = {
     "CsI_Tl": "assumed (Tl mole ratio 1/1999; see module docstring)",
@@ -97,7 +99,8 @@ def _require_custom_density(name: str, density: float | None) -> float:
             "source material can derive one from 'mass_g' or 'density'"
         )
     if not np.isfinite(density) or density <= 0.0:
-        raise ValidationError(f"material {name!r} density must be positive, got {density!r}")
+        raise ValidationError(
+            f"material {name!r} density must be positive, got {density!r}")
     return float(density)
 
 
@@ -177,7 +180,8 @@ def build_all_materials(*specs: SourceSpec):  # noqa: ANN201
 
     for spec in specs:
         if not isinstance(spec, SourceSpec):  # pragma: no cover - defensive
-            raise ValidationError(f"expected a SourceSpec, got {type(spec).__name__}")
+            raise ValidationError(
+                f"expected a SourceSpec, got {type(spec).__name__}")
         require(spec.material, spec.effective_density)
         geometry = spec.geometry
         if isinstance(geometry, Sandwich):

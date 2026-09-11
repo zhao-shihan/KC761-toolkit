@@ -94,7 +94,8 @@ def propagate_statistical(
     require_same_length("spectrum/sigma", y, errors)
     require_same_length("spectrum/stat_variance", y, stat_var)
     if y.size != matrix.shape[0]:
-        raise ValidationError("spectrum length does not match the response rows")
+        raise ValidationError(
+            "spectrum length does not match the response rows")
     if solution.size != matrix.shape[1]:
         raise ValidationError("mu length does not match the response columns")
     if np.any(errors <= 0.0):
@@ -103,7 +104,8 @@ def propagate_statistical(
         raise ValidationError("stat_variance must be non-negative")
     hessian = _hessian(matrix, errors, fisher)
     weighted_response = matrix.T @ sparse.diags(1.0 / errors**2)
-    sensitivity = _reduced_columns(hessian, solution, weighted_response.toarray())
+    sensitivity = _reduced_columns(
+        hessian, solution, weighted_response.toarray())
     variance = (sensitivity**2) @ stat_var
     variance = np.maximum(variance, 0.0)
     band = np.sqrt(variance)
@@ -143,9 +145,11 @@ def propagate_systematic(
     errors = as_float_array("sigma_fit", sigma_fit, ndim=1)
     require_same_length("spectrum/sigma_fit", y, errors)
     if not np.isfinite(syst_frac) or syst_frac < 0.0:
-        raise ValidationError(f"syst_frac must be finite and >= 0, got {syst_frac!r}")
+        raise ValidationError(
+            f"syst_frac must be finite and >= 0, got {syst_frac!r}")
     if y.size != matrix.shape[0] or solution.size != matrix.shape[1]:
-        raise ValidationError("spectrum or mu shape does not match the response")
+        raise ValidationError(
+            "spectrum or mu shape does not match the response")
     if np.any(errors <= 0.0):
         raise ValidationError("sigma_fit must be strictly positive")
     covariance = as_float_array("calib_covariance", calib_covariance, ndim=2)
@@ -167,7 +171,8 @@ def propagate_systematic(
     weights = 1.0 / errors**2
     weighted_response = matrix.T @ sparse.diags(weights)
     residual = np.asarray(matrix @ solution, dtype=np.float64) - y
-    sensitivity = _reduced_columns(hessian, solution, weighted_response.toarray())
+    sensitivity = _reduced_columns(
+        hessian, solution, weighted_response.toarray())
 
     components: list[BandComponent] = []
     variance = np.zeros_like(solution)
@@ -219,7 +224,8 @@ def propagate_systematic(
     if mc_variance is not None:
         mc_var = as_float_array("mc_variance", mc_variance, ndim=1)
         if mc_var.shape != solution.shape:
-            raise ValidationError("mc_variance must match the primary axis of mu")
+            raise ValidationError(
+                "mc_variance must match the primary axis of mu")
         if np.any(mc_var < 0.0):
             raise ValidationError("mc_variance must be non-negative")
         variance += mc_var
@@ -322,11 +328,14 @@ def simulation_mc_variance(
     solution = as_float_array("mu", mu, ndim=1)
     errors = as_float_array("sigma_fit", sigma_fit, ndim=1)
     if counts.shape[0] != matrix.shape[1]:
-        raise ValidationError("deposition_counts rows do not match the response deposition axis")
+        raise ValidationError(
+            "deposition_counts rows do not match the response deposition axis")
     if counts.shape[1] != totals.size or totals.size != solution.size:
-        raise ValidationError("deposition_counts columns, column_totals and mu must agree")
+        raise ValidationError(
+            "deposition_counts columns, column_totals and mu must agree")
     if y.size != matrix.shape[0] or errors.size != matrix.shape[0]:
-        raise ValidationError("spectrum and sigma_fit must match the response rows")
+        raise ValidationError(
+            "spectrum and sigma_fit must match the response rows")
     if np.any(totals <= 0.0):
         raise ValidationError("column_totals must be strictly positive")
     if np.any(errors <= 0.0):
@@ -424,7 +433,8 @@ def _hessian(
         return matrix
     dense = as_float_array("fisher", fisher, ndim=2)
     if dense.shape != shape:
-        raise ValidationError(f"fisher has shape {dense.shape}, expected {shape}")
+        raise ValidationError(
+            f"fisher has shape {dense.shape}, expected {shape}")
     return sparse.csr_matrix(dense)
 
 

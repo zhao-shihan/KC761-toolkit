@@ -188,9 +188,11 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     logger = configure_logging("unfold", args.log_level)
     if args.config is not None:
         reject_run_options(args, _RUN_ARG_DEFAULTS, command="unfold")
-        config = load_unfold_config(args.config, default_syst_frac=DEFAULT_SYST_FRAC)
+        config = load_unfold_config(
+            args.config, default_syst_frac=DEFAULT_SYST_FRAC)
         output = _output(
-            config.output, Path(config.data), config.sim, config.alpha, config.calib_only
+            config.output, Path(
+                config.data), config.sim, config.alpha, config.calib_only
         )
         if args.dry_run or config.dry_run:
             _print_dry_run(config, output)
@@ -289,7 +291,8 @@ def _reject_for_calib_only(args: argparse.Namespace) -> None:
     if args.alpha is not None:
         raise UsageError("--alpha is not used with --calib-only")
     if args.energy_low is not None or args.energy_high is not None:
-        raise UsageError("--energy-low/--energy-high are not used with --calib-only")
+        raise UsageError(
+            "--energy-low/--energy-high are not used with --calib-only")
 
 
 def _validate_alpha(alpha: float) -> None:
@@ -299,12 +302,14 @@ def _validate_alpha(alpha: float) -> None:
 
 def _validate_pad(pad_nsigma: float) -> None:
     if not math.isfinite(pad_nsigma) or pad_nsigma < 0.0:
-        raise UsageError(f"--pad-nsigma must be finite and >= 0, got {pad_nsigma!r}")
+        raise UsageError(
+            f"--pad-nsigma must be finite and >= 0, got {pad_nsigma!r}")
 
 
 def _validate_syst(syst_frac: float) -> None:
     if not math.isfinite(syst_frac) or syst_frac < 0.0:
-        raise UsageError(f"--syst-frac must be finite and >= 0, got {syst_frac!r}")
+        raise UsageError(
+            f"--syst-frac must be finite and >= 0, got {syst_frac!r}")
 
 
 def _output(

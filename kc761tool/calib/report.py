@@ -28,7 +28,8 @@ def render_report(result: FitResult, details: tuple[DatasetDetail, ...] = ()) ->
     if result.message:
         lines.append(f"message: {result.message}")
     reduced = result.chi2 / result.dof if result.dof > 0 else float("nan")
-    lines.append(f"chi2/dof = {result.chi2:.8g} / {result.dof} = {reduced:.8g}")
+    lines.append(
+        f"chi2/dof = {result.chi2:.8g} / {result.dof} = {reduced:.8g}")
     lines.append(f"covariance s^2 = {result.covariance_scale:.8g}")
     errors = _reported_errors(result.param_cov)
     lines.append("--- reported parameters (F-MODEL-2) ---")

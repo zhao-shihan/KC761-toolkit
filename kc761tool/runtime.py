@@ -55,7 +55,8 @@ def strict_enabled(cli_flag: bool = False) -> bool:
 def log_level(name: str) -> int:
     """Map a CLI log-level name to the corresponding logging level."""
     if name not in LOG_LEVELS:
-        raise UsageError(f"unknown log level {name!r}; expected one of {LOG_LEVELS}")
+        raise UsageError(
+            f"unknown log level {name!r}; expected one of {LOG_LEVELS}")
     return int(getattr(logging, name.upper()))
 
 

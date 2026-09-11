@@ -126,7 +126,8 @@ def solve_window(
     strict: bool = False,
 ) -> SolveOutcome:
     """Solve the padded window and propagate both bands (F-UNF-3/F-UNC-*)."""
-    sliced = slice_response(composed, selection.solve_low, selection.solve_high)
+    sliced = slice_response(
+        composed, selection.solve_low, selection.solve_high)
     sliced_matrix = sliced.matrix.tocsr().astype(np.float64)
     kept, pruned = exact_zero_columns(sliced_matrix)
     if kept.size == 0:
@@ -173,7 +174,8 @@ def solve_window(
         widths = np.diff(edges)
         resolution = resolution_sigma_kev(centers, resol_params)
         sigma_y = np.sqrt(np.maximum(variances_full, 1.0))
-        info = snip_peak_mask(values_full, sigma_y, resolution, widths, snip_settings)
+        info = snip_peak_mask(values_full, sigma_y,
+                              resolution, widths, snip_settings)
         if strict:
             verify_snip_mask(
                 snip_settings,
