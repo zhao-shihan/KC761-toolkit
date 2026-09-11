@@ -42,6 +42,8 @@
 #
 # Semi-transparent rendering of all geometry, so that the crystal inside the
 # housing and the source inside its container remain visible.
+# "colour" is the Geant4 UI command name and is kept verbatim (D-182); it is
+# not one of this repository's own identifiers.
 /vis/geometry/set/visibility World 0 false
 /vis/geometry/set/colour Housing 0 1 1 0 0.5
 /vis/geometry/set/colour Crystal 0 1 1 0 1

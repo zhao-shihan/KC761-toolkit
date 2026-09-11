@@ -106,7 +106,7 @@ class WindowSelection:
     ``channel_low``/``channel_high`` are the reported data rows; ``solve_low``/
     ``solve_high`` are the padded solver rows (F-BIN-3). ``report_low``/
     ``report_high`` index the **full** primary axis (inclusive) and select the
-    bins whose centres lie in the requested energy window.
+    bins whose centers lie in the requested energy window.
     """
 
     energy_low_kev: float

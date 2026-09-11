@@ -1,8 +1,8 @@
 """Window selection and data-side fit weights (F-UNF-1/F-UNF-2).
 
 * F-UNF-1: the requested energy window is mapped to channel rows through
-  ``E(ch)`` at the channel centres and to reported primary bins through the
-  primary-bin centres; the solver range is padded with the local resolution
+  ``E(ch)`` at the channel centers and to reported primary bins through the
+  primary-bin centers; the solver range is padded with the local resolution
   (F-BIN-3).
 * F-UNF-2: the unfold fit weights are `sigma_fit**2 = max(stat, 1) +
   (syst_frac * data)**2`; the simulation-MC term is excluded (D-112).
@@ -51,7 +51,7 @@ def select_window(
     """Resolve an energy window to channel rows and reported primary bins.
 
     The primary axis is the simulation ``G.y`` axis; the channel map uses
-    ``E(ch)`` at the channel centres. See F-UNF-1 for the exact conventions.
+    ``E(ch)`` at the channel centers. See F-UNF-1 for the exact conventions.
     """
     primary = EnergyGrid(edges_kev=np.asarray(primary_edges_kev, dtype=np.float64))
     primary_edges = primary.edges_kev
@@ -105,7 +105,7 @@ def select_window(
     if indices.size == 0:
         raise ValidationError(
             f"energy window [{energy_low_kev!r}, {energy_high_kev!r}] keV contains no "
-            "primary bin centre"
+            "primary bin center"
         )
     return WindowSelection(
         energy_low_kev=float(energy_low_kev),

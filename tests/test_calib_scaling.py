@@ -86,7 +86,7 @@ def test_constant_scale_has_zero_s0_derivative() -> None:
     assert np.max(np.abs(gradient[0])) == 0.0
 
 
-def test_scale_names_are_labelled() -> None:
+def test_scale_names_are_labeled() -> None:
     assert scale_names("run-1", 0) == ("s0_run_1", "s1_run_1", "s2_run_1", "s3_run_1")
 
 

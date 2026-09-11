@@ -52,7 +52,7 @@ def test_window_rejects_inverted_and_out_of_range() -> None:
 
 
 def test_window_rejects_empty_channel_or_primary_selection() -> None:
-    # A window narrower than the channel pitch and between primary centres.
+    # A window narrower than the channel pitch and between primary centers.
     with pytest.raises(ValidationError):
         _selection(220.0, 221.0)
 

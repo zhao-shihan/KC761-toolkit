@@ -134,6 +134,7 @@ def configure_gps(source: SourceSpec, detector) -> None:  # noqa: ANN001
     for command in gps_volume_commands(source.geometry):
         ui.ApplyCommand(command)
     center = detector.source_center
+    # "centre" is the Geant4 UI command name and is kept verbatim (D-182).
     ui.ApplyCommand(
         f"/gps/pos/centre {center.x / mm} {center.y / mm} {center.z / mm} mm"
     )

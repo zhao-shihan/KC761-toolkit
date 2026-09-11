@@ -109,7 +109,7 @@ def _norm(vector: tuple[float, float, float]) -> float:
 def _unit(vector: tuple[float, float, float]) -> tuple[float, float, float]:
     length = _norm(vector)
     if length <= 0.0:
-        raise ValidationError("cannot normalise a zero-length vector")
+        raise ValidationError("cannot normalize a zero-length vector")
     return (vector[0] / length, vector[1] / length, vector[2] / length)
 
 

@@ -6,8 +6,13 @@ wins and this file must be fixed in the same change.
 
 ## Hard rules
 
-1. **English only.** All repository artifacts - docs, docstrings, comments, CLI
-   help, error messages - are written in English.
+1. **American English only.** All repository artifacts - docs, docstrings,
+   comments, CLI help, error messages, identifiers - are written in American
+   English (`center`, `color`, `behavior`, `normalize`/`normalization`,
+   `labeled`, `modeled`, `defense`, `neighbor`, `realized`, `toward`), per
+   D-182. Literals that belong to another project's interface stay verbatim;
+   the only ones here are the Geant4 UI commands `/gps/pos/centre` and
+   `/vis/geometry/set/colour`, each marked as external where it appears.
 2. **No packaging.** No `pyproject.toml`, `setup.py`, `setup.cfg` or
    installable distribution. Tool configuration lives in `ruff.toml` and
    `pytest.ini`. Supported entry points: `python kc761.py ...` and

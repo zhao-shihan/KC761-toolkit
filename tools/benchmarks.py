@@ -3,7 +3,7 @@
 
 This tool is intentionally outside the correctness path: it measures the
 wall-clock time and peak memory of the heavy numeric stages so that an
-optimisation can be judged by a before/after pair. It never writes products;
+optimization can be judged by a before/after pair. It never writes products;
 ``calib``/``unfold`` run with ``output=None`` and ``plot=False``.
 
 Usage::
@@ -13,7 +13,7 @@ Usage::
 
 Scenarios:
 
-* ``kernel``  - vectorised response assembly + parameter Jacobian on the
+* ``kernel``  - vectorized response assembly + parameter Jacobian on the
   calibration product (or a synthetic calibration when ``work/`` is absent);
 * ``calib``   - full ``run_fit`` on the four ``work/`` datasets;
 * ``unfold``  - full ``run_unfold`` on the ``work/`` products;
@@ -83,7 +83,7 @@ CALIB_DATASETS: tuple[tuple[str, str, str, int, int], ...] = (
 
 
 def _calib_rows() -> list[tuple[str, str, str, int, int]]:
-    """Dataset rows with existing input files, in the frozen labelling order."""
+    """Dataset rows with existing input files, in the frozen labeling order."""
     rows: list[tuple[str, str, str, int, int]] = []
     for label, data, mc, low, high in CALIB_DATASETS:
         if (REPO_ROOT / data).is_file() and (REPO_ROOT / mc).is_file():

@@ -248,7 +248,7 @@ def _first_crossing(
 ) -> float:
     """Return the parameter value where the profile reaches ``target``.
 
-    The scan points are visited from the optimum outwards on the requested
+    The scan points are visited from the optimum outward on the requested
     side; ``values`` are the already evaluated ``profile - target`` offsets.
     """
     if direction > 0.0:

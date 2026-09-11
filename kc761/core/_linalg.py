@@ -76,7 +76,7 @@ def prefer_dense_normal(matrix: sparse.spmatrix) -> bool:
 
     The normal-equation product is the same either way; the dense path avoids
     scipy's sparse-sparse symbolic pass (``csr_matmat_maxnnz``) and uses BLAS-3,
-    while the sparse path avoids materialising a dense operand. The threshold is
+    while the sparse path avoids materializing a dense operand. The threshold is
     a measured crossover: below ``DENSE_NORMAL_LIMIT`` entries and above
     ``DENSE_NORMAL_DENSITY`` the dense product wins on the 2048 problem.
     """
@@ -93,7 +93,7 @@ def weighted_normal(
     """Return ``matrix.T @ diag(weights) @ matrix`` (half-Hessian ``A``).
 
     Uses dense BLAS when :func:`prefer_dense_normal` holds and falls back to the
-    sparse product otherwise. The result is symmetrised so downstream Cholesky
+    sparse product otherwise. The result is symmetrized so downstream Cholesky
     sees an exactly symmetric matrix regardless of the path.
     """
     hessian, _rhs = weighted_normal_and_rhs(matrix, weights, None)
@@ -107,7 +107,7 @@ def weighted_normal_and_rhs(
 ) -> tuple[sparse.csr_matrix, NDArray[np.float64] | None]:
     """Return ``(matrix.T diag(weights) matrix, matrix.T (weights * rhs))``.
 
-    One dense materialisation serves both products, so the gradient offset
+    One dense materialization serves both products, so the gradient offset
     ``b = R^T W y`` is free once the half-Hessian is built. ``rhs`` may be
     ``None`` for callers that only need the matrix.
     """

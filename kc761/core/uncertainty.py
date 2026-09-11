@@ -349,7 +349,7 @@ def simulation_mc_variance(
 
     # Streaming F-UNC-2 (D-151): solve the reduced system for free-set columns
     # in blocks and contract block-local quantities. Neither ``H_FF**-1`` nor
-    # ``U (R^T W C)`` is ever materialised as a whole; the only O(n^2) dense
+    # ``U (R^T W C)`` is ever materialized as a whole; the only O(n^2) dense
     # object is the data-side ``mixed = R^T W C``, which carries no inverse.
     free = solution > 0.0
     if not np.any(free):

@@ -328,7 +328,7 @@ def validate_output_path(path: str | Path, *, force: bool = False) -> None:
     :class:`kc761.errors.UsageError` (CLI exit code 2, "pass --force or fix the
     path"), and additionally creates the parent directory and checks that it is
     writable. ``write_product`` still re-checks at write time as the last line
-    of defence.
+    of defense.
     """
     try:
         refuse_overwrite(path, force=force)
@@ -507,7 +507,7 @@ def _decode_float_list(meta: Mapping[str, Any], field: str, length: int) -> tupl
 def _decode_scales(
     meta: Mapping[str, Any], field: str
 ) -> tuple[tuple[str, tuple[float, float, float, float]], ...]:
-    """Decode the calib ``scales_json`` field into labelled Bezier parameters."""
+    """Decode the calib ``scales_json`` field into labeled Bezier parameters."""
     raw = _json_loads(meta[field], field)
     if not isinstance(raw, list):
         raise SchemaError(f"meta field {field!r} must be a JSON list")

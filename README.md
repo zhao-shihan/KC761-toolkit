@@ -6,15 +6,11 @@ simulations, an energy/resolution calibration with a statistical response
 matrix, and non-negative regularized spectrum unfolding with propagated
 uncertainties.
 
-This README is organised around the **mathematics and algorithms**. Every
+This README is organized around the **mathematics and algorithms**. Every
 formula carries a registry ID (`F-...`) whose full derivation, approximations
 and guarding certificate live in [docs/derivations.md](docs/derivations.md);
 the frozen decisions referenced as `D-nnn` are in
 [docs/plan.md](docs/plan.md).
-
-**Status: final.** The specification is [docs/plan.md](docs/plan.md), the
-product schemas are in [docs/formats.md](docs/formats.md), the module map is in
-[docs/architecture.md](docs/architecture.md).
 
 ---
 
@@ -31,7 +27,7 @@ inverse problem:
 | Resolution | $\sigma(E)$ | detector width in keV ($\mathrm{FWHM} = 2.355\ \sigma$) | `calib` (F-MODEL-4) |
 | Response | $R$ | primary energy $\to$ expected channel counts per primary | `compose` (F-RESP-2) |
 
-The measured spectrum $y$ is then modelled as
+The measured spectrum $y$ is then modeled as
 
 $$
 y \ \approx\  R\ \mu + \text{noise}, \qquad \mu \ge 0,
@@ -81,7 +77,7 @@ $$
 Products store the plain cubic $`(c_0, c_1, c_2, c_3)`$. The two bases are related
 by an **affine** map, so its Jacobian is constant in the parameters
 (`internal_jacobian`), and covariance transforms between bases by
-$T \operatorname{cov} T^{\mathsf{T}}$. Round-tripping is exact to round-off.
+$T \mathrm{cov} T^{\mathsf{T}}$. Round-tripping is exact to round-off.
 This basis choice is what keeps the fit conditioning sane: the slope
 coordinates are $O(1)$ where the raw cubic coefficients differ by orders of
 magnitude.
@@ -152,15 +148,15 @@ $$
 P(i \mid j) = \Phi\left(\frac{e_{i+1} - c_j}{\sigma_j}\right) - \Phi\left(\frac{e_i - c_j}{\sigma_j}\right),
 $$
 
-with $\Phi$ the standard normal CDF evaluated through $\operatorname{erf}$. The
+with $\Phi$ the standard normal CDF evaluated through $\mathrm{erf}$. The
 expression is analytic; the only error is floating-point round-off. There is no
 midpoint approximation and no truncation to a tabulated kernel.
 
 ### 3.2 C1 smoothstep support taper and exact renormalization (F-KERN-2)
 
 A Gaussian has infinite support; the kernel is truncated with a compactly
-supported $C^1$ taper. With $x$ the **bin-centre** offset from the source
-(D-83), $`s = \operatorname{clip}\big((n_\sigma \sigma - \lvert x \rvert)/\sigma,\  0,\  1\big)`$ and
+supported $C^1$ taper. With $x$ the **bin-center** offset from the source
+(D-83), $`s = \mathrm{clip}\big((n_\sigma \sigma - \lvert x \rvert)/\sigma,\  0,\  1\big)`$ and
 
 $$
 w(x) = 3s^2 - 2s^3.
@@ -184,7 +180,7 @@ the *shape* rather than a silent loss of probability.
 
 ### 3.3 Sparse assembly with exact-zero pruning (F-KERN-3)
 
-Only bin centres strictly inside
+Only bin centers strictly inside
 $`(c_j - n_\sigma \sigma_j,\  c_j + n_\sigma \sigma_j)`$ are evaluated
 (`searchsorted`). Everywhere else the taper is *exactly* zero and all its first
 derivatives vanish, so the pruned sum is identical to the full sum for
@@ -198,12 +194,12 @@ This is the mechanism behind D-79: the response geometry is
 no freeze, no bin selection), so the fit objective is continuous in the
 parameters *by construction* while remaining sparse.
 
-### 3.4 Kernel derivatives and centre folding (F-KERN-4)
+### 3.4 Kernel derivatives and center folding (F-KERN-4)
 
 The generated module provides $`\partial n/\partial e_{\mathrm{lo}}`$,
 $`\partial n/\partial e_{\mathrm{hi}}`$, $\partial n/\partial c$,
 $\partial n/\partial \sigma$ and $`\partial n/\partial c_{\text{ctr}}`$. Because
-the bin centre is $`(e_{\mathrm{lo}} + e_{\mathrm{hi}})/2`$, moving either edge
+the bin center is $`(e_{\mathrm{lo}} + e_{\mathrm{hi}})/2`$, moving either edge
 displaces the taper argument by half the displacement, so the kernel adds
 $`\tfrac12\ \partial n/\partial c_{\text{ctr}}`$ to each edge derivative. The
 clipped smoothstep is differentiated by the chain rule with the clipping
@@ -214,7 +210,7 @@ exact.
 
 ## 4. Response composition and the analytic Jacobian
 
-### 4.1 The matrices $C$ and $R = C\ G\operatorname{diag}(1/N)$ (F-RESP-1/F-RESP-2)
+### 4.1 The matrices $C$ and $R = C\ G\mathrm{diag}(1/N)$ (F-RESP-1/F-RESP-2)
 
 $C[i,j]$ is the probability that a gamma depositing energy in deposition bin
 $j$ lands in channel bin $i$; the channel edges are $E(i - \tfrac12)$ from
@@ -223,7 +219,7 @@ its column sums and $`N_j`$ the per-column generated-event totals,
 
 $$
 \tilde{p} = \frac{G}{S_j}, \qquad \eta_j = \frac{S_j}{N_j}, \qquad
-R = C\ \tilde{p}\ \operatorname{diag}(\eta) = C\ G\ \operatorname{diag}(1/N).
+R = C\ \tilde{p}\ \mathrm{diag}(\eta) = C\ G\ \mathrm{diag}(1/N).
 $$
 
 The two forms are algebraically identical because
@@ -242,7 +238,7 @@ represent, not a claim about the crystal's physical detection threshold.
 ### 4.2 Compose on the full axis, then slice (F-RESP-3)
 
 Composition runs over the **full** primary axis and window slicing happens
-afterwards. `column_sums` and `efficiency` keep their full-axis meaning, while
+afterward. `column_sums` and `efficiency` keep their full-axis meaning, while
 `channel_low`/`channel_high` describe the rows the matrix actually holds.
 Composing after slicing would renormalize the response with the wrong window;
 the certificate instead verifies that slicing only removed non-negative row
@@ -271,7 +267,7 @@ $$
 Every column of $\partial C/\partial q$ therefore sums to zero — a conservation
 identity the tests check — and the composed Jacobian is
 $`\partial R/\partial q_k = (\partial C/\partial q_k)\ P`$ with
-$P = G\operatorname{diag}(1/N)$. All seven matrices are returned as sparse CSR;
+$P = G\mathrm{diag}(1/N)$. All seven matrices are returned as sparse CSR;
 no dense $`n_{\text{channels}} \times n_{\text{deposition}} \times 7`$ tensor is
 materialized.
 
@@ -284,7 +280,7 @@ source bin is distributed exactly. `build_projection_plan` requires full
 coverage (within $10^{-9}$) and fails loudly otherwise — it never silently
 drops mass. Values project as $Wv$ (mass conserving) and independent variances
 as $W^2\ \mathrm{Var}$; identical binnings give $W = I$, so the projection is
-idempotent. Covariances between source bins are not modelled (documented
+idempotent. Covariances between source bins are not modeled (documented
 limitation).
 
 ---
@@ -293,7 +289,7 @@ limitation).
 
 ### 5.1 Tikhonov objective with a normalization-invariant `alpha` (F-SOLVE-1)
 
-Unfolding is ill-posed: neighbouring primary bins map to nearly the same
+Unfolding is ill-posed: neighboring primary bins map to nearly the same
 channel distribution, so the unregularized least-squares solution oscillates
 violently. The toolkit minimizes
 
@@ -306,7 +302,7 @@ $$
 with the weight matrix and normal-equation building blocks
 
 $$
-W = \operatorname{diag}(1/\sigma^2), \qquad
+W = \mathrm{diag}(1/\sigma^2), \qquad
 A = R^{\mathsf{T}} W R, \qquad
 b = R^{\mathsf{T}} W y.
 $$
@@ -315,12 +311,12 @@ Here $D$ is the order-1 $[-1, 1]$ or order-2 $[1, -2, 1]$ finite-difference
 operator and
 
 $$
-\tilde{D} = D \operatorname{diag}\left(\sqrt{\operatorname{diag}(A)}\right).
+\tilde{D} = D \mathrm{diag}\left(\sqrt{\mathrm{diag}(A)}\right).
 $$
 
 The normalization is the point of D-80. Rescale the data by $y \to ky$,
 $\sigma \to k\sigma$. Then $W \to W/k^2$, hence $A \to A/k^2$ and
-$\operatorname{diag}(\sqrt{A}) \to \operatorname{diag}(\sqrt{A})/k$. Taking the
+$\mathrm{diag}(\sqrt{A}) \to \mathrm{diag}(\sqrt{A})/k$. Taking the
 solution to scale as $\mu \to k\mu$, **both** objective terms are then exactly
 invariant:
 
@@ -362,7 +358,7 @@ method:
 1. start at $\mu = 0$;
 2. solve the reduced system $`H_{FF}\ \mu_F = b_F`$ on the free set $F$;
 3. if the proposal is positive, accept it; otherwise step from the current
-   feasible $\mu$ towards it until a variable hits the boundary, move exactly
+   feasible $\mu$ toward it until a variable hits the boundary, move exactly
    the blocking variables into the active set, and repeat;
 4. release the blocked variable with the most negative reduced gradient; stop
    when none has one below the tolerance.
@@ -393,7 +389,7 @@ raises `CertificateError("F-SOLVE-3")` on failure.
 
 ### 5.4 Pruning and diagnostics (F-UNF-3/F-UNF-4)
 
-$R = C\ G\operatorname{diag}(1/N)$ is non-negative, so a column is exactly zero
+$R = C\ G\mathrm{diag}(1/N)$ is non-negative, so a column is exactly zero
 **iff** its sum is exactly zero (compared with `== 0.0`, never a tolerance).
 Such columns have zero gradient and zero normal-matrix diagonal, so the solver
 fixes them at zero anyway; they are removed before the solve (D-110) and
@@ -446,13 +442,13 @@ $$
 v_i \ \leftarrow\  \min\left(v_i,\  \frac{v_{i-p} + v_{i+p}}{2}\right),
 $$
 
-with out-of-range neighbours replaced by $`v_i`$ (edge-preserving). The iteration
+with out-of-range neighbors replaced by $`v_i`$ (edge-preserving). The iteration
 count $m$ is **resolution-derived, not a free knob** (D-157):
 
 $$
 \mathrm{FWHM}_{\text{bins}} = \frac{2\sqrt{2\ln 2}\ \sigma_E(E_{\text{mid}})}{\Delta_E},
 \qquad
-m = \operatorname{clip}\left(\operatorname{round}\left(\tfrac12 \mathrm{FWHM}_{\text{bins}}\right),\  1,\  m_{\max} = 8\right).
+m = \mathrm{clip}\left(\mathrm{round}\left(\tfrac12 \mathrm{FWHM}_{\text{bins}}\right),\  1,\  m_{\max} = 8\right).
 $$
 
 $`E_{\text{mid}}`$ is the midpoint energy of the spectrum handed to the mask (the
@@ -460,7 +456,7 @@ full measured axis in the shipped pipeline; `solver.snip_peak_mask` uses the
 middle bin index) and $`\Delta_E`$ the local bin width at that energy, so
 $`\mathrm{FWHM}_{\text{bins}}`$ is the detector peak width measured in bins.
 Tying $m$ to the detector width is what removes the detector peak before
-estimating the continuum — the intended behaviour. An explicit override is
+estimating the continuum — the intended behavior. An explicit override is
 allowed and recorded. The cap $`m_{\max} = 8`$ usually clips the derived value,
 so this is a coarse resolution matching rather than a precise one.
 
@@ -480,7 +476,7 @@ $$
 The matched filter suppresses single-bin noise spikes — the dominant
 spurious-peak seed — which a per-bin threshold would misclassify. A bin is a
 candidate when $`z_i \ge k`$ (default $k = 5$, D-156) **and** $`z_i`$ is a local
-maximum, tested against its two immediate neighbours. All bins within
+maximum, tested against its two immediate neighbors. All bins within
 $`n_{\text{protect}}\ \sigma_E(E_i)`$ (default $2$) of a candidate are marked, and
 
 $$
@@ -498,7 +494,7 @@ The masked difference operator scales each **row** by the square root of the
 product of the mask weights over its stencil:
 
 $$
-D' = \operatorname{diag}(\rho^{1/2})\ D, \qquad
+D' = \mathrm{diag}(\rho^{1/2})\ D, \qquad
 \rho_r = \prod_{j=0}^{\text{order}} w_{r+j}.
 $$
 
@@ -508,14 +504,14 @@ $`\rho = w_{\text{floor}}^{\ \text{order}+1}`$, a row at a peak/continuum bounda
 $`\rho = w_{\text{floor}}^{\ \text{order}}`$. Crucially,
 
 $$
-D'^{\mathsf{T}} D' = D^{\mathsf{T}} \operatorname{diag}(\rho)\  D
+D'^{\mathsf{T}} D' = D^{\mathsf{T}} \mathrm{diag}(\rho)\  D
 $$
 
 stays symmetric positive semidefinite and banded with the same half-bandwidth
 as $D$. (The rectangular $W^{1/2} D W^{1/2}$ form does not even typecheck for
 $`n_{\text{rows}} = n - \text{order}`$; the row form is the correct symmetric
 weighting.) The penalty operator is then
-$\tilde{D}' = D'\operatorname{diag}\big(\sqrt{\operatorname{diag}(A)}\big)$ —
+$\tilde{D}' = D'\mathrm{diag}\big(\sqrt{\mathrm{diag}(A)}\big)$ —
 the same diagonal scaling as F-SOLVE-1, so $\alpha$ keeps the same meaning —
 and
 
@@ -528,7 +524,7 @@ $$
 recorded spectrum and settings and requires the stored weights to match it
 exactly; the $`w_i \in [0, 1]`$ bound is always-on. The baseline and mask sha256
 are written into the product `meta`, so a re-tuned default never invalidates an
-existing product and the realised values remain auditable. The further checks
+existing product and the realized values remain auditable. The further checks
 sketched in F-SOLVE-6 (symmetry and half-bandwidth of $\tilde{D}'$, hash
 comparison on read-back) are **not yet implemented**; do not rely on them.
 
@@ -539,7 +535,7 @@ small but not zero. A wrongly protected noise spike is *less* smoothed than
 before — the known failure mode, quantified by the synthetic acceptance metrics
 of F-SOLVE-6 (spurious-peak suppression, true-peak area bias, pull coverage
 mask-on vs mask-off, robustness to the threshold and iteration perturbations).
-The reported covariance is conditional on the realised mask; mask-selection
+The reported covariance is conditional on the realized mask; mask-selection
 uncertainty is not propagated (D-159).
 
 ---
@@ -554,10 +550,10 @@ $`\mathrm{d}\mu_F = H_{FF}^{-1}(R^{\mathsf{T}}W)_F\ \mathrm{d}y`$ and
 $`\mathrm{d}\mu_A = 0`$:
 
 $$
-\operatorname{Cov}(\mu) = H_{FF}^{-1}\ (R^{\mathsf{T}}W)_F\ \Sigma_{\text{stat}}\ (WR)_F\ H_{FF}^{-1},
+\mathrm{Cov}(\mu) = H_{FF}^{-1}\ (R^{\mathsf{T}}W)_F\ \Sigma_{\text{stat}}\ (WR)_F\ H_{FF}^{-1},
 \quad\text{extended by zeros},
 \qquad
-\Sigma_{\text{stat}} = \operatorname{diag}\big(\max(\text{stat}, 1)\big).
+\Sigma_{\text{stat}} = \mathrm{diag}\big(\max(\text{stat}, 1)\big).
 $$
 
 Using the full $H^{-1}$ instead would **overstate every free direction whenever
@@ -571,7 +567,7 @@ Three contributions, all first-order at fixed active set.
 
 **Data-side `syst_frac`** (default 0.05, D-169) is the same linearization as
 F-UNC-1 with
-$`\Sigma = \operatorname{diag}\big((\texttt{syst\\_frac}\cdot y)^2\big)`$.
+$`\Sigma = \mathrm{diag}\big((\texttt{syst\\_frac}\cdot y)^2\big)`$.
 
 **Calibration.** With $`Q_k = \partial R/\partial q_k`$ from F-RESP-4, the
 half-gradient derivative is the **full** expression
@@ -579,13 +575,13 @@ half-gradient derivative is the **full** expression
 $$g_k = Q_k^{\mathsf{T}} W r + R^{\mathsf{T}} W Q_k \mu,$$
 
 with sensitivity columns $`V_k = -H_{FF}^{-1}(g_k)_F`$ (zero on the active set)
-and $`\operatorname{Cov}_{\text{calib}} = V\Sigma_q V^{\mathsf{T}}`$. Both terms
+and $`\mathrm{Cov}_{\text{calib}} = V\Sigma_q V^{\mathsf{T}}`$. Both terms
 are kept: the first is the direct response perturbation at the data residual,
 the second the response perturbation acting on the current solution.
 
 **Simulation MC.** $`N_j`$ is fixed by the sampling design (F-SIM-1), so the
 deposition counts are multinomial with
-$`\operatorname{Cov}(G_s) = N_s\big(\operatorname{diag}(p_s) - p_s p_s^{\mathsf{T}}\big)`$.
+$`\mathrm{Cov}(G_s) = N_s\big(\mathrm{diag}(p_s) - p_s p_s^{\mathsf{T}}\big)`$.
 Differentiating the half-gradient gives the full vector
 
 $$\frac{\partial g_a}{\partial G_{js}} = \frac{\delta_{a,s}\ \big(C_j^{\mathsf{T}} W r\big) + \big(R^{\mathsf{T}} W C_j\big)_a \mu_s}{N_s},$$
@@ -594,7 +590,7 @@ and with $`U = H_{FF}^{-1}`$ and
 $`v_{js} = \big(C_j^{\mathsf{T}} W r\big)e_s + \big(R^{\mathsf{T}} W C_j\big)\mu_s`$,
 
 $$
-\operatorname{Cov}(\mu) = \sum_s \frac{1}{N_s}\ U A_s U^{\mathsf{T}},
+\mathrm{Cov}(\mu) = \sum_s \frac{1}{N_s}\ U A_s U^{\mathsf{T}},
 \qquad
 A_s = \sum_j p_{js} v_{js} v_{js}^{\mathsf{T}} - \Big(\sum_j p_{js} v_{js}\Big)\Big(\sum_k p_{ks} v_{ks}\Big)^{\mathsf{T}}.
 $$
@@ -602,7 +598,7 @@ $$
 A rank-one $`d_{js} e_s^{\mathsf{T}}`$ form drops the second term, which finite
 differences show contributes at the same order as the first (\ 50%), so it must
 be kept (D-119). The unrecorded zero-deposition category has $v = 0$ and cancels
-from the *centred* form $`A_s`$, which is why the sums run over recorded
+from the *centered* form $`A_s`$, which is why the sums run over recorded
 deposition bins only.
 
 ### 7.3 Streaming evaluation, no $n \times n$ inverse (D-173)
@@ -641,7 +637,7 @@ included.
 ### 7.4 The certificate that makes the split auditable (F-UNC-3)
 
 $$
-\sigma_{\text{total}} = \operatorname{hypot}\big(\sigma_{\text{stat}}, \sigma_{\text{syst}}\big),
+\sigma_{\text{total}} = \mathrm{hypot}\big(\sigma_{\text{stat}}, \sigma_{\text{syst}}\big),
 $$
 
 verified as
@@ -766,25 +762,25 @@ bounds and seeds of F-CAL-3.
 
 ### 8.4 Covariance with the scale marginalized (F-CAL-5)
 
-With $J$ the full-parameter Jacobian, $W = \operatorname{diag}(1/v)$ (F-CAL-1)
+With $J$ the full-parameter Jacobian, $W = \mathrm{diag}(1/v)$ (F-CAL-1)
 and $F = J^{\mathsf{T}} W J$, split the parameters into the reported core $c$
 and the scale $s$:
 
 $$
-\operatorname{cov}_{\text{core}}
+\mathrm{cov}_{\text{core}}
   = \frac{\chi^2}{\mathrm{dof}}\ \Big(F_{cc} - F_{cs} F_{ss}^{+} F_{sc}\Big)^{-1},
 \qquad
-\operatorname{cov}_{\text{reported}} = T \operatorname{cov}_{\text{core}} T^{\mathsf{T}},
+\mathrm{cov}_{\text{reported}} = T \mathrm{cov}_{\text{core}} T^{\mathsf{T}},
 $$
 
-with $`T = \operatorname{diag}\big(\texttt{internal\\_jacobian}(\mathrm{ch}_{\max}), I_3\big)`$.
+with $`T = \mathrm{diag}\big(\texttt{internal\\_jacobian}(\mathrm{ch}_{\max}), I_3\big)`$.
 
 The Schur complement $`F_{cc} - F_{cs}F_{ss}^{+}F_{sc}`$ is the $(c,c)$ block of
 $F^{-1}$, i.e. the scale **marginalized** rather than fixed; $`F_{ss}^{+}`$ is the
 Moore-Penrose inverse, which projects out the $`s_0`$ gauge when the fitted scale
 is (nearly) polynomial. Jacobi (diagonal) preconditioning is applied before the
 factorization. $\chi^2/\mathrm{dof}$ is the single global scale (PDG convention,
-F-COV-2): $\operatorname{cov} = s^2 F^{-1}$ with $s^2 = \chi^2/\mathrm{dof}$; a
+F-COV-2): $\mathrm{cov} = s^2 F^{-1}$ with $s^2 = \chi^2/\mathrm{dof}$; a
 singular or non-positive-definite Fisher matrix is a **hard failure** — there is
 no pseudo-inverse fallback for the core. For invertible $`F_{ss}`$ this is
 algebraically identical to taking the core block of the full inverse, which the
@@ -804,7 +800,7 @@ numerical Hessian. It never replaces the analytic estimate.
 
 The matrix primary axis has $`n_{\text{active}}`$ active columns.
 $`n_{\text{events}}`$ is split as
-$`\text{base},\  \text{rem} = \operatorname{divmod}(n_{\text{events}}, n_{\text{active}})`$;
+$`\text{base},\  \text{rem} = \mathrm{divmod}(n_{\text{events}}, n_{\text{active}})`$;
 the active columns receive $\text{base} + 1$ for the first `rem` and `base`
 otherwise — exactly the round-robin assignment
 $`\text{active}[(\text{offset} + \text{event}) \bmod n_{\text{active}}]`$ written
@@ -841,7 +837,7 @@ Conditional on the fixed column total $`N_j`$, the deposition-bin counts are
 multinomial with probabilities $`p = G[d,j]/N_j`$, so the binomial marginal
 
 $$
-\operatorname{Var}\big(G[d,j]\big) = N_j\ p\ (1 - p)
+\mathrm{Var}\big(G[d,j]\big) = N_j\ p\ (1 - p)
 $$
 
 is stored in `fSumw2`. Within a column the bins are **negatively correlated**
@@ -850,7 +846,7 @@ Poisson `counts` variance would overstate the high-probability bins; this is
 why the exact fixed-total form is used. The source mode fills one entry per
 merged pulse, so the pulse total $P$ is itself random; conditional on the
 recorded $P = \sum \text{counts}$, the plug-in marginal is
-$\operatorname{Var}(c) = c\ (1 - c/P)$ (documented approximation to the full
+$\mathrm{Var}(c) = c\ (1 - c/P)$ (documented approximation to the full
 pulse-count distribution).
 
 ### 9.3 Lambertian surface sampling (F-SIM-4)
@@ -974,7 +970,7 @@ python -m kc761 --help
 | `subbkg` | scale by DAQ time and subtract a background spectrum |
 | `sim` | Geant4 source mode (`mc_spectrum`) or matrix mode (`G`) |
 | `calib` | joint fit of $`(c_0 \dots c_3, b_0 \dots b_2)`$ and the per-dataset Bezier scales |
-| `compose` | compose $R = C\ G\operatorname{diag}(1/N)$ for inspection |
+| `compose` | compose $R = C\ G\mathrm{diag}(1/N)$ for inspection |
 | `unfold` | solve the non-negative Tikhonov problem (full, or `--calib-only`) |
 
 The chain is `csv2root -> subbkg -> sim` (source) `-> calib -> sim` (matrix)
@@ -1098,7 +1094,7 @@ for c in calib compose sim unfold; do python kc761.py "$c" -c "examples/$c.toml"
 * [docs/derivations.md](docs/derivations.md) - **the mathematics**: formula
   registry, full derivations, stated limitations, certificates.
 * [docs/plan.md](docs/plan.md) - final plan, decision register (D-nnn) and
-  contract points; section 4 summarises the mathematics and statistics.
+  contract points; section 4 summarizes the mathematics and statistics.
 * [docs/architecture.md](docs/architecture.md) - layering and module map.
 * [docs/formats.md](docs/formats.md) - product schemas and units.
 * [AGENTS.md](AGENTS.md) - hard rules, file ownership, contract-change process.

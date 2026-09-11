@@ -3,7 +3,7 @@
 The values are the unchanged data (D-34): the seven source keys
 (D-122), the composite beta shield, the gold-foil sandwich, the tube/cup
 containers and the matrix modes' plane/sphere surfaces (D-31). Only the
-organisation changed: the registry carries an explicit provenance note per key
+organization changed: the registry carries an explicit provenance note per key
 and the mode/geometry labels are frozen here once.
 
 The matrix-mode primary and deposition axes are both the calibration product's
@@ -25,7 +25,7 @@ from kc761.errors import ValidationError
 
 
 # --------------------------------------------------------------------------
-# Geometry descriptions (millimetres)
+# Geometry descriptions (millimeters)
 # --------------------------------------------------------------------------
 @dataclass(frozen=True)
 class Box:

@@ -150,7 +150,7 @@ def test_closed_loop_recovers_lines_and_bands_are_finite() -> None:
 
 
 @pytest.mark.slow
-def test_pull_distribution_is_centred_and_covers() -> None:
+def test_pull_distribution_is_centered_and_covers() -> None:
     calib = make_calib_product()
     sim = make_sim_product(calib)
     truth = truth_vector(TRUTH_INDICES, TRUTH_AMPLITUDES)

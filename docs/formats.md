@@ -118,7 +118,7 @@ no missing and no extra field (`SchemaError` otherwise). The complete list:
   may be zero or negative for a heavily regularized problem, and
   `covariance_scale` is fixed to `1.0` (the analytic F-UNC-1/F-UNC-2 bands are
   never rescaled). When the SNIP mask is enabled the reported bands are
-  conditional on the realised mask (D-159) and the baseline/mask hashes pin the
+  conditional on the realized mask (D-159) and the baseline/mask hashes pin the
   exact solve.
 * spectrum: `daq_time_s` (float), `source_file` (str).
 * mc_spectrum: `source_key` (str), `mode_name` (str), `geometry_name` (str),

@@ -1,6 +1,6 @@
 """uproot spike tests: TH1D/TH2D variance and meta RNTuple round-trip.
 
-These tests freeze the behaviour that ``docs/formats.md`` section 6 records:
+These tests freeze the behavior that ``docs/formats.md`` section 6 records:
 uproot's tuple histogram syntax cannot carry ``fSumw2``, while the model
 constructors used by ``kc761.schema._uproot`` can; metadata is written as an
 RNTuple (D-12 as revised) via the explicit ``mkrntuple`` call.

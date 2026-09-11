@@ -92,7 +92,7 @@ class SnipSettings:
     """SNIP peak-mask configuration (F-SOLVE-4/5, D-156/D-157).
 
     The defaults are provisional and are refined by the synthetic parameter
-    study recorded under F-SOLVE-6 in docs/derivations.md; the realised values are
+    study recorded under F-SOLVE-6 in docs/derivations.md; the realized values are
     always written into the product meta (D-160).
     """
 
@@ -240,8 +240,8 @@ def snip_peak_mask(
             significance[1:-1] >= significance[2:]
         )
     protected = np.zeros(size, dtype=bool)
-    centres = np.flatnonzero(local)
-    for index in centres:
+    centers = np.flatnonzero(local)
+    for index in centers:
         half = int(np.ceil(settings.protect_sigma * float(width_in_bins[index])))
         protected[max(0, index - half) : min(size, index + half + 1)] = True
     weights = np.where(protected, settings.floor, 1.0).astype(np.float64)
@@ -252,7 +252,7 @@ def snip_peak_mask(
         clipped_count=clipped_count,
         clipped_first=clipped_first,
         clipped_last=clipped_last,
-        n_candidates=int(centres.size),
+        n_candidates=int(centers.size),
         n_protected=int(np.count_nonzero(protected)),
     )
 
@@ -530,7 +530,7 @@ def _active_set(
             if np.all(proposal > 0.0):
                 mu = candidate
             else:
-                # Step from the feasible mu towards the candidate until a
+                # Step from the feasible mu toward the candidate until a
                 # variable reaches the boundary, then move exactly the
                 # blocking variables into the active set.
                 free_indices = np.flatnonzero(free)

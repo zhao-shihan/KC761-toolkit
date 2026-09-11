@@ -37,7 +37,7 @@ from kc761.core.model import (
 )
 from kc761.errors import UsageError
 
-# Palette: colours of the plotted artists, grouped per panel (values).
+# Palette: colors of the plotted artists, grouped per panel (values).
 _COLOR_DATA = "blue"  # experimental counts (uncertainty bars)
 _COLOR_FIT = "red"  # best-fit folded simulation
 _COLOR_SIM_RAW = "dimgray"  # scaled raw simulation (stairs)

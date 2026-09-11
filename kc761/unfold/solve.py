@@ -169,9 +169,9 @@ def solve_window(
                 f"{primary_size} bins and {values_full.size} data bins"
             )
         edges = np.asarray(response.deposition_edges_kev, dtype=np.float64)
-        centres = 0.5 * (edges[:-1] + edges[1:])
+        centers = 0.5 * (edges[:-1] + edges[1:])
         widths = np.diff(edges)
-        resolution = resolution_sigma_kev(centres, resol_params)
+        resolution = resolution_sigma_kev(centers, resol_params)
         sigma_y = np.sqrt(np.maximum(variances_full, 1.0))
         info = snip_peak_mask(values_full, sigma_y, resolution, widths, snip_settings)
         if strict:

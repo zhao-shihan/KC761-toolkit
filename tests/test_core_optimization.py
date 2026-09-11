@@ -1,7 +1,7 @@
 """Equivalence regressions and benchmarks for the D-172 performance paths.
 
 These are auxiliary: the numeric definitions live in docs/derivations.md and
-the runtime certificates, not here. The tests pin that an optimised path is
+the runtime certificates, not here. The tests pin that an optimized path is
 algebraically the same as the path it replaced, and the ``bench`` cases only
 record wall-clock numbers (never a correctness gate).
 """
@@ -61,7 +61,7 @@ def _per_column_triples(
     return np.asarray(rows, dtype=np.int64), np.asarray(cols, dtype=np.int64), np.asarray(values)
 
 
-def test_vectorised_kernel_matches_per_column_reference() -> None:
+def test_vectorized_kernel_matches_per_column_reference() -> None:
     rng = np.random.default_rng(11)
     edges = np.linspace(0.0, 400.0, 401)
     centers = rng.uniform(5.0, 395.0, size=120)
@@ -168,7 +168,7 @@ def test_streaming_mc_variance_with_active_bins_matches_direct() -> None:
     os.environ.get("KC761_RUN_BENCH") != "1",
     reason="benchmark case; set KC761_RUN_BENCH=1 and select -m bench",
 )
-def test_bench_vectorised_kernel_small() -> None:
+def test_bench_vectorized_kernel_small() -> None:
     """Record a small kernel timing; excluded from the correctness CI."""
     edges = np.linspace(0.0, 1024.0, 1025)
     centers = np.linspace(2.0, 1022.0, 256)
@@ -198,7 +198,7 @@ def _scale_parameter_jacobian_problem():  # noqa: ANN202
 
 
 def _reference_parameter_jacobians(grid, edges, calibration, resol):  # noqa: ANN202
-    """Independent reference: vectorised fill plus per-parameter quotient."""
+    """Independent reference: vectorized fill plus per-parameter quotient."""
     n_sigma = kernel.N_SIGMA
     channel_edges = model.energy_kev(
         grid.edges(), calibration, channel_max=float(grid.n_channels)

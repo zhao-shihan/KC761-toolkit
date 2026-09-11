@@ -73,8 +73,8 @@ def test_local_kernel_derivatives_match_finite_difference() -> None:
     step = 1e-7
     reference = kernel_expr.tapered_bin(e_lo, e_hi, source, sigma, center, n_sigma)
     assert np.allclose(values, reference, rtol=1e-12)
-    # tapered_bin_grad holds the centre fixed; the kernel assembly adds the
-    # centre shift (0.5 * d_center for either edge) before using the result.
+    # tapered_bin_grad holds the center fixed; the kernel assembly adds the
+    # center shift (0.5 * d_center for either edge) before using the result.
     finite_lo_fixed = (
         kernel_expr.tapered_bin(e_lo + step, e_hi, source, sigma, center, n_sigma)
         - kernel_expr.tapered_bin(e_lo - step, e_hi, source, sigma, center, n_sigma)

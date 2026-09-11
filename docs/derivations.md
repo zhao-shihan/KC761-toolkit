@@ -51,7 +51,7 @@ derivations may gain detail but must never contradict `docs/plan.md`.
 | F-UNC-1 | statistical covariance propagation through the reduced free-set system `H_FF**-1` (D-86) | `core/uncertainty.py` | implemented |
 | F-UNC-2 | systematic propagation (calibration covariance, simulation MC, data-side term) | `core/uncertainty.py` | implemented |
 | F-UNC-3 | strict band decomposition `total**2 = stat**2 + syst**2` | `core/uncertainty.py` | implemented |
-| F-UNF-1 | energy window -> channel/primary selection from `E(ch)` at channel centres (D-111) | `unfold/selection.py` | implemented |
+| F-UNF-1 | energy window -> channel/primary selection from `E(ch)` at channel centers (D-111) | `unfold/selection.py` | implemented |
 | F-UNF-2 | unfold fit weights `sigma_fit**2 = max(stat, 1) + (syst_frac*data)**2`, data-side only (D-112) | `unfold/selection.py` | implemented |
 | F-UNF-3 | exact-zero primary-column pruning and reduced non-negative solve (D-110) | `unfold/solve.py` | implemented |
 | F-UNF-4 | unfold diagnostics: weighted chi2, `dof = n_fit_rows - n_active`, `covariance_scale = 1` (D-118) | `unfold/solve.py` | implemented |
@@ -175,9 +175,9 @@ as clamped outside it.
 
 ### F-BIN-1 - channel and energy grids
 
-The channel axis is uniform with edges `-0.5 .. n - 0.5`; bin centres are
+The channel axis is uniform with edges `-0.5 .. n - 0.5`; bin centers are
 `0 .. n-1` and every channel has unit width. Energy axes are variable,
-strictly increasing, finite, in keV; centres are midpoints and widths are
+strictly increasing, finite, in keV; centers are midpoints and widths are
 edge differences. Validation is always on.
 
 ### F-BIN-2 - parameter-independent evaluation geometry (D-79)
@@ -246,7 +246,7 @@ is enforced by validation and by F-MODEL-5 in strict mode.
 
 ### F-KERN-2 - smoothstep taper and renormalization
 
-**Derivation.** With `x` the bin-centre offset from the source,
+**Derivation.** With `x` the bin-center offset from the source,
 `s = clip((n_sigma sigma - |x|)/sigma, 0, 1)` and
 `w = 3 s^2 - 2 s^3` (D-76). `w = 1` for `|x| <= (n_sigma - 1) sigma`,
 decreases smoothly to 0 at `|x| = n_sigma sigma` and is exactly zero beyond.
@@ -256,13 +256,13 @@ The tapered, renormalized kernel is `p_ij = n_ij / D_j` with
 `n_ij = P(i|j) w_ij` and `D_j = sum_i n_ij`; the column then sums to exactly
 one. A column with `D_j = 0` is exactly zero (D-79).
 
-**Limits.** The taper argument is the **bin-centre** offset (D-83); the
+**Limits.** The taper argument is the **bin-center** offset (D-83); the
 support boundary is handled by the vanishing prefactor. `sigma` is bounded
 below by `SIGMA_FLOOR_KEV` outside strict mode (D-73).
 
 ### F-KERN-3 - sparse assembly and exact-zero pruning
 
-For column `j` only bin centres strictly inside
+For column `j` only bin centers strictly inside
 `(c_j - n_sigma sigma_j, c_j + n_sigma sigma_j)` are evaluated
 (`searchsorted`); everywhere else the taper is exactly zero, so the pruned
 sum is identical to the full sum for every parameter value. The pattern has
@@ -280,7 +280,7 @@ clipping prefactor, which vanishes outside the transition band, so
 evaluating the derivative at the clipped coordinate is the correct C1
 extension.
 
-**Centre folding.** The bin centre is `(e_lo + e_hi)/2`, so a change of
+**Center folding.** The bin center is `(e_lo + e_hi)/2`, so a change of
 either edge moves the taper argument by half the displacement; the kernel
 adds `0.5 dn/dcenter` to `dn/de_lo` and `dn/de_hi` before returning.
 
@@ -292,7 +292,7 @@ pieces and the per-column sums, never approximated locally.
 
 `C[i,j]` is the probability that a gamma depositing energy in deposition bin
 `j` lands in channel bin `i`. Channel edges are `E(i - 1/2)` from F-MODEL-1;
-deposition bin centres are the midpoints of the product axis; widths come
+deposition bin centers are the midpoints of the product axis; widths come
 from F-MODEL-4. The matrix is sparse (F-KERN-3) and every column sums to 1
 or is exactly 0; `deposition_edges_kev` is stored with the matrix.
 `build_response_matrix` validates that the calibrated channel edges are
@@ -320,7 +320,7 @@ F-RESP-2 certificate accounts for explicitly.
 ### F-RESP-3 - full-axis composition then slicing
 
 Composition runs over the full primary axis (D-43); slicing happens
-afterwards (D-44). `slice_response` selects only matrix rows and keeps
+afterward (D-44). `slice_response` selects only matrix rows and keeps
 `column_sums` and `efficiency` as **full-axis** facts, while the new
 `channel_low`/`channel_high` fields describe the rows the matrix holds.
 Composing after slicing would renormalize the response with the wrong
@@ -362,7 +362,7 @@ sparse CSR weights.
 
 Values project as `W v` (mass conserving); independent variances project as
 `W**2 Var`. For identical binnings `W = I`, so the projection is idempotent.
-Covariances between source bins are not modelled (documented limitation).
+Covariances between source bins are not modeled (documented limitation).
 
 ### F-CAL-1 - calibration fit weights and folded-prediction MC variance
 
@@ -391,7 +391,7 @@ one unit of variance are treated as unit variance. With no MC `fSumw2` the
 source variance falls back to `max(mc, 0)` (Poisson).
 
 **Limitations.** The floor is a documented approximation: for Poisson data
-with `pred < 1` the realised `(data - pred)**2 / max(data, 1)` has expectation
+with `pred < 1` the realized `(data - pred)**2 / max(data, 1)` has expectation
 below `pred`, so `chi2/dof` can sit below one on low-count spectra. The
 covariance is defined for the weights actually used (F-CAL-5).
 
@@ -628,7 +628,7 @@ The transform compresses the dynamic range so clipping acts on relative
 structure.
 
 **Iteration.** For `p = 1 .. m`:
-`v_i <- min( v_i, (v_{i-p} + v_{i+p}) / 2 )`. Out-of-range neighbours are
+`v_i <- min( v_i, (v_{i-p} + v_{i+p}) / 2 )`. Out-of-range neighbors are
 replaced by `v_i` (edge-preserving), so the boundary is not pulled down. The
 baseline is `b = inverse(v)` after the last iteration.
 
@@ -640,7 +640,7 @@ cap. An explicit override (`snip_iterations`) is allowed and recorded.
 
 **Limits.** SNIP removes structures narrower than about `2m+1` bins; tying `m`
 to the resolution width removes the detector peak before estimating the
-continuum, which is the intended behaviour. On very low-count bins the
+continuum, which is the intended behavior. On very low-count bins the
 transform is near-linear and the baseline is stable. No continuum model is
 claimed: `b` is a robust local lower envelope, and the mask derived from it is
 a *structural prior*, not a background measurement.
@@ -650,7 +650,7 @@ a *structural prior*, not a background measurement.
 **Residual.** `r_i = y+_i - b_i`.
 
 **Matched filter.** The detector width `sigma_E(E_i)` is known (F-MODEL-4).
-With bin width `Delta_i` and `s_i = sigma_E(E_i) / Delta_i`, a normalised
+With bin width `Delta_i` and `s_i = sigma_E(E_i) / Delta_i`, a normalized
 Gaussian kernel `g` of width `s_i` is applied around each bin:
 `M_i = sum_k g_k r_{i+k}` and `V_i = sum_k g_k**2 sigma_{y,i+k}**2`, so
 `z_i = M_i / sqrt(V_i)`. The matched filter suppresses single-bin noise spikes
@@ -659,7 +659,7 @@ Gaussian kernel `g` of width `s_i` is applied around each bin:
 **Candidates.** Bin `i` is a peak candidate when `z_i >= k` (default
 `k = 5`, D-156) and `z_i` is a local maximum within its filter window.
 
-**Mask.** Around every candidate centre, all bins within
+**Mask.** Around every candidate center, all bins within
 `protect_sigma * sigma_E(E_i)` (default `protect_sigma = 2`) are marked as
 peaks. The fixed diagonal mask is `W = diag(w)` with `w_i = floor` (default
 `0.1`) on marked bins and `w_i = 1` elsewhere. Bins without data support
@@ -686,7 +686,7 @@ semidefinite and banded (same half-bandwidth as `D`). (The rectangular
 `W**0.5 D W**0.5` form does not typecheck for `n_rows = n - order`; the row
 form is the correct symmetric weighting.)
 
-**Normalisation (D-80 carried through).** `D_tilde' = D' .
+**Normalization (D-80 carried through).** `D_tilde' = D' .
 diag(sqrt(diag(A)))` with `A = R^T W_data R`, `W_data = diag(1/sigma**2)`;
 `alpha` stays dimensionless. Zero-curvature columns (`A_jj = 0`) are dropped
 exactly as in F-SOLVE-1.
@@ -700,14 +700,14 @@ only enlarges the useful `alpha` range, it does not choose `alpha`.
 
 **Uncertainty.** F-UNC-1/F-UNC-2 use the same `H`, so the bands include the
 mask effect automatically. The mask is data-derived (plug-in): the reported
-covariance is conditional on the realised mask, and the mask-selection
+covariance is conditional on the realized mask, and the mask-selection
 uncertainty is not propagated (D-159). That conditionality is documented and
 its coverage is validated on synthetic pulls with the mask on and off.
 
 **Certificate F-SOLVE-6.** Strict mode verifies: `w_i in [floor, 1]`; the
 marked set equals the peaks recomputed from the recorded baseline; `D_tilde'`
 is symmetric with the expected half-bandwidth; the mask and baseline sha256
-match the product meta; the `alpha` normalisation uses the recomputed
+match the product meta; the `alpha` normalization uses the recomputed
 `diag(A)`. Failure raises `CertificateError("F-SOLVE-6")`.
 
 **Determinism.** Given `y`, calibration and parameters, the baseline, the mask
@@ -731,7 +731,7 @@ an over-strong floor (0.3) over-smooths peaks (max(mu) 5.1e5), a weak floor
 (chi2 = 314). The derived m sits near the best tested value (m = 4 gives 254).
 These are *sensitivity* observations on real data, not truth-based tuning:
 the synthetic closure study of D-161 (injected peaks with known amplitudes,
-pull coverage) remains the gate that may revise the defaults. The realised
+pull coverage) remains the gate that may revise the defaults. The realized
 values are always recorded in the product meta (D-160), so a re-tuned default
 never invalidates an existing product.
 
@@ -816,7 +816,7 @@ finite Monte-Carlo statistics of the simulated response (D-167).
 
    The unrecorded zero-deposition category has `v = 0`, so it cancels from
    `A_s` (the sums run over recorded deposition bins only); dropping it from a
-   centred form would omit its `p_zero Xbar**2` contribution. `Var_i >= 0`
+   centered form would omit its `p_zero Xbar**2` contribution. `Var_i >= 0`
    is checked against a small relative tolerance.
 
    **Evaluation (D-173, §1.16).** Expanding `X_js_i = a_j U[i,s] +
@@ -892,20 +892,20 @@ contract (D-88/D-89).
 acquisition range (F-MODEL-3), the data channel axis is uniform, and the
 primary axis is the simulation's variable energy axis (`G.y`).
 
-**Derivation.** Let `centres_i = E(i)` for `i = 0..n-1`. For a requested
+**Derivation.** Let `centers_i = E(i)` for `i = 0..n-1`. For a requested
 energy window `[elo, ehi]` with `elo <= ehi`:
 
-    chlo = clip(first i with centres_i >= elo, 0, n-1),
-    chhi = clip(last  i with centres_i <= ehi, 0, n-1).
+    chlo = clip(first i with centers_i >= elo, 0, n-1),
+    chhi = clip(last  i with centers_i <= ehi, 0, n-1).
 
-At least one centre must fall inside, otherwise the window is empty at the
+At least one center must fall inside, otherwise the window is empty at the
 channel resolution and a `ValidationError` is raised. `elo`/`ehi` must lie
 inside `[E_min, E_max]`, the primary axis range, otherwise the requested
 window cannot be represented by the simulation and a `ValidationError` is
 raised. The solver then works on `[chlo - pad, chhi + pad]` (F-BIN-3) and the
-reported `mu` covers the primary bins whose **centres** lie in `[elo, ehi]`.
+reported `mu` covers the primary bins whose **centers** lie in `[elo, ehi]`.
 
-**Limits.** Centres (not bin edges) define membership on both axes; this is a
+**Limits.** Centers (not bin edges) define membership on both axes; this is a
 half-bin boundary convention, documented here so it is not re-derived. A
 window narrower than the channel pitch selects at most one channel.
 

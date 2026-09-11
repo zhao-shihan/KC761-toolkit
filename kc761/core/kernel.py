@@ -6,7 +6,7 @@ Formula IDs (docs/derivations.md): F-KERN-1 .. F-KERN-4.
   ``P(i | j) = Phi((e_{i+1} - c_j) / s_j) - Phi((e_i - c_j) / s_j)``,
   where ``Phi`` is the standard normal CDF computed through ``erf``. No
   midpoint approximation.
-* F-KERN-2: smoothstep support taper (D-76) over the bin centre
+* F-KERN-2: smoothstep support taper (D-76) over the bin center
   ``|x| < n_sigma * sigma`` followed by exact column renormalization so that
   every non-empty C column sums to 1; empty columns are exactly zero (D-79).
 * F-KERN-3: sparse triple assembly of the response matrix.
@@ -116,7 +116,7 @@ class KernelGradients:
 
     ``values`` are the **unnormalized** tapered bin probabilities ``n``;
     ``triples.values`` are the normalized ``p = n / D``. The derivative
-    arrays are partial derivatives of ``n`` (the bin-centre contribution is
+    arrays are partial derivatives of ``n`` (the bin-center contribution is
     already folded into ``dn_de_lo``/``dn_de_hi``). Renormalization couples
     every entry of a column through ``D``; the owning caller (F-RESP-4)
     assembles the quotient rule with ``column_denominator`` and per-column
@@ -208,7 +208,7 @@ def response_triples(
 ) -> SparseTriples:
     """Sparse response triples with tapered, renormalized columns (F-KERN-3).
 
-    Only bin centres strictly inside ``n_sigma * sigma`` are evaluated; the
+    Only bin centers strictly inside ``n_sigma * sigma`` are evaluated; the
     taper is exactly zero elsewhere, so the pruned sum is identical to the
     full one and the objective stays continuous in the parameters (D-79).
     """
@@ -318,9 +318,9 @@ def _kernel_pattern(
     arrays are aligned with ``triples``, while ``n`` and ``column_denominator``
     carry the F-KERN-3 renormalization bookkeeping.
 
-    The support windows come from a vectorised search; large problems are
+    The support windows come from a vectorized search; large problems are
     filled by the parallel scalar numba kernels (D-174) and small ones by a
-    single vectorised generated call, both rendering the same sympy
+    single vectorized generated call, both rendering the same sympy
     expressions as ``_gen``.
     """
     edges = as_float_array("spectrum_edges_kev", spectrum_edges_kev, ndim=1)
