@@ -43,9 +43,9 @@ Rules:
 | `core/projection.py` | rebinning/folding projections and variance propagation | F-PROJ-1..2 |
 | `core/solver.py` | non-negative QP, regularization spec (with the default SNIP peak mask), KKT certificate | F-SOLVE-1..6 |
 | `core/covariance.py` | Fisher information, `s**2` scaling, optional profile diagnostic | F-COV-1..3 |
-| `core/uncertainty.py` | strict stat/syst propagation, simulation MC term, band combination | F-UNC-1..3 |
+| `core/uncertainty.py` | strict stat/syst propagation, streaming simulation MC term (D-173), band combination | F-UNC-1..3 |
 | `core/_checks.py` | shared array/shape/finiteness guards | - |
-| `core/_linalg.py` | shared symmetric-positive-definite factorization policy | - |
+| `core/_linalg.py` | shared SPD factorization policy (`SpdFactor`, dense/banded/sparse crossovers) and weighted normal-equation product | - |
 | `core/_gen/` | committed sympy-generated kernels with manifest and import-time freshness check | F-MODEL/F-KERN (D-77) |
 | `schema/axes.py` | `Axis` (edges + unit), axis constructors and `reported_parameter_axis` | F-BIN-1 |
 | `schema/products.py` | product containers, `product_kind` dispatch, object names, meta field/type tables, provenance | F-IO-1 |

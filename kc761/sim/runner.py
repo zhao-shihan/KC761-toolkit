@@ -34,6 +34,7 @@ import uproot
 from kc761.core.binning import (
     MAX_CHANNELS,
     SOURCE_MODE_DEPOSITION_BINS,
+    channels_limit_message,
     source_mode_deposition_edges_kev,
 )
 from kc761.errors import UsageError, ValidationError
@@ -219,8 +220,12 @@ def merge_matrix_worker_histograms(
                     f"worker file {path!r}: zero-deposition shape {zero_values.shape} "
                     "does not match the primary axis"
                 )
-            counts_total = values if counts_total is None else counts_total + values
-            zero_total = zero_values if zero_total is None else zero_total + zero_values
+            if counts_total is None:
+                counts_total = values
+                zero_total = zero_values
+            else:
+                counts_total += values
+                zero_total += zero_values
     assert counts_total is not None and zero_total is not None
     assert ref_deposition is not None and ref_primary is not None
     return counts_total, ref_deposition, ref_primary, zero_total
@@ -254,7 +259,10 @@ def merge_source_worker_histograms(
                 raise ValidationError(
                     f"worker file {path!r}: spectrum energy edges differ between workers"
                 )
-            total = values if total is None else total + values
+            if total is None:
+                total = values
+            else:
+                total += values
     assert total is not None and reference is not None
     return total, reference
 
@@ -464,10 +472,7 @@ def run_matrix(
     deposition_edges = np.asarray(product.deposition_to_channel.y.edges, dtype=np.float64)
     n_deposition = int(deposition_edges.size) - 1
     if n_deposition > MAX_CHANNELS:
-        raise ValidationError(
-            f"calibration deposition axis has {n_deposition} bins, above the "
-            f"supported maximum {MAX_CHANNELS} (D-52)"
-        )
+        raise ValidationError(channels_limit_message(n_deposition))
     axis = make_primary_axis(deposition_edges)
     schedule = ColumnSchedule.fixed_total(axis, n_events)
     workers = estimate_threads(

@@ -28,7 +28,12 @@ from numpy.typing import NDArray
 from scipy import sparse
 
 from kc761.core._checks import as_float_array, check_response_matrix, require_same_length
-from kc761.core._linalg import solve_spd
+from kc761.core._linalg import (
+    factor_dense_spd,
+    prefer_dense_factor,
+    solve_spd,
+    weighted_normal_and_rhs,
+)
 from kc761.errors import CertificateError, SolverError, ValidationError
 
 DEFAULT_DIFFERENCE_ORDER = 2
@@ -368,9 +373,8 @@ def normal_equations(
             f"spectrum has {y.size} bins, response has {matrix.shape[0]} rows"
         )
     weights = 1.0 / errors**2
-    weighted = matrix.T @ sparse.diags(weights)  # n x m
-    hessian = (weighted @ matrix).tocsr()
-    gradient = np.asarray(weighted @ y, dtype=np.float64)
+    hessian, gradient = weighted_normal_and_rhs(matrix, weights, y)
+    assert gradient is not None
     diagonal = hessian.diagonal()
     if np.any(diagonal < 0.0):
         raise SolverError("R^T W R has a negative diagonal entry")
@@ -497,7 +501,17 @@ def _active_set(
 ) -> tuple[NDArray[np.float64], int, bool]:
     """Lawson-Hanson active set for ``min 1/2 mu^T H mu - b^T mu``, ``mu >= 0``."""
     mu = np.zeros(n_bins, dtype=np.float64)
-    diagonal = np.asarray(hessian.diagonal(), dtype=np.float64)
+    # Densify a dense-stored Hessian once: the per-iteration reduced system is
+    # then a ``numpy.ix_`` slice instead of sparse fancy-indexing, which
+    # dominated the active set on the 2048 problem (D-172). The factorization
+    # policy itself stays in ``kc761.core._linalg``.
+    dense: NDArray[np.float64] | None = None
+    if prefer_dense_factor(hessian):
+        dense = np.asarray(hessian.toarray(), dtype=np.float64)
+        dense = 0.5 * (dense + dense.T)
+        diagonal = np.diag(dense).copy()
+    else:
+        diagonal = np.asarray(hessian.diagonal(), dtype=np.float64)
     unbounded = (diagonal <= 0.0) & (np.abs(gradient) > 0.0)
     if np.any(unbounded):
         worst = int(np.argmax(np.abs(gradient)))
@@ -510,7 +524,7 @@ def _active_set(
     threshold = KKT_TOL * _gradient_scale(gradient)
     for iteration in range(1, max_iterations + 1):
         if np.any(free):
-            proposal = _solve_reduced(hessian, gradient, free)
+            proposal = _solve_reduced(hessian, dense, gradient, free)
             candidate = np.zeros(n_bins, dtype=np.float64)
             candidate[free] = proposal
             if np.all(proposal > 0.0):
@@ -537,7 +551,9 @@ def _active_set(
                     free[boundary] = False
                     mu[boundary] = 0.0
                 continue
-        residual = np.asarray(hessian @ mu, dtype=np.float64) - gradient
+        residual = (
+            dense @ mu if dense is not None else np.asarray(hessian @ mu)
+        ) - gradient
         blocked = np.flatnonzero(~free & (residual < -threshold))
         if blocked.size == 0:
             return mu, iteration, True
@@ -550,9 +566,17 @@ def _gradient_scale(gradient: NDArray[np.float64]) -> float:
 
 
 def _solve_reduced(
-    hessian: sparse.csr_matrix, gradient: NDArray[np.float64], free: NDArray[np.bool_]
+    hessian: sparse.csr_matrix,
+    dense: NDArray[np.float64] | None,
+    gradient: NDArray[np.float64],
+    free: NDArray[np.bool_],
 ) -> NDArray[np.float64]:
     """Solve ``H[free, free] x = b[free]`` with the shared SPD policy."""
+    if dense is not None:
+        sub = dense[np.ix_(free, free)]
+        if sub.shape[0] == 0:
+            raise SolverError("no free variables to solve for")
+        return factor_dense_spd(sub).solve(gradient[free])
     sub = hessian[free][:, free]
     if sub.shape[0] == 0:
         raise SolverError("no free variables to solve for")

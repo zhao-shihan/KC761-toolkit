@@ -28,7 +28,7 @@ from numpy.typing import NDArray
 from scipy import sparse
 
 from kc761.core._checks import as_float_array, check_response_matrix, require_same_length
-from kc761.core._linalg import solve_spd
+from kc761.core._linalg import factor_spd, solve_spd, weighted_normal
 from kc761.core.response import ResponseMatrix
 from kc761.errors import CertificateError, SolverError, ValidationError
 
@@ -42,6 +42,9 @@ Single source for both the calibration and the unfolding weight defaults.
 
 DECOMPOSITION_TOL = 1e-9
 """Relative tolerance of the F-UNC-3 identity."""
+
+MC_BLOCK_COLUMNS = 128
+"""Free-set columns solved per block in the streaming F-UNC-2 MC term (D-151)."""
 
 
 @dataclass(frozen=True)
@@ -340,30 +343,56 @@ def simulation_mc_variance(
     # (R^T W C): shape (n_primary, n_deposition).
     mixed = (weighted_composed @ matrix).toarray()
     column_term = np.asarray(weighted @ residual, dtype=np.float64)
-    inverse = _reduced_columns(hessian, solution, np.eye(solution.size))
-    mapped = inverse @ mixed  # (n_primary, n_deposition)
-    mapped_sq = mapped * mapped
-    probabilities = counts / totals[None, :]  # (n_deposition, n_primary)
+
+    if solution.size == 0:
+        return np.zeros(0, dtype=np.float64)
+
+    # Streaming F-UNC-2 (D-151): solve the reduced system for free-set columns
+    # in blocks and contract block-local quantities. Neither ``H_FF**-1`` nor
+    # ``U (R^T W C)`` is ever materialised as a whole; the only O(n^2) dense
+    # object is the data-side ``mixed = R^T W C``, which carries no inverse.
+    free = solution > 0.0
+    if not np.any(free):
+        return np.zeros(solution.size, dtype=np.float64)
+    free_index = np.flatnonzero(free)
+    reduced = hessian[free][:, free]
+    factor = factor_spd(reduced)
+
+    probabilities = normalized  # (n_deposition, n_primary)
+    totals_safe = totals
+    a = column_term
+    abar = probabilities.T @ a
+    energy = probabilities.T @ (a * a)
+    dA = energy - abar * abar
+    w1 = dA / totals_safe
+    w2 = solution / totals_safe
+    w3 = solution * solution / totals_safe
+
     variance = np.zeros(solution.size, dtype=np.float64)
-    for column in range(solution.size):
-        p_s = probabilities[:, column]
-        u_s = inverse[:, column]
-        mu_s = solution[column]
-        centre = p_s @ column_term
-        mean_mapped = mapped @ p_s
-        # Diag(Cov) = sum_s (1/N_s)[sum_j p_js X_js^2 - Xbar_s^2] with
-        # X_js = H^-1 v_js; the zero-deposition category has v = 0 and cancels
-        # from A_s, so the bin sums above are the full multinomial sums.
-        energy = float(p_s @ (column_term * column_term))
-        cross = mapped @ (p_s * column_term)
-        spread = mapped_sq @ p_s
-        xbar = centre * u_s + mu_s * mean_mapped
-        variance += (
-            energy * u_s * u_s
-            + 2.0 * mu_s * u_s * cross
-            + mu_s * mu_s * spread
-            - xbar * xbar
-        ) / totals[column]
+    n_free = free_index.size
+    block = max(1, min(MC_BLOCK_COLUMNS, n_free))
+    for start in range(0, n_free, block):
+        stop = min(start + block, n_free)
+        width = stop - start
+        rhs = np.zeros((n_free, width), dtype=np.float64)
+        rhs[np.arange(start, stop), np.arange(width)] = 1.0
+        solved = factor.solve(rhs)
+        velocities = np.zeros((solution.size, width), dtype=np.float64)
+        velocities[free_index, :] = solved
+        g_block = mixed.T @ velocities  # (n_deposition, width): g_i
+        t2 = probabilities.T @ g_block  # (n_primary, width)
+        t1 = probabilities.T @ (a[:, None] * g_block)
+        wv = probabilities.T @ (g_block * g_block)
+        for local in range(width):
+            u = velocities[:, local]
+            t1_local = t1[:, local]
+            t2_local = t2[:, local]
+            wv_local = wv[:, local]
+            variance[free_index[start + local]] = (
+                float(w1 @ (u * u))
+                + 2.0 * float(w2 @ (u * (t1_local - abar * t2_local)))
+                + float(w3 @ (wv_local - t2_local * t2_local))
+            )
     scale = np.maximum(1.0, np.abs(variance))
     if np.any(variance < -1e-9 * scale):
         worst = float(np.min(variance))
@@ -376,22 +405,26 @@ def _hessian(
     sigma: NDArray[np.float64],
     fisher: NDArray[np.float64] | sparse.spmatrix | None,
 ) -> sparse.csr_matrix:
-    weights = 1.0 / sigma**2
-    data_hessian = (response.T @ sparse.diags(weights) @ response).tocsr()
+    # The injected ``fisher`` is the half-Hessian that already solved the
+    # problem (F-SOLVE-1/D-150). Building ``R^T W R`` first and discarding it
+    # wastes a full sparse product; validate the injected shape against the
+    # response instead and only assemble the data Hessian when none is given.
+    shape = (response.shape[1], response.shape[1])
     if fisher is None:
-        return data_hessian
+        weights = 1.0 / sigma**2
+        return weighted_normal(response, weights)
     if sparse.issparse(fisher):
         matrix = fisher.tocsr().astype(np.float64)
-        if matrix.shape != data_hessian.shape:
+        if matrix.shape != shape:
             raise ValidationError(
-                f"fisher has shape {matrix.shape}, expected {data_hessian.shape}"
+                f"fisher has shape {matrix.shape}, expected {shape}"
             )
         if not np.isfinite(matrix.data).all():
             raise ValidationError("fisher contains non-finite values")
         return matrix
     dense = as_float_array("fisher", fisher, ndim=2)
-    if dense.shape != data_hessian.shape:
-        raise ValidationError(f"fisher has shape {dense.shape}, expected {data_hessian.shape}")
+    if dense.shape != shape:
+        raise ValidationError(f"fisher has shape {dense.shape}, expected {shape}")
     return sparse.csr_matrix(dense)
 
 

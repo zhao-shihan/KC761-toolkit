@@ -16,8 +16,13 @@ def test_channel_grid() -> None:
     assert np.array_equal(grid.centers(), np.arange(8.0))
     with pytest.raises(ValidationError):
         binning.ChannelGrid(0)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="GiB"):
         binning.ChannelGrid(binning.MAX_CHANNELS + 1)
+    # D-52: the over-limit failure carries a footprint estimate so an 8192-bin
+    # request is rejected before any dense allocation is attempted.
+    message = binning.channels_limit_message(8192)
+    assert "8192" in message and "GiB" in message
+    assert binning.dense_matrix_bytes(8192) == 8192 * 8192 * 8
 
 
 def test_energy_grid_validation_and_helpers() -> None:

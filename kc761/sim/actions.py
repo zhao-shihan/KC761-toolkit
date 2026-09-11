@@ -32,12 +32,6 @@ COINCIDENCE_RESOLVING_TIME_US = 10.0
 """Pulse-merging window in microseconds (D-33/F-SIM-5)."""
 
 
-def _analysis_manager():  # noqa: ANN202
-    from geant4_pybind import G4RootAnalysisManager
-
-    return G4RootAnalysisManager.Instance()
-
-
 def build_source_run_action(output_stem: str, verbose: int = 0):  # noqa: ANN201
     """Run action declaring the source-mode pulse spectrum (no ntuple)."""
     from geant4_pybind import G4RootAnalysisManager, G4UserRunAction, keV
@@ -114,7 +108,7 @@ def build_matrix_run_action(  # noqa: ANN201
 
 def build_source_event_action(event_offset: int, base_seed: int):  # noqa: ANN201
     """Source-mode event action: pulse merging and per-block reseeding."""
-    from geant4_pybind import G4Random, G4UserEventAction, us
+    from geant4_pybind import G4Random, G4RootAnalysisManager, G4UserEventAction, us
 
     window = COINCIDENCE_RESOLVING_TIME_US * us
     set_the_seed = G4Random.setTheSeed
@@ -124,6 +118,9 @@ def build_source_event_action(event_offset: int, base_seed: int):  # noqa: ANN20
             super().__init__()
             self._deposits: list[tuple[float, float]] = []
             self._event_index = -1
+            # Resolve the manager and its fill entry point once instead of per
+            # event (D-172); the singleton is stable across the run.
+            self._fill = G4RootAnalysisManager.Instance().FillH1
 
         def BeginOfEventAction(self, event) -> None:  # noqa: ANN001, N802
             self._deposits = []
@@ -154,9 +151,9 @@ def build_source_event_action(event_offset: int, base_seed: int):  # noqa: ANN20
         def EndOfEventAction(self, event) -> None:  # noqa: ANN001, N802
             if not self._deposits:
                 return
-            manager = _analysis_manager()
+            fill = self._fill
             for pulse in self._merge_pulses():
-                manager.FillH1(0, pulse)
+                fill(0, pulse)
 
     return _EventAction()
 
@@ -169,14 +166,19 @@ def build_matrix_event_action(state: GammaEventState, deposition_bounds_kev):  #
     histogram, so ``sum(counts) + zero = N_j`` (F-SIM-1) holds exactly. A zero
     deposition is undetected by definition.
     """
-    from geant4_pybind import G4UserEventAction, keV
+    from geant4_pybind import G4RootAnalysisManager, G4UserEventAction, keV
 
-    low, high = (float(deposition_bounds_kev[0]), float(deposition_bounds_kev[1]))
+    low, high = (float(deposition_bounds_kev[0]), float(deposition_bounds_kev[-1]))
+    inv_kev = 1.0 / keV
 
     class _EventAction(G4UserEventAction):
         def __init__(self) -> None:
             super().__init__()
             self._total = 0.0
+            # Resolve the manager fill entry points once (D-172).
+            manager = G4RootAnalysisManager.Instance()
+            self._fill_h2 = manager.FillH2
+            self._fill_h1 = manager.FillH1
 
         def BeginOfEventAction(self, event) -> None:  # noqa: ANN001, N802
             self._total = 0.0
@@ -185,12 +187,11 @@ def build_matrix_event_action(state: GammaEventState, deposition_bounds_kev):  #
             self._total += edep
 
         def EndOfEventAction(self, event) -> None:  # noqa: ANN001, N802
-            manager = _analysis_manager()
-            total_kev = self._total / keV
+            total_kev = self._total * inv_kev
             if 0.0 < total_kev < high and total_kev >= low:
-                manager.FillH2(0, total_kev, state.e_gamma / keV)
+                self._fill_h2(0, total_kev, state.e_gamma * inv_kev)
             else:
-                manager.FillH1(0, state.e_gamma / keV)
+                self._fill_h1(0, state.e_gamma * inv_kev)
 
     return _EventAction()
 
@@ -210,18 +211,23 @@ def build_stepping_action(detector, event_action):  # noqa: ANN001, ANN201
             super().__init__()
             self._detector = detector
             self._crystal_lv = None
+            # Cache the per-step callback and the crystal logical volume lookup
+            # (D-172); neither changes the F-SIM-5 deposit collection.
+            self._add_deposit = event_action.AddDeposit
 
         def UserSteppingAction(self, step) -> None:  # noqa: ANN001, N802
-            if self._crystal_lv is None:
-                self._crystal_lv = self._detector.crystal_lv
+            crystal_lv = self._crystal_lv
+            if crystal_lv is None:
+                crystal_lv = self._detector.crystal_lv
+                self._crystal_lv = crystal_lv
             volume = step.GetPreStepPoint().GetTouchable().GetVolume()
             if volume is None:
                 return
-            if volume.GetLogicalVolume() != self._crystal_lv:
+            if volume.GetLogicalVolume() != crystal_lv:
                 return
             deposit = step.GetTotalEnergyDeposit()
             if deposit > 0.0:
-                event_action.AddDeposit(step.GetPreStepPoint().GetGlobalTime(), deposit)
+                self._add_deposit(step.GetPreStepPoint().GetGlobalTime(), deposit)
 
     return _SteppingAction()
 

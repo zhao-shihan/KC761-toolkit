@@ -21,11 +21,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numba
 import numpy as np
+from numba import prange
 from numpy.typing import NDArray
 
 from kc761.core import _gen
 from kc761.core._checks import as_float_array
+from kc761.core._gen.kernel_expr import scalar_tapered_bin, scalar_tapered_bin_grad
 from kc761.errors import CertificateError, ValidationError
 
 N_SIGMA = 5.0
@@ -33,6 +36,69 @@ N_SIGMA = 5.0
 
 COLUMN_SUM_TOL = 1e-10
 """F-KERN-2 certificate tolerance for column sums."""
+
+
+def support_bounds(
+    bin_centers: NDArray[np.float64],
+    centers: NDArray[np.float64],
+    sigma: NDArray[np.float64],
+    n_sigma: float,
+) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
+    """Per-column support windows ``[start, stop)`` over ``bin_centers``.
+
+    Shared by the response/Jacobian assembly so the search convention (``right``
+    for the lower edge, ``left`` for the upper edge) has a single definition.
+    """
+    radius = n_sigma * sigma
+    starts = np.searchsorted(bin_centers, centers - radius, side="right").astype(np.int64)
+    stops = np.searchsorted(bin_centers, centers + radius, side="left").astype(np.int64)
+    return starts, stops
+
+
+@numba.njit(cache=True, parallel=True)
+def _pattern_fill_grad(  # noqa: ANN001
+    edges, centers, sigma, n_sigma, starts, stops, offsets,
+    rows, cols, raw, d_lo, d_hi, d_c, d_sigma,
+):
+    """Fill the F-KERN-4 flat arrays; each column writes a disjoint slice."""
+    for column in prange(centers.size):
+        center = centers[column]
+        width = sigma[column]
+        for row in range(starts[column], stops[column]):
+            e_lo = edges[row]
+            e_hi = edges[row + 1]
+            row_center = 0.5 * (e_lo + e_hi)
+            value, dl, dh, dc, ds, dcenter = scalar_tapered_bin_grad(
+                e_lo, e_hi, center, width, row_center, n_sigma
+            )
+            position = offsets[column] + (row - starts[column])
+            rows[position] = row
+            cols[position] = column
+            raw[position] = value
+            half = 0.5 * dcenter
+            d_lo[position] = dl + half
+            d_hi[position] = dh + half
+            d_c[position] = dc
+            d_sigma[position] = ds
+
+
+@numba.njit(cache=True, parallel=True)
+def _pattern_fill_value(  # noqa: ANN001
+    edges, centers, sigma, n_sigma, starts, stops, offsets, rows, cols, raw
+):
+    """Fill the F-KERN-2 flat value array; each column writes a disjoint slice."""
+    for column in prange(centers.size):
+        center = centers[column]
+        width = sigma[column]
+        for row in range(starts[column], stops[column]):
+            e_lo = edges[row]
+            e_hi = edges[row + 1]
+            position = offsets[column] + (row - starts[column])
+            rows[position] = row
+            cols[position] = column
+            raw[position] = scalar_tapered_bin(
+                e_lo, e_hi, center, width, 0.5 * (e_lo + e_hi), n_sigma
+            )
 
 
 @dataclass(frozen=True)
@@ -174,6 +240,69 @@ def response_triples_grad(
     )
 
 
+def _pattern_flat(  # noqa: ANN001
+    edges, centers, sigma, n_sigma, starts, stops, total, gradients
+):
+    """Parallel scalar fill of the flat pattern arrays (D-174).
+
+    The support windows come from :func:`support_bounds`; the scalar kernels are
+    the numba renderings of the same sympy expressions as ``_gen``. Each column
+    writes a disjoint slice, so the result is thread-count independent.
+    """
+    offsets = np.cumsum(stops - starts) - (stops - starts)
+    rows = np.empty(total, dtype=np.int64)
+    cols = np.empty(total, dtype=np.int64)
+    raw = np.empty(total, dtype=np.float64)
+    if not gradients:
+        _pattern_fill_value(
+            edges, centers, sigma, float(n_sigma), starts, stops, offsets, rows, cols, raw
+        )
+        return rows, cols, raw, None, None, None, None
+    d_lo = np.empty(total, dtype=np.float64)
+    d_hi = np.empty(total, dtype=np.float64)
+    d_c = np.empty(total, dtype=np.float64)
+    d_sigma = np.empty(total, dtype=np.float64)
+    _pattern_fill_grad(
+        edges, centers, sigma, float(n_sigma), starts, stops, offsets,
+        rows, cols, raw, d_lo, d_hi, d_c, d_sigma,
+    )
+    return rows, cols, raw, d_lo, d_hi, d_c, d_sigma
+
+
+def _finish_pattern(
+    rows: NDArray[np.int64],
+    cols: NDArray[np.int64],
+    raw: NDArray[np.float64],
+    d_lo: NDArray[np.float64] | None,
+    d_hi: NDArray[np.float64] | None,
+    d_c: NDArray[np.float64] | None,
+    d_sigma: NDArray[np.float64] | None,
+    n_columns: int,
+    gradients: bool,
+) -> tuple:
+    """Renormalize columns (F-KERN-2) and keep the strictly positive entries."""
+    denominator = np.bincount(cols, weights=raw, minlength=n_columns)
+    probability = _gen.kernel_expr.normalize(raw, denominator[cols])
+    keep = probability > 0.0
+    triples = SparseTriples(
+        rows=rows[keep].astype(np.int64),
+        cols=cols[keep].astype(np.int64),
+        values=probability[keep].astype(np.float64),
+    )
+    if not gradients:
+        return (triples,)
+    assert d_lo is not None and d_hi is not None and d_c is not None and d_sigma is not None
+    return (
+        triples,
+        raw[keep].astype(np.float64),
+        d_lo[keep].astype(np.float64),
+        d_hi[keep].astype(np.float64),
+        d_c[keep].astype(np.float64),
+        d_sigma[keep].astype(np.float64),
+        denominator,
+    )
+
+
 def _kernel_pattern(
     spectrum_edges_kev: NDArray[np.float64],
     source_centers_kev: NDArray[np.float64],
@@ -188,6 +317,11 @@ def _kernel_pattern(
     dp_de_lo, dp_de_hi, dp_dc, dp_dsigma, column_denominator)``; the derivative
     arrays are aligned with ``triples``, while ``n`` and ``column_denominator``
     carry the F-KERN-3 renormalization bookkeeping.
+
+    The support windows come from a vectorised search; large problems are
+    filled by the parallel scalar numba kernels (D-174) and small ones by a
+    single vectorised generated call, both rendering the same sympy
+    expressions as ``_gen``.
     """
     edges = as_float_array("spectrum_edges_kev", spectrum_edges_kev, ndim=1)
     centers = as_float_array("source_centers_kev", source_centers_kev, ndim=1)
@@ -206,91 +340,10 @@ def _kernel_pattern(
     n_sigma = _check_n_sigma(n_sigma)
 
     bin_centers = 0.5 * (edges[:-1] + edges[1:])
-    rows_all: list[NDArray[np.int64]] = []
-    cols_all: list[NDArray[np.int64]] = []
-    values_all: list[NDArray[np.float64]] = []
-    if gradients:
-        d_c_all: list[NDArray[np.float64]] = []
-        d_sigma_all: list[NDArray[np.float64]] = []
-        d_lo_all: list[NDArray[np.float64]] = []
-        d_hi_all: list[NDArray[np.float64]] = []
-        n_all: list[NDArray[np.float64]] = []
-        column_denominator = np.zeros(centers.size, dtype=np.float64)
-
-    for column, (center, width) in enumerate(zip(centers, sigma, strict=True)):
-        radius = n_sigma * float(width)
-        start = int(np.searchsorted(bin_centers, float(center) - radius, side="right"))
-        stop = int(np.searchsorted(bin_centers, float(center) + radius, side="left"))
-        if start >= stop:
-            continue
-        rows = np.arange(start, stop, dtype=np.int64)
-        e_lo = edges[rows]
-        e_hi = edges[rows + 1]
-        row_centers = bin_centers[rows]
-
-        if gradients:
-            denominator_values, d_lo, d_hi, d_c, d_sigma, d_center = (
-                _gen.kernel_expr.tapered_bin_grad(
-                    e_lo, e_hi, float(center), float(width), row_centers, n_sigma
-                )
-            )
-            # The bin centre is (e_lo + e_hi) / 2, so a change of either edge
-            # also moves the taper argument by half the edge displacement.
-            d_lo = d_lo + 0.5 * d_center
-            d_hi = d_hi + 0.5 * d_center
-            denominator = float(denominator_values.sum())
-            if denominator <= 0.0:
-                continue
-            probability = denominator_values / denominator
-            keep = probability > 0.0
-            if not np.any(keep):
-                continue
-            rows_all.append(rows[keep])
-            cols_all.append(np.full(int(keep.sum()), column, dtype=np.int64))
-            values_all.append(probability[keep])
-            n_all.append(denominator_values[keep])
-            d_c_all.append(d_c[keep])
-            d_sigma_all.append(d_sigma[keep])
-            d_lo_all.append(d_lo[keep])
-            d_hi_all.append(d_hi[keep])
-            column_denominator[column] = denominator
-        else:
-            denominator_values = _gen.kernel_expr.tapered_bin(
-                e_lo, e_hi, float(center), float(width), row_centers, n_sigma
-            )
-            denominator = float(denominator_values.sum())
-            if denominator <= 0.0:
-                continue
-            probability = denominator_values / denominator
-            keep = probability > 0.0
-            if not np.any(keep):
-                continue
-            rows_all.append(rows[keep])
-            cols_all.append(np.full(int(keep.sum()), column, dtype=np.int64))
-            values_all.append(probability[keep])
-
-    triples = SparseTriples(
-        rows=_concatenate(rows_all, np.int64),
-        cols=_concatenate(cols_all, np.int64),
-        values=_concatenate(values_all, np.float64),
-    )
-    if not gradients:
-        return (triples,)
-    return (
-        triples,
-        _concatenate(n_all, np.float64),
-        _concatenate(d_lo_all, np.float64),
-        _concatenate(d_hi_all, np.float64),
-        _concatenate(d_c_all, np.float64),
-        _concatenate(d_sigma_all, np.float64),
-        column_denominator,
-    )
-
-
-def _concatenate(arrays: list[NDArray], dtype: type) -> NDArray:
-    if not arrays:
-        return np.empty(0, dtype=dtype)
-    return np.concatenate(arrays).astype(dtype, copy=False)
+    starts, stops = support_bounds(bin_centers, centers, sigma, n_sigma)
+    total = int(np.maximum(stops - starts, 0).sum())
+    flat = _pattern_flat(edges, centers, sigma, n_sigma, starts, stops, total, gradients)
+    return _finish_pattern(*flat, centers.size, gradients)
 
 
 def verify_column_sums(

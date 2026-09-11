@@ -236,12 +236,13 @@ def solve_window(
         channel_max=channel_max,
         strict=strict,
     )
-    composed_jacobian_full = compose_parameter_jacobian(
-        calib_jacobian_full, deposition_counts, column_totals
+    composed_jacobian = compose_parameter_jacobian(
+        calib_jacobian_full,
+        deposition_counts,
+        column_totals,
+        rows=rows,
+        columns=kept,
     )
-    composed_jacobian = [
-        jacobian[rows][:, kept].tocsr() for jacobian in composed_jacobian_full
-    ]
 
     windowed_response = ResponseMatrix(
         matrix=response.matrix[rows].tocsr(),

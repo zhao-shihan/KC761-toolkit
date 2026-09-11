@@ -2,13 +2,23 @@
 # sympy version: 1.14.0
 # formula ids: F-KERN-1, F-KERN-2, F-KERN-4
 # command: python tools/generate_kernels.py
-# ruff: noqa: E501, F401
+# ruff: noqa: E501, F401, I001
 
 from __future__ import annotations
+
+import math
 
 import numpy as np
 from numpy.typing import NDArray
 from scipy.special import erf
+
+
+import numba
+
+
+def _jit(function):
+    """Compile a scalar kernel with numba (cache=True; numba is a hard dep, D-174)."""
+    return numba.njit(cache=True)(function)
 
 
 def gaussian_bin_probability(e_lo, e_hi, c, sigma):
@@ -17,40 +27,34 @@ def gaussian_bin_probability(e_lo, e_hi, c, sigma):
     e_hi = np.asarray(e_hi, dtype=np.float64)
     c = np.asarray(c, dtype=np.float64)
     sigma = np.asarray(sigma, dtype=np.float64)
-    return (1/2)*erf((1/2)*np.sqrt(2)*(-c + e_hi)/sigma) - 1/2*erf((1/2)*np.sqrt(2)*(-c + e_lo)/sigma)
+    x0 = (1/2)*np.sqrt(2)/sigma
+    return -1/2*erf(x0*(c - e_hi)) + (1/2)*erf(x0*(c - e_lo))
 
-
-def gaussian_bin_probability_grad(e_lo, e_hi, c, sigma):
-    """F-KERN-1/F-KERN-4: value and partial derivatives of the bin integral."""
-    e_lo = np.asarray(e_lo, dtype=np.float64)
-    e_hi = np.asarray(e_hi, dtype=np.float64)
-    c = np.asarray(c, dtype=np.float64)
-    sigma = np.asarray(sigma, dtype=np.float64)
-    return (
-        (1/2)*erf((1/2)*np.sqrt(2)*(-c + e_hi)/sigma) - 1/2*erf((1/2)*np.sqrt(2)*(-c + e_lo)/sigma),
-        -1/2*np.sqrt(2)*np.exp(-1/2*(-c + e_lo)**2/sigma**2)/(np.sqrt(np.pi)*sigma),
-        (1/2)*np.sqrt(2)*np.exp(-1/2*(-c + e_hi)**2/sigma**2)/(np.sqrt(np.pi)*sigma),
-        (1/2)*np.sqrt(2)*np.exp(-1/2*(-c + e_lo)**2/sigma**2)/(np.sqrt(np.pi)*sigma) - 1/2*np.sqrt(2)*np.exp(-1/2*(-c + e_hi)**2/sigma**2)/(np.sqrt(np.pi)*sigma),
-        -1/2*np.sqrt(2)*(-c + e_hi)*np.exp(-1/2*(-c + e_hi)**2/sigma**2)/(np.sqrt(np.pi)*sigma**2) + (1/2)*np.sqrt(2)*(-c + e_lo)*np.exp(-1/2*(-c + e_lo)**2/sigma**2)/(np.sqrt(np.pi)*sigma**2),
-    )
 
 
 def taper(offset, sigma, n_sigma):
     """F-KERN-2: smoothstep support taper, 1 on the plateau, 0 beyond n_sigma."""
     offset = np.asarray(offset, dtype=np.float64)
     sigma = np.asarray(sigma, dtype=np.float64)
-    return -2*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(offset))/sigma))**3 + 3*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(offset))/sigma))**2
+    x0 = np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(offset))/sigma))
+    return x0**2*(3 - 2*x0)
+
 
 
 def taper_grad(offset, sigma, n_sigma):
     """F-KERN-4: taper value and d/d(offset), d/d(sigma)."""
     offset = np.asarray(offset, dtype=np.float64)
     sigma = np.asarray(sigma, dtype=np.float64)
+    x0 = sigma**(-1.0)
+    x1 = x0*(n_sigma*sigma - np.abs(offset))
+    x2 = np.minimum(1, np.maximum(0, x1))
+    x3 = 6*x0*x2*(x2 - 1)
     return (
-        -2*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(offset))/sigma))**3 + 3*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(offset))/sigma))**2,
-        -(-6*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(offset))/sigma))**2 + 6*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(offset))/sigma)))*np.sign(offset)/sigma,
-        (n_sigma/sigma - (n_sigma*sigma - np.abs(offset))/sigma**2)*(-6*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(offset))/sigma))**2 + 6*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(offset))/sigma))),
+        x2**2*(3 - 2*x2),
+        x3*np.sign(offset),
+        -x3*(n_sigma - x1),
     )
+
 
 
 def tapered_bin(e_lo, e_hi, c, sigma, center, n_sigma):
@@ -60,7 +64,11 @@ def tapered_bin(e_lo, e_hi, c, sigma, center, n_sigma):
     c = np.asarray(c, dtype=np.float64)
     sigma = np.asarray(sigma, dtype=np.float64)
     center = np.asarray(center, dtype=np.float64)
-    return ((1/2)*erf((1/2)*np.sqrt(2)*(-c + e_hi)/sigma) - 1/2*erf((1/2)*np.sqrt(2)*(-c + e_lo)/sigma))*(-2*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**3 + 3*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**2)
+    x0 = sigma**(-1.0)
+    x1 = np.minimum(1, np.maximum(0, x0*(n_sigma*sigma - np.abs(c - center))))
+    x2 = (1/2)*np.sqrt(2)*x0
+    return (1/2)*x1**2*(2*x1 - 3)*(erf(x2*(c - e_hi)) - erf(x2*(c - e_lo)))
+
 
 
 def tapered_bin_grad(e_lo, e_hi, c, sigma, center, n_sigma):
@@ -75,14 +83,91 @@ def tapered_bin_grad(e_lo, e_hi, c, sigma, center, n_sigma):
     c = np.asarray(c, dtype=np.float64)
     sigma = np.asarray(sigma, dtype=np.float64)
     center = np.asarray(center, dtype=np.float64)
+    x0 = c - e_hi
+    x1 = sigma**(-1.0)
+    x2 = np.sqrt(2)
+    x3 = (1/2)*x2
+    x4 = x1*x3
+    x5 = c - e_lo
+    x6 = erf(x0*x4) - erf(x4*x5)
+    x7 = c - center
+    x8 = x1*(n_sigma*sigma - np.abs(x7))
+    x9 = np.minimum(1, np.maximum(0, x8))
+    x10 = 2*x9 - 3
+    x11 = x10*x9**2
+    x12 = (1/2)/sigma**2
+    x13 = np.exp(-x12*x5**2)
+    x14 = 1/np.sqrt(np.pi)
+    x15 = x11*x14*x4
+    x16 = np.exp(-x0**2*x12)
+    x17 = np.sign(x7)
+    x18 = x9 - 1
+    x19 = -x6
+    x20 = x1*x9
+    x21 = -x0
+    x22 = -x5
     return (
-        ((1/2)*erf((1/2)*np.sqrt(2)*(-c + e_hi)/sigma) - 1/2*erf((1/2)*np.sqrt(2)*(-c + e_lo)/sigma))*(-2*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**3 + 3*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**2),
-        -1/2*np.sqrt(2)*(-2*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**3 + 3*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**2)*np.exp(-1/2*(-c + e_lo)**2/sigma**2)/(np.sqrt(np.pi)*sigma),
-        (1/2)*np.sqrt(2)*(-2*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**3 + 3*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**2)*np.exp(-1/2*(-c + e_hi)**2/sigma**2)/(np.sqrt(np.pi)*sigma),
-        ((1/2)*np.sqrt(2)*np.exp(-1/2*(-c + e_lo)**2/sigma**2)/(np.sqrt(np.pi)*sigma) - 1/2*np.sqrt(2)*np.exp(-1/2*(-c + e_hi)**2/sigma**2)/(np.sqrt(np.pi)*sigma))*(-2*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**3 + 3*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**2) - ((1/2)*erf((1/2)*np.sqrt(2)*(-c + e_hi)/sigma) - 1/2*erf((1/2)*np.sqrt(2)*(-c + e_lo)/sigma))*(-6*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**2 + 6*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma)))*np.sign(c - center)/sigma,
-        (n_sigma/sigma - (n_sigma*sigma - np.abs(c - center))/sigma**2)*((1/2)*erf((1/2)*np.sqrt(2)*(-c + e_hi)/sigma) - 1/2*erf((1/2)*np.sqrt(2)*(-c + e_lo)/sigma))*(-6*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**2 + 6*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))) + (-1/2*np.sqrt(2)*(-c + e_hi)*np.exp(-1/2*(-c + e_hi)**2/sigma**2)/(np.sqrt(np.pi)*sigma**2) + (1/2)*np.sqrt(2)*(-c + e_lo)*np.exp(-1/2*(-c + e_lo)**2/sigma**2)/(np.sqrt(np.pi)*sigma**2))*(-2*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**3 + 3*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**2),
-        ((1/2)*erf((1/2)*np.sqrt(2)*(-c + e_hi)/sigma) - 1/2*erf((1/2)*np.sqrt(2)*(-c + e_lo)/sigma))*(-6*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma))**2 + 6*np.minimum(1, np.maximum(0, (n_sigma*sigma - np.abs(c - center))/sigma)))*np.sign(c - center)/sigma,
+        (1/2)*x11*x6,
+        x13*x15,
+        -x15*x16,
+        x20*(-x10*x14*x3*x9*(x13 - x16) + 3*x17*x18*x19),
+        x20*((1/2)*x1*x10*x14*x2*x9*(x21*np.exp(-x12*x21**2) - x22*np.exp(-x12*x22**2)) - 3*x18*x19*(n_sigma - x8)),
+        3*x17*x18*x20*x6,
     )
+
+
+
+@_jit
+def scalar_tapered_bin(e_lo, e_hi, c, sigma, center, n_sigma):
+    """F-KERN-2 scalar rendering of the same sympy expression (D-174)."""
+    x0 = 1/sigma
+    x1 = min(1, max(0, x0*(n_sigma*sigma - abs(c - center))))
+    x2 = (1/2)*math.sqrt(2)*x0
+    return (1/2)*x1**2*(2*x1 - 3)*(math.erf(x2*(c - e_hi)) - math.erf(x2*(c - e_lo)))
+
+
+@_jit
+def scalar_tapered_bin_grad(e_lo, e_hi, c, sigma, center, n_sigma):
+    """F-KERN-4 scalar rendering of the same sympy expression (D-174)."""
+    x0 = c - e_hi
+    x1 = 1/sigma
+    x2 = math.sqrt(2)
+    x3 = (1/2)*x2
+    x4 = x1*x3
+    x5 = c - e_lo
+    x6 = math.erf(x0*x4) - math.erf(x4*x5)
+    x7 = c - center
+    x8 = x1*(n_sigma*sigma - abs(x7))
+    x9 = min(1, max(0, x8))
+    x10 = 2*x9 - 3
+    x11 = x10*x9**2
+    x12 = (1/2)/sigma**2
+    x13 = math.exp(-x12*x5**2)
+    x14 = 1/math.sqrt(math.pi)
+    x15 = x11*x14*x4
+    x16 = math.exp(-x0**2*x12)
+    x17 = (0.0 if x7 == 0 else math.copysign(1, x7))
+    x18 = x9 - 1
+    x19 = -x6
+    x20 = x1*x9
+    x21 = -x0
+    x22 = -x5
+    return (
+        (1/2)*x11*x6,
+        x13*x15,
+        -x15*x16,
+        x20*(-x10*x14*x3*x9*(x13 - x16) + 3*x17*x18*x19),
+        x20*((1/2)*x1*x10*x14*x2*x9*(x21*math.exp(-x12*x21**2) - x22*math.exp(-x12*x22**2)) - 3*x18*x19*(n_sigma - x8)),
+        3*x17*x18*x20*x6,
+    )
+
+
+@_jit
+def scalar_normalize_derivative(values, d_values, denominator, d_denominator):
+    """F-KERN-2/F-KERN-4 scalar derivative rendering of the same sympy expression."""
+    x0 = 1/denominator
+    return x0*(-d_denominator*values*x0 + d_values)
+
 
 
 def normalize(values, denominator):
@@ -93,17 +178,12 @@ def normalize(values, denominator):
         return np.where(denominator > 0.0, values / denominator, 0.0)
 
 
-def normalize_grad(values, d_values, denominator, d_denominator):
-    """F-KERN-2/F-KERN-4: quotient rule ``-d_denominator*values/denominator**2 + d_values/denominator``."""
+def normalize_derivative(values, d_values, denominator, d_denominator):
+    """F-KERN-2/F-KERN-4: renormalized derivative ``-d_denominator*values/denominator**2 + d_values/denominator``."""
     values = np.asarray(values, dtype=np.float64)
     d_values = np.asarray(d_values, dtype=np.float64)
     denominator = np.asarray(denominator, dtype=np.float64)
     d_denominator = np.asarray(d_denominator, dtype=np.float64)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        probability = np.where(denominator > 0.0, values / denominator, 0.0)
-        d_probability = np.where(
-            denominator > 0.0,
-            -d_denominator*values/denominator**2 + d_values/denominator,
-            0.0,
-        )
-    return probability, d_probability
+    x0 = denominator**(-1.0)
+    return x0*(-d_denominator*values*x0 + d_values)
+

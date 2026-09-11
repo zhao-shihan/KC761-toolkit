@@ -817,9 +817,21 @@ finite Monte-Carlo statistics of the simulated response (D-167).
    The unrecorded zero-deposition category has `v = 0`, so it cancels from
    `A_s` (the sums run over recorded deposition bins only); dropping it from a
    centred form would omit its `p_zero Xbar**2` contribution. `Var_i >= 0`
-   is checked against a small relative tolerance. Because `U` and
-   `U (R^T W C)` are needed for every primary bin, the helper materializes the
-   reduced inverse once (documented cost).
+   is checked against a small relative tolerance.
+
+   **Evaluation (D-173, §1.16).** Expanding `X_js_i = a_j U[i,s] +
+   mu_s m_{i,j}` with `a_j = C_j^T W r` and `m = U (R^T W C)` gives
+
+   `Var_i = sum_s (1/N_s) [ u_si^2 dA_s + 2 u_si mu_s (t1_si - abar_s t2_si)
+   + mu_s^2 (wv_si - t2_si^2) ]`,
+   `dA_s = sum_j p_js a_j^2 - abar_s^2`, `t1_si = sum_j p_js a_j g_ij`,
+   `t2_si = sum_j p_js g_ij`, `wv_si = sum_j p_js g_ij^2`, `g_i = mixed^T u_i`,
+   `u_i = U e_i`. Only the free-set columns `u_i` are solved (in blocks of
+   `MC_BLOCK_COLUMNS = 128`) and the three `P^T` contractions are formed per
+   block, so neither `H_FF**-1` nor `U (R^T W C)` is materialized as a whole;
+   the only dense `O(n^2)` object is the data-side `R^T W C`. The result equals
+   the direct linearization above at `rtol = 1e-9`, including active bins
+   (where the reduced free-set inverse is the boundary convention).
 
 ### F-UNC-3 - strict band decomposition
 

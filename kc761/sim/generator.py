@@ -184,6 +184,14 @@ def make_gamma_generator(
             self._local_event = 0
             self._current_column = None
             self._set_seed = G4Random.setTheSeed
+            # Resolve the per-event callables once (D-172): these are looked up
+            # on every primary otherwise, and none of them changes the F-SIM-4
+            # sampling or the F-SIM-7 seed chain.
+            self._uniform = G4UniformRand
+            self._locate = column_slice.locate
+            self._energy_bounds = axis.energy_bounds_kev
+            self._is_plane = isinstance(source, PlaneGammaSource)
+            self._column_seed = column_seed
             self._gun = G4ParticleGun()
             table = G4ParticleTable.GetParticleTable()
             self._gun.SetParticleDefinition(table.FindParticle("gamma"))
@@ -191,30 +199,31 @@ def make_gamma_generator(
         def GeneratePrimaries(self, event) -> None:  # noqa: ANN001, N802
             local = self._local_event
             self._local_event += 1
-            column, _within = self._slice.locate(local)
+            column, _within = self._locate(local)
             if column != self._current_column:
-                self._set_seed(column_seed(self._base_seed, column))
+                self._set_seed(self._column_seed(self._base_seed, column))
                 self._current_column = column
 
-            lo, hi = self._axis.energy_bounds_kev(column)
-            e_gamma_kev = lo + G4UniformRand() * (hi - lo)
+            lo, hi = self._energy_bounds(column)
+            uniform = self._uniform
+            e_gamma_kev = lo + uniform() * (hi - lo)
             self._state.e_gamma = e_gamma_kev * keV
 
-            if isinstance(self._source, PlaneGammaSource):
+            if self._is_plane:
                 position, direction = sample_plane_surface(
                     self._source,
-                    G4UniformRand(),
-                    G4UniformRand(),
-                    G4UniformRand(),
-                    G4UniformRand(),
+                    uniform(),
+                    uniform(),
+                    uniform(),
+                    uniform(),
                 )
             else:
                 position, direction = sample_sphere_surface(
                     self._source,
-                    G4UniformRand(),
-                    G4UniformRand(),
-                    G4UniformRand(),
-                    G4UniformRand(),
+                    uniform(),
+                    uniform(),
+                    uniform(),
+                    uniform(),
                 )
             self._gun.SetParticleEnergy(e_gamma_kev * keV)
             self._gun.SetParticlePosition(

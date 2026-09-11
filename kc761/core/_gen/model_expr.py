@@ -2,7 +2,7 @@
 # sympy version: 1.14.0
 # formula ids: F-MODEL-1, F-MODEL-2, F-MODEL-3, F-MODEL-4
 # command: python tools/generate_kernels.py
-# ruff: noqa: E501, F401
+# ruff: noqa: E501, F401, I001
 
 from __future__ import annotations
 

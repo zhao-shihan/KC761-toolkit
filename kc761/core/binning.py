@@ -37,6 +37,26 @@ from kc761.errors import ValidationError
 MAX_CHANNELS = 4096
 """Validated support limit (D-52); W1 may lower it with a measured justification."""
 
+
+def dense_matrix_bytes(n_channels: int) -> int:
+    """Bytes of one dense ``n x n`` float64 matrix (D-52 memory estimate)."""
+    size = int(n_channels)
+    return size * size * 8
+
+
+def channels_limit_message(n_channels: int) -> str:
+    """Fail-fast message for an over-limit channel count, with a footprint.
+
+    D-52 requires the rejection to carry a memory estimate instead of failing
+    later with a bare allocation error.
+    """
+    gib = dense_matrix_bytes(n_channels) / 2**30
+    return (
+        f"n_channels={int(n_channels)} exceeds the supported maximum {MAX_CHANNELS} "
+        f"(D-52); one dense {int(n_channels)}x{int(n_channels)} float64 matrix "
+        f"alone needs {gib:.2f} GiB"
+    )
+
 SOURCE_MODE_DEPOSITION_MAX_KEV: Final = 4096.0
 SOURCE_MODE_DEPOSITION_BINS: Final = 4096
 """Fixed uniform *source-mode* Monte-Carlo axis: ``0..4096 keV / 4096 bins``.
@@ -68,9 +88,7 @@ class ChannelGrid:
         if self.n_channels < 1:
             raise ValidationError(f"n_channels must be >= 1, got {self.n_channels!r}")
         if self.n_channels > MAX_CHANNELS:
-            raise ValidationError(
-                f"n_channels={self.n_channels} exceeds the supported maximum {MAX_CHANNELS} (D-52)"
-            )
+            raise ValidationError(channels_limit_message(self.n_channels))
 
     def edges(self) -> NDArray[np.float64]:
         return np.arange(-0.5, self.n_channels + 0.5, 1.0)

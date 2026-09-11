@@ -17,7 +17,9 @@ does not import them.
 ## Requirements
 
 * Python >= 3.12.
-* Runtime: `numpy`, `scipy`, `uproot`, `numba`, `sympy`, `matplotlib`.
+* Runtime: `numpy`, `scipy`, `numba`, `uproot`, `sympy`, `matplotlib`.
+  `numba` JIT-compiles the generated response kernel (D-174); the number of
+  parallel threads follows numba's standard `NUMBA_NUM_THREADS`.
 * Simulation: `geant4-pybind`.
 * Development: `ruff`, `pytest`, `hypothesis`.
 
@@ -89,15 +91,19 @@ See [examples/](examples/) for a commented file per subcommand, and
 
 ```bash
 ruff check .
-pytest -q -m "not g4 and not root"
+pytest -q -m "not g4 and not root and not bench"
 pytest -q tests/test_sim_g4.py          # needs geant4-pybind
 python tools/check_single_source.py
+python tools/benchmarks.py --scenario all      # wall-clock, never a gate
 python kc761.py sim --dry-run ...        # print the resolved run, no side effects
 ```
 
 `g4`- and `root`-marked tests are skipped when the corresponding framework is
-unavailable. Tests are auxiliary: correctness is defined by the derivations and
-the runtime certificates, not by stored reference outputs.
+unavailable, and `bench`-marked cases only run with `KC761_RUN_BENCH=1`. Tests
+are auxiliary: correctness is defined by the derivations and the runtime
+certificates, not by stored reference outputs. The P1 performance pass and its
+measured before/after numbers are registered in [docs/plan.md](docs/plan.md)
+section 1.16.
 
 ## Repository layout
 
@@ -109,7 +115,7 @@ the runtime certificates, not by stored reference outputs.
 | `kc761/calib/`, `kc761/unfold/`, `kc761/sim/` | calibration, unfolding and Geant4 packages |
 | `kc761/*/plot.py` | self-contained, legacy-faithful figures (D-153) |
 | `kc761/cli/` | CLI, config-file mode and per-command wiring |
-| `tools/` | sympy kernel generation and the single-source gate |
+| `tools/` | sympy kernel generation, the single-source gate and the `benchmarks.py` timing tool |
 | `examples/` | shipped TOML configuration examples |
 | `tests/` | auxiliary tests and deterministic fixtures |
 | `docs/` | plan, architecture, formats, derivations |

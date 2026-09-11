@@ -24,17 +24,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+import numba
 import numpy as np
+from numba import prange
 from numpy.typing import NDArray
 from scipy import sparse
 
 from kc761.core import _gen
 from kc761.core._checks import as_float_array, require_positive
+from kc761.core._gen.kernel_expr import (
+    scalar_normalize_derivative,
+    scalar_tapered_bin_grad,
+)
+from kc761.core._linalg import csr_from_column_triples
 from kc761.core.binning import ChannelGrid, EnergyGrid
 from kc761.core.kernel import (
     N_SIGMA,
     response_triples,
-    response_triples_grad,
+    support_bounds,
 )
 from kc761.core.model import (
     InternalCalibration,
@@ -112,9 +119,11 @@ def build_response_matrix(
             "zero resolution width on the deposition grid; strict mode refuses to build C",
         )
     triples = response_triples(channel_edges_kev, deposition_centers, sigma, n_sigma=n_sigma)
-    matrix = sparse.csr_matrix(
-        (triples.values, (triples.rows, triples.cols)),
-        shape=(channel_grid.n_channels, deposition_centers.size),
+    matrix = csr_from_column_triples(
+        triples.rows,
+        triples.cols,
+        triples.values,
+        (channel_grid.n_channels, deposition_centers.size),
     )
     column_sums = np.asarray(matrix.sum(axis=0), dtype=np.float64).ravel()
     response = ResponseMatrix(
@@ -213,6 +222,72 @@ def slice_response(
     )
 
 
+@numba.njit(cache=True, parallel=True)
+def _fused_parameter_jacobian(  # noqa: ANN001
+    edges, centers, sigma, n_sigma, starts, stops, offsets,
+    edge_gradient, sigma_grad,
+    rows, cols, values, d_lo, d_hi, d_sigma, normalized,
+):
+    """F-RESP-4 chain plus F-KERN-2 quotient in one parallel pass (D-174).
+
+    Per column: accumulate the kernel derivatives and the seven local
+    derivative sums, then write the normalized derivatives through the generated
+    scalar quotient. Writes are disjoint across columns, so the result is
+    deterministic and bitwise independent of the thread count.
+    """
+    for column in prange(centers.size):
+        start = starts[column]
+        stop = stops[column]
+        if stop <= start:
+            continue
+        sums = np.zeros(7)
+        denominator = 0.0
+        position = offsets[column]
+        for row in range(start, stop):
+            e_lo = edges[row]
+            e_hi = edges[row + 1]
+            row_center = 0.5 * (e_lo + e_hi)
+            value, dl, dh, _, ds, dcenter = scalar_tapered_bin_grad(
+                e_lo, e_hi, centers[column], sigma[column], row_center, n_sigma
+            )
+            lo = dl + 0.5 * dcenter
+            hi = dh + 0.5 * dcenter
+            rows[position] = row
+            cols[position] = column
+            values[position] = value
+            d_lo[position] = lo
+            d_hi[position] = hi
+            d_sigma[position] = ds
+            denominator += value
+            for parameter in range(4):
+                sums[parameter] += (
+                    lo * edge_gradient[parameter, row]
+                    + hi * edge_gradient[parameter, row + 1]
+                )
+            for resolution in range(3):
+                sums[4 + resolution] += ds * sigma_grad[resolution, column]
+            position += 1
+        position = offsets[column]
+        for row in range(start, stop):
+            value = values[position]
+            for parameter in range(4):
+                local = (
+                    d_lo[position] * edge_gradient[parameter, row]
+                    + d_hi[position] * edge_gradient[parameter, row + 1]
+                )
+                normalized[parameter, position] = scalar_normalize_derivative(
+                    value, local, denominator, sums[parameter]
+                )
+            for resolution in range(3):
+                local = d_sigma[position] * sigma_grad[resolution, column]
+                normalized[4 + resolution, position] = scalar_normalize_derivative(
+                    value, local, denominator, sums[4 + resolution]
+                )
+            position += 1
+
+
+
+
 def response_parameter_jacobian(
     deposition_edges_kev: NDArray[np.float64],
     calibration: InternalCalibration,
@@ -242,9 +317,6 @@ def response_parameter_jacobian(
             "F-MODEL-5",
             "zero resolution width on the deposition grid; strict mode refuses to build dC/dq",
         )
-    gradients = response_triples_grad(
-        channel_edges_kev, deposition_centers, sigma, n_sigma=n_sigma
-    )
     n_channels = channel_grid.n_channels
     shape = (n_channels, deposition_centers.size)
 
@@ -255,50 +327,72 @@ def response_parameter_jacobian(
         edge_coordinates
     )  # shape (4, n_channels + 1)
 
-    rows = gradients.triples.rows
-    cols = gradients.triples.cols
-    unnormalized = gradients.values
-    denominator = gradients.column_denominator[cols]
-    n_primary = deposition_centers.size
-
-    def quotient(local_derivative: NDArray[np.float64]) -> NDArray[np.float64]:
-        """Normalized derivative with the full-column renormalization sum."""
-        column_sums = np.bincount(cols, weights=local_derivative, minlength=n_primary)
-        return (
-            local_derivative / denominator
-            - unnormalized * column_sums[cols] / denominator**2
-        )
-
-    jacobians: list[sparse.csr_matrix] = []
-    for parameter in range(4):
-        local = (
-            gradients.dn_de_lo * edge_gradient[parameter][rows]
-            + gradients.dn_de_hi * edge_gradient[parameter][rows + 1]
-        )
-        jacobians.append(
-            sparse.csr_matrix((quotient(local), (rows, cols)), shape=shape)
-        )
-    for resolution_index in range(3):
-        local = gradients.dn_dsigma * sigma_grad[resolution_index][cols]
-        jacobians.append(
-            sparse.csr_matrix((quotient(local), (rows, cols)), shape=shape)
-        )
-    return jacobians
+    bin_centers = 0.5 * (channel_edges_kev[:-1] + channel_edges_kev[1:])
+    starts, stops = support_bounds(bin_centers, deposition_centers, sigma, n_sigma)
+    lengths = np.maximum(stops - starts, 0)
+    total = int(lengths.sum())
+    offsets = np.cumsum(lengths) - lengths
+    rows = np.empty(total, dtype=np.int64)
+    cols = np.empty(total, dtype=np.int64)
+    values = np.empty(total, dtype=np.float64)
+    d_lo = np.empty(total, dtype=np.float64)
+    d_hi = np.empty(total, dtype=np.float64)
+    d_sigma = np.empty(total, dtype=np.float64)
+    normalized = np.empty((7, total), dtype=np.float64)
+    _fused_parameter_jacobian(
+        channel_edges_kev,
+        deposition_centers,
+        sigma,
+        float(n_sigma),
+        starts,
+        stops,
+        offsets,
+        edge_gradient,
+        sigma_grad,
+        rows,
+        cols,
+        values,
+        d_lo,
+        d_hi,
+        d_sigma,
+        normalized,
+    )
+    return [
+        csr_from_column_triples(rows, cols, normalized[parameter], shape)
+        for parameter in range(7)
+    ]
 
 
 def compose_parameter_jacobian(
     response_jacobian: list[sparse.csr_matrix],
     deposition_counts: NDArray[np.float64],
     column_totals: NDArray[np.float64],
+    *,
+    rows: slice | None = None,
+    columns: NDArray[np.int64] | None = None,
 ) -> list[sparse.csr_matrix]:
-    """``dR/dq = dC/dq . P`` with ``P = G / N`` (F-RESP-4)."""
+    """``dR/dq = dC/dq . P`` with ``P = G / N`` (F-RESP-4).
+
+    ``rows``/``columns`` optionally restrict the output to a channel row slice
+    and a set of primary columns; the caller then avoids composing and
+    discarding the full window (D-172). The default composes the full matrix.
+    """
     counts = as_float_array("deposition_counts", deposition_counts, ndim=2)
     totals = as_float_array("column_totals", column_totals, ndim=1)
     if totals.shape != (counts.shape[1],):
         raise ValidationError("column_totals must match deposition_counts columns")
     normalized = np.zeros_like(counts)
     np.divide(counts, totals[None, :], out=normalized, where=(totals > 0.0)[None, :])
-    return [sparse.csr_matrix(jacobian @ normalized) for jacobian in response_jacobian]
+    if columns is not None:
+        normalized = normalized[:, columns]
+    # A dense BLAS-3 product beats the sparse SpMM for these 2048-scale
+    # windowed Jacobians by ~4x (measured); only the selected rows are
+    # densified, so the transient is bounded by the window.
+    rows_selected = slice(None) if rows is None else rows
+    return [
+        sparse.csr_matrix(jacobian[rows_selected].toarray() @ normalized)
+        for jacobian in response_jacobian
+    ]
 
 
 def verify_response_columns(response: ResponseMatrix, *, strict: bool) -> NDArray[np.float64]:

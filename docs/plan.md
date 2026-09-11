@@ -222,7 +222,7 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-148 | `param_cov` axis bin labels are an always-on structural part of the calib product contract and are validated on every read (previously strict-only). |
 | D-149 | R2 updates `README.md` to the current implementation state. Any large-scale real end-to-end run (real CSV data, full source-mode simulation campaigns) requires prior user confirmation of parameters/budget; products are written under `work/` and are never deleted by tooling. |
 | D-150 | `core.solver.solve_nonnegative` gains an optional keyword-only `normal=(H, b, penalty_scale)` injection; the unfolding layer builds `normal_equations` once and passes it, so the solver no longer rebuilds the identical half-Hessian that F-UNC already needs. Behaviour is unchanged. |
-| D-151 | `uncertainty.simulation_mc_variance` keeps the exact free-set inverse `H_FF**-1` materialization (D-119). This is documented as a scale limitation: it is acceptable for the supported 2048-channel window (~32 MiB) but a band-only solve path is deferred to a later perf pass; no correctness shortcut is taken. |
+| D-151 | `uncertainty.simulation_mc_variance` keeps the exact free-set inverse `H_FF**-1` materialization (D-119). This is documented as a scale limitation: it is acceptable for the supported 2048-channel window (~32 MiB) but a band-only solve path is deferred to a later perf pass; no correctness shortcut is taken. **Superseded by D-173 (§1.16): the band-only streaming path is implemented and the full materialization is gone.** |
 | D-152 | Audit-only fields are retained deliberately and documented as such: `SpectrumProduct.source_file` (originating path), the unfold setting values recorded in the product meta, and the generator manifest `formula_ids`. They are provenance/audit records, not inputs to any numeric path; removing them would lose traceability. |
 | D-153 | Supersedes the "shared plotting code" clause of D-70: each figure module (`kc761/calib/plot.py`, `kc761/unfold/plot.py`) is a self-contained, legacy-faithful port of the pre-rewrite figure (same geometry, palette, log axes, legends, bands, output-format inference). The shared `kc761/plotting/` package is removed; the `DatasetDetail` gained plotting-only raw-MC/scale fields (`raw_mc_counts`, `raw_mc_uncertainties`, `scale_params`) populated in diagnostics, never in the fit. |
 
@@ -258,6 +258,57 @@ peaks. Full derivation and limits: `docs/derivations.md` F-SOLVE-4..6.
 | D-169 | The default data-side fractional systematic uncertainty is `syst_frac = 0.05` (5%) instead of 0.10; it is single-sourced as `core.uncertainty.DEFAULT_SYST_FRAC` and used by `DatasetSpec`, `UnfoldSettings`, `run_unfold`, the `--syst-frac` CLI default and the config loaders. Explicit per-dataset values are unchanged. |
 | D-170 | ROOT titles are display-only and human-readable (2026-09-11, user-approved): the axis canonical name travels in `fName` and its unit is derived from that name via `schema.axes.AXIS_UNITS`; `fTitle` is `Label (unit)` with no parentheses for unitless axes (`channel`/`counts`/`dimensionless`), and is never parsed. Histogram object titles are set from `schema.products.HUMAN_TITLES`. The naming table is fixed in `schema.axes.HUMAN_AXIS_LABELS` and `schema.products.HUMAN_TITLES`. |
 | D-171 | All product-writing commands validate their output targets before doing work (2026-09-11, user-approved, extends D-168): `unfold`, `compose`, `sim` (single-run), `calib`, `csv2root` and `subbkg` check the product target and, where a figure is produced by default, the figure target, through `schema.io.validate_output_path` (overwrite policy plus parent creation/writability), raising `UsageError` (exit 2). The `sim` config batch keeps its resume logic and does not pre-check skipped runs. |
+
+### 1.16 Performance pass P1 (2026-09-11, user-approved)
+
+Scope: implementation, data structures, caches, blocking and reduction order only.
+F-* definitions, runtime certificates, product contracts and defaults are
+unchanged. Only floating-point reduction order may differ (BLAS / numba
+reduction), which the existing tolerances, certificates and coverage checks
+already bound; no baseline or golden output defines correctness.
+
+| ID | Decision |
+|----|----------|
+| D-172 | Performance-pass umbrella; supersedes the "deferred" clause of D-151. The response kernel is assembled with a vectorised support pattern (one `searchsorted` over all columns plus one generated-expression call over the flattened entries); the generated kernels apply `sympy.cse`; the normal equations use dense BLAS above a measured crossover; `core._linalg` exposes a reusable `SpdFactor`; the active-set solver densifies a dense Hessian once and slices with `numpy.ix_`; `compose_parameter_jacobian` accepts the solve window; `simulation_mc_variance` uses the D-173 streaming path. Definitions and certificates are unchanged. |
+| D-173 | D-151 is implemented as a streaming F-UNC-2 path: the free-set system is factorized once and solved in blocks of `MC_BLOCK_COLUMNS = 128`, and block-local `P^T(a*g)`, `P^T g`, `P^T(g^2)` contractions replace the full `U (R^T W C)`. Neither `H_FF**-1` nor `U (R^T W C)` is materialized as a whole; the only dense `O(n^2)` object is the data-side `R^T W C`. Equivalence with the D-119 direct linearization holds at `rtol = 1e-9` including active bins (the reduced free-set inverse is the boundary convention). |
+| D-174 | numba is a hard dependency and every kernel (value F-KERN-2, derivatives F-KERN-4, quotient F-KERN-2/4) and model expression is generated from sympy by `tools/generate_kernels.py` (`_gen.kernel_expr.scalar_*`); no hand-written formula remains in the optimised paths. Both the response fill and the reported-basis Jacobian are fused `prange` (TBB) kernels; the Jacobian computes the F-RESP-4 chain, the seven per-column local-derivative sums and the generated quotient in a single pass per column, with no `7 x nnz` temporaries. There is **no small-input NumPy fallback or size threshold**: the fallback was removed because it only served toy sizes and the acceptance tests are production-scale. Disjoint per-column writes make both kernels bitwise reproducible across thread counts. Assembly uses `core._linalg.csr_from_column_triples` (direct CSC, no scipy COO sort) and `compose_parameter_jacobian` uses a dense BLAS-3 product (measured 4.2x faster than sparse at 2048). Measured at the 2048 scale: kernel fill 1.9x (Jacobian) / 4.1x (value) at 8 threads; fused Jacobian 2.3x/3.3x/9.2x at 1/8/32 threads; `calib` 12.85 s (NumPy, 1 thread) to ~6.5 s (numba, 32 threads, BLAS/OMP/MKL single-thread), χ² unchanged. Re-measured and rejected at production scale: a separate `prange` quotient over precomputed `7 x nnz` locals (regressed), an all-seven `np.add.reduceat` vectorisation (memory-bandwidth regression) and a shared `np.lexsort` (slower than scipy's counting sort). External QP solvers were prototyped as a replacement for the self-written active set and **rejected**: on a real-structured 2048-dimensional QP (`R = C G / N` window) OSQP needed tight tolerances plus polishing to satisfy F-SOLVE-3 — dense-`P` 77.6 s / 18125 iterations, sparse augmented form 826.9 s / 119600 — versus 1.67 s for the active set, and its `mu` differed by `O(1e3)` at equal objective because the windowed unfolding problem is rank deficient (`R` is 1399 x 2048, so `A = R^T W R` has rank <= 1399 and the `alpha D'^T D'` penalty does not fix every flat direction). `osqp`, `qpsolvers` and `threadpoolctl` are therefore **not** dependencies; BLAS/OMP/MKL threads remain controlled by the environment and numba `prange` is the only in-process parallelism. Parallelism is numba `prange` only; `multiprocessing` is not used because the independent products are too small for the pickling overhead. |
+| D-175 | The dense/sparse and factorization crossovers are single-sourced in `kc761.core._linalg`: `DENSE_LIMIT = 512`, `BAND_FRACTION = 4`, `DENSE_NORMAL_LIMIT = 8_000_000` entries and `DENSE_NORMAL_DENSITY = 0.05`. `prefer_dense_normal`/`prefer_dense_factor` are the only definitions of the policy and are shared by the solver, uncertainty propagation and the normal-equation product. |
+| D-176 | D-52 fail-fast now carries the requested memory estimate: `core.binning.channels_limit_message(n)` reports the size of one dense `n x n` float64 matrix, and `ChannelGrid` plus `run_matrix` use it. `MAX_CHANNELS` is unchanged at 4096; an 8192-bin request is rejected before any dense allocation. |
+| D-177 | Benchmarks live in `tools/benchmarks.py` (scenarios `kernel`, `calib`, `unfold`, `memory`, with RSS and optional `tracemalloc`). The `bench` pytest marker marks wall-clock cases; CI excludes it (`-m "not g4 and not root and not bench"`). Wall-clock is never a correctness gate. |
+| D-178 | Simulation micro-optimizations do not change F-SIM-4/5/7 or D-123: the Geant4 analysis manager, its fill callbacks, the primary-generator callables and the inverse-keV conversion are resolved once per worker/action instead of per event/step; the histogram merges accumulate in place. The F-SIM-7 seed chain and F-SIM-4 sampling are untouched, and the `g4` tests pass unchanged. |
+
+Measured on the development host with one BLAS/OMP/MKL thread, 2048-channel
+`work/` products (`work/calib/calib-2609a.root`,
+`work/sim/calib-2609a-plane-front-gamma-n100000000-s908136382.root`,
+`work/data/2609a/th232-260908-subbkg.root`):
+
+| Stage | Before | After | Change |
+|-------|-------:|------:|-------:|
+| kernel value build (4096 columns) | 0.28 s | 0.14 s | 1.9x |
+| kernel parameter Jacobian | 1.70 s | 0.53 s | 3.2x |
+| `calib` fit (4 datasets, 24 evals) | 44.5 s | 15.4 s | 2.9x |
+| `unfold` (α=0.1, 40–2800 keV) | 51.3 s | 7.1 s | 7.2x |
+| `unfold` peak RSS | 1241 MiB | 965 MiB | −22% |
+| non-G4 test suite | 96.6 s | 29.2 s | 3.3x |
+
+The `unfold` χ² is bit-for-bit unchanged (468.75666084442315) and the `calib`
+χ² agrees to ≤5e-15 relative.
+
+The numba kernel pass (D-174) on the same products, BLAS/OMP/MKL single-thread:
+
+| Stage | NumPy, 1 thread | numba+prange | Change |
+|-------|----------------:|-------------:|-------:|
+| kernel parameter Jacobian fill (3684 columns) | 0.139 s | 0.072 s | 1.9x |
+| kernel value fill | 0.168 s | 0.041 s | 4.1x |
+| `response_parameter_jacobian` inner (fused) | 0.396 s | 0.024 s (32 threads) | 9.2x |
+| `calib` fit (4 datasets, 24 evals) | 12.85 s | ~6.5 s (32 threads) | 2.0x |
+
+`prange` output is bitwise identical across thread counts; the `calib` χ² is
+unchanged (5112.3511587390). Production-scale equivalence and
+thread-determinism are pinned by
+`tests/test_core_optimization.py::test_fused_parameter_jacobian_matches_small_path_at_scale`
+and `...::test_fused_parameter_jacobian_is_thread_deterministic`; the rejected
+options above were re-measured on the same 2048-scale products.
 
 ## 2. Target architecture
 
