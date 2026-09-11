@@ -35,7 +35,9 @@ def manifest() -> dict:
     try:
         return json.loads((_HERE / MANIFEST_NAME).read_text(encoding="utf-8"))
     except FileNotFoundError as exc:  # pragma: no cover - corrupted checkout
-        raise Kc761toolError(f"generated kernel manifest is missing; run '{_COMMAND}'") from exc
+        raise Kc761toolError(
+            f"generated kernel manifest is missing; run '{_COMMAND}'"
+        ) from exc
 
 
 def stale_files() -> list[str]:
