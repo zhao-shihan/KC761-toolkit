@@ -6,10 +6,10 @@ from pathlib import Path
 
 import numpy as np
 
-from kc761.cli import main
-from kc761.schema.axes import channel_axis
-from kc761.schema.io import read_product, write_product
-from kc761.schema.products import (
+from kc761tool.cli import main
+from kc761tool.schema.axes import channel_axis
+from kc761tool.schema.io import read_product, write_product
+from kc761tool.schema.products import (
     SCHEMA_VERSION,
     Histogram1D,
     Provenance,

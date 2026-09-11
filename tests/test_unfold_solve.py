@@ -7,20 +7,20 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kc761.core.binning import ChannelGrid
-from kc761.core.response import slice_response
-from kc761.core.solver import RegularizationSpec, solve_nonnegative
-from kc761.errors import SolverError
-from kc761.unfold import run_unfold
-from kc761.unfold.compose import compose_from_products
-from kc761.unfold.inputs import (
+from kc761tool.core.binning import ChannelGrid
+from kc761tool.core.response import slice_response
+from kc761tool.core.solver import RegularizationSpec, solve_nonnegative
+from kc761tool.errors import SolverError
+from kc761tool.unfold import run_unfold
+from kc761tool.unfold.compose import compose_from_products
+from kc761tool.unfold.inputs import (
     covariance_matrix,
     internal_calibration,
     primary_edges_kev,
     resolution_params,
 )
-from kc761.unfold.selection import select_window
-from kc761.unfold.solve import exact_zero_columns, solve_window
+from kc761tool.unfold.selection import select_window
+from kc761tool.unfold.solve import exact_zero_columns, solve_window
 from tests.test_unfold_support import (
     N_CHANNELS,
     make_calib_product,
@@ -261,7 +261,7 @@ def test_solver_failure_leaves_no_product_or_part_file(
     data_path = write(tmp_path / "data.root", data)
     output = tmp_path / "unfold.root"
 
-    import kc761.unfold.solve as solve_module
+    import kc761tool.unfold.solve as solve_module
 
     def _fail(*args, **kwargs):
         raise SolverError("forced failure")

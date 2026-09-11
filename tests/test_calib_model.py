@@ -10,17 +10,17 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from kc761.calib.model import (
+from kc761tool.calib.model import (
     CalibrationModel,
     fixed_deposition_edges_kev,
 )
-from kc761.calib.types import DatasetSpec
-from kc761.core.binning import ChannelGrid
-from kc761.core.model import InternalCalibration
-from kc761.core.response import build_response_matrix
-from kc761.errors import ValidationError
-from kc761.schema.axes import channel_axis, energy_axis
-from kc761.schema.products import Histogram1D
+from kc761tool.calib.types import DatasetSpec
+from kc761tool.core.binning import ChannelGrid
+from kc761tool.core.model import InternalCalibration
+from kc761tool.core.response import build_response_matrix
+from kc761tool.errors import ValidationError
+from kc761tool.schema.axes import channel_axis, energy_axis
+from kc761tool.schema.products import Histogram1D
 from tests.test_calib_support import (
     FEATURES_MINI,
     Q_TRUE,

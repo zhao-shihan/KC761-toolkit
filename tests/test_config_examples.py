@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kc761.cli.config import (
+from kc761tool.cli.config import (
     load_calib_config,
     load_compose_config,
     load_sim_config,
     load_unfold_config,
 )
-from kc761.sim import MATRIX_MODE_NAMES, SOURCE_KEYS
-from kc761.sim.config import DEFAULT_SEED
+from kc761tool.sim import MATRIX_MODE_NAMES, SOURCE_KEYS
+from kc761tool.sim.config import DEFAULT_SEED
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 

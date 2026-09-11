@@ -7,10 +7,10 @@ import math
 import numpy as np
 import pytest
 
-from kc761 import errors
-from kc761.sim import sources
-from kc761.sim.detector import build_plane_gamma_source, build_sphere_gamma_source
-from kc761.sim.generator import (
+from kc761tool import errors
+from kc761tool.sim import sources
+from kc761tool.sim.detector import build_plane_gamma_source, build_sphere_gamma_source
+from kc761tool.sim.generator import (
     block_seed,
     column_seed,
     lambertian_cos_sin,

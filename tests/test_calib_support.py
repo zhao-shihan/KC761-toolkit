@@ -9,11 +9,11 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-from kc761.calib.model import CalibrationModel, fixed_deposition_edges_kev
-from kc761.calib.scaling import scale_curve
-from kc761.calib.types import DatasetSpec
-from kc761.schema.axes import channel_axis, energy_axis
-from kc761.schema.products import Histogram1D
+from kc761tool.calib.model import CalibrationModel, fixed_deposition_edges_kev
+from kc761tool.calib.scaling import scale_curve
+from kc761tool.calib.types import DatasetSpec
+from kc761tool.schema.axes import channel_axis, energy_axis
+from kc761tool.schema.products import Histogram1D
 
 Q_TRUE = np.array([-140.0, 1.5, 2.5, 3.5, 3.0, 22.0, 38.0])
 SCALE_TRUE = np.array([256.0, 0.9, 1.0, 1.1])

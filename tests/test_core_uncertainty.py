@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 from scipy import sparse
 
-from kc761.core import solver, uncertainty
-from kc761.core.response import ResponseMatrix
-from kc761.errors import CertificateError
+from kc761tool.core import solver, uncertainty
+from kc761tool.core.response import ResponseMatrix
+from kc761tool.errors import CertificateError
 
 
 def test_statistical_band_for_identity_response() -> None:

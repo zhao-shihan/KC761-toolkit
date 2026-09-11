@@ -1,4 +1,4 @@
-# kc761 sim batch config (D-134..D-138): serial runs, one fresh process each.
+# kc761tool sim batch config (D-134..D-138): serial runs, one fresh process each.
 config_version = 1
 
 [sim]

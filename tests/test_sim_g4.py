@@ -12,10 +12,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kc761.core.binning import SOURCE_MODE_DEPOSITION_BINS
-from kc761.schema import io
-from kc761.schema.products import McSpectrumProduct, SimProduct
-from kc761.sim import DEFAULT_SEED, certificates, runner
+from kc761tool.core.binning import SOURCE_MODE_DEPOSITION_BINS
+from kc761tool.schema import io
+from kc761tool.schema.products import McSpectrumProduct, SimProduct
+from kc761tool.sim import DEFAULT_SEED, certificates, runner
 from tests.fixtures import synthetic
 
 pytestmark = [
@@ -160,8 +160,8 @@ def test_matrix_folds_out_of_range_deposits_into_zero(tmp_path: Path) -> None:
     # Decision 1 makes the deposition axis channel-derived, so its first edge
     # can exceed 0 keV; out-of-range deposits must be undetected (zero) rather
     # than lost to G4 under/overflow, or F-SIM-1 fails.
-    from kc761.calib.product import build_calib_product
-    from kc761.schema.io import build_provenance
+    from kc761tool.calib.product import build_calib_product
+    from kc761tool.schema.io import build_provenance
 
     provenance = build_provenance(
         producer="test", command="test", arguments=(), inputs=[]

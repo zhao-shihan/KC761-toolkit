@@ -16,12 +16,12 @@ import numpy as np
 import pytest
 from scipy import sparse
 
-from kc761.core import kernel, model, response
-from kc761.core._gen import kernel_expr, model_expr
-from kc761.core._linalg import weighted_normal_and_rhs
-from kc761.core.binning import ChannelGrid
-from kc761.core.response import ResponseMatrix
-from kc761.core.uncertainty import simulation_mc_variance
+from kc761tool.core import kernel, model, response
+from kc761tool.core._gen import kernel_expr, model_expr
+from kc761tool.core._linalg import weighted_normal_and_rhs
+from kc761tool.core.binning import ChannelGrid
+from kc761tool.core.response import ResponseMatrix
+from kc761tool.core.uncertainty import simulation_mc_variance
 
 
 def _per_column_triples(
@@ -165,8 +165,8 @@ def test_streaming_mc_variance_with_active_bins_matches_direct() -> None:
 
 @pytest.mark.bench
 @pytest.mark.skipif(
-    os.environ.get("KC761_RUN_BENCH") != "1",
-    reason="benchmark case; set KC761_RUN_BENCH=1 and select -m bench",
+    os.environ.get("KC761TOOL_RUN_BENCH") != "1",
+    reason="benchmark case; set KC761TOOL_RUN_BENCH=1 and select -m bench",
 )
 def test_bench_vectorized_kernel_small() -> None:
     """Record a small kernel timing; excluded from the correctness CI."""

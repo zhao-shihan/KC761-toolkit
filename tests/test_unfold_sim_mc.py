@@ -12,8 +12,8 @@ from __future__ import annotations
 import numpy as np
 from scipy import sparse
 
-from kc761.core.response import ResponseMatrix
-from kc761.core.uncertainty import simulation_mc_variance
+from kc761tool.core.response import ResponseMatrix
+from kc761tool.core.uncertainty import simulation_mc_variance
 
 
 def _direct_reference(

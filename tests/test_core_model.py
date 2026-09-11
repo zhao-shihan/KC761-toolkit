@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from kc761.core import model
-from kc761.errors import CertificateError
+from kc761tool.core import model
+from kc761tool.errors import CertificateError
 
 
 def _calibration() -> model.InternalCalibration:

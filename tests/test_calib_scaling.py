@@ -12,14 +12,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from kc761.calib.scaling import (
+from kc761tool.calib.scaling import (
     N_SCALE,
     scale_bounds,
     scale_curve,
     scale_curve_grad,
     scale_names,
 )
-from kc761.errors import ValidationError
+from kc761tool.errors import ValidationError
 
 
 def test_bounds_cover_s0_and_values() -> None:

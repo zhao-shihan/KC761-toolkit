@@ -1,4 +1,4 @@
-# kc761 unfold config (D-139/D-154/D-169).
+# kc761tool unfold config (D-139/D-154/D-169).
 # Full mode: needs data, calib, sim, the energy window and alpha.
 # calib_only = true: relabel the channel axis to energy; omit sim/alpha/energy_low/energy_high.
 config_version = 1

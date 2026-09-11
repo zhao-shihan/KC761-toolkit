@@ -2,7 +2,7 @@
 
 These tests freeze the behavior that ``docs/formats.md`` section 6 records:
 uproot's tuple histogram syntax cannot carry ``fSumw2``, while the model
-constructors used by ``kc761.schema._uproot`` can; metadata is written as an
+constructors used by ``kc761tool.schema._uproot`` can; metadata is written as an
 RNTuple (D-12 as revised) via the explicit ``mkrntuple`` call.
 """
 
@@ -14,9 +14,9 @@ import numpy as np
 import pytest
 import uproot
 
-from kc761.schema import _uproot
-from kc761.schema.axes import UNIT_KEV, energy_axis
-from kc761.schema.products import Histogram1D, Histogram2D
+from kc761tool.schema import _uproot
+from kc761tool.schema.axes import UNIT_KEV, energy_axis
+from kc761tool.schema.products import Histogram1D, Histogram2D
 
 
 def _energy_axis(start: float, stop: float, n_bins: int, name: str):

@@ -19,11 +19,11 @@ import pytest
 import uproot
 from uproot.writing.identify import to_TAxis, to_TH2x
 
-from kc761.core.model import PARAM_NAMES_REPORTED
-from kc761.errors import CertificateError, SchemaError
-from kc761.schema import _uproot, io
-from kc761.schema.axes import Axis, channel_axis, energy_axis, reported_parameter_axis
-from kc761.schema.products import (
+from kc761tool.core.model import PARAM_NAMES_REPORTED
+from kc761tool.errors import CertificateError, SchemaError
+from kc761tool.schema import _uproot, io
+from kc761tool.schema.axes import Axis, channel_axis, energy_axis, reported_parameter_axis
+from kc761tool.schema.products import (
     OBJ_DEPOSITION_TO_CHANNEL,
     OBJ_PARAM_COV,
     CalibProduct,

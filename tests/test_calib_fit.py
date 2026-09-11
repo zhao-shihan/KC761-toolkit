@@ -11,15 +11,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kc761.calib.fit import STATUS_CONVERGED, STATUS_STOPPED, _scale_bound_flags, run_fit
-from kc761.calib.model import N_CORE, CalibrationModel, fixed_deposition_edges_kev
-from kc761.calib.scaling import scale_curve
-from kc761.calib.types import DatasetSpec, FitSettings
-from kc761.core.model import InternalCalibration, internal_to_reported
-from kc761.errors import SolverError, UsageError, ValidationError
-from kc761.schema.axes import energy_axis
-from kc761.schema.io import read_product
-from kc761.schema.products import CalibProduct, Histogram1D
+from kc761tool.calib.fit import STATUS_CONVERGED, STATUS_STOPPED, _scale_bound_flags, run_fit
+from kc761tool.calib.model import N_CORE, CalibrationModel, fixed_deposition_edges_kev
+from kc761tool.calib.scaling import scale_curve
+from kc761tool.calib.types import DatasetSpec, FitSettings
+from kc761tool.core.model import InternalCalibration, internal_to_reported
+from kc761tool.errors import SolverError, UsageError, ValidationError
+from kc761tool.schema.axes import energy_axis
+from kc761tool.schema.io import read_product
+from kc761tool.schema.products import CalibProduct, Histogram1D
 from tests.test_calib_support import (
     FEATURES_MINI,
     FEATURES_SMALL,
@@ -74,7 +74,7 @@ def test_product_roundtrip_and_metadata(tmp_path: Path) -> None:
         output=output,
         strict=True,
         plot=False,
-        command="kc761 calib --data data.root",
+        command="kc761tool calib --data data.root",
         arguments=(("--data", "data.root"),),
     )
     assert output.is_file()
@@ -154,7 +154,7 @@ def test_plot_is_written_and_refuses_overwrite(tmp_path: Path) -> None:
     result = run_fit([spec], output=output, plot=True)
     assert result.plot_path is not None
     assert result.plot_path.is_file()
-    from kc761.errors import UsageError
+    from kc761tool.errors import UsageError
 
     with pytest.raises(UsageError, match="refusing to overwrite"):
         run_fit([spec], output=output, plot=True, force=True)

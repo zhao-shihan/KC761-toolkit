@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from kc761.cli import main
-from kc761.schema.io import input_sha256, read_product, sha256_file, write_product
+from kc761tool.cli import main
+from kc761tool.schema.io import input_sha256, read_product, sha256_file, write_product
 from tests.fixtures import synthetic
 
 

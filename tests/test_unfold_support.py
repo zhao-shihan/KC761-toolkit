@@ -14,12 +14,12 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from kc761.calib.product import build_calib_product
-from kc761.core.model import InternalCalibration
-from kc761.core.response import compose_response
-from kc761.schema.axes import channel_axis, energy_axis
-from kc761.schema.io import write_product
-from kc761.schema.products import (
+from kc761tool.calib.product import build_calib_product
+from kc761tool.core.model import InternalCalibration
+from kc761tool.core.response import compose_response
+from kc761tool.schema.axes import channel_axis, energy_axis
+from kc761tool.schema.io import write_product
+from kc761tool.schema.products import (
     SCHEMA_VERSION,
     CalibProduct,
     Histogram1D,
@@ -28,7 +28,7 @@ from kc761.schema.products import (
     SimProduct,
     SpectrumProduct,
 )
-from kc761.unfold.compose import response_from_product
+from kc761tool.unfold.compose import response_from_product
 
 SEED = 20260910
 N_CHANNELS = 32
@@ -86,7 +86,7 @@ def make_calib_product(*, strict: bool = False) -> CalibProduct:
 
 
 def calibration(product: CalibProduct) -> InternalCalibration:
-    from kc761.core.model import ReportedCalibration, reported_to_internal
+    from kc761tool.core.model import ReportedCalibration, reported_to_internal
 
     return reported_to_internal(
         ReportedCalibration.from_array(np.asarray(product.params_reported)),

@@ -10,10 +10,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kc761 import __version__, errors, runtime
-from kc761.core import model
-from kc761.schema import products
-from kc761.schema.axes import Axis, channel_axis
+from kc761tool import __version__, errors, runtime
+from kc761tool.core import model
+from kc761tool.schema import products
+from kc761tool.schema.axes import Axis, channel_axis
 from tests.fixtures import synthetic
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,9 +32,9 @@ def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_contract_imports_do_not_pull_geant4() -> None:
-    import kc761.cli  # noqa: F401
-    import kc761.core.response  # noqa: F401
-    import kc761.schema.io  # noqa: F401
+    import kc761tool.cli  # noqa: F401
+    import kc761tool.core.response  # noqa: F401
+    import kc761tool.schema.io  # noqa: F401
 
     assert not any(name.startswith("geant4") for name in sys.modules)
 
@@ -51,10 +51,10 @@ def test_core_numerics_are_implemented() -> None:
 
 def test_error_hierarchy() -> None:
     error = errors.CertificateError("F-MODEL-5", "negative variance")
-    assert isinstance(error, errors.Kc761Error)
+    assert isinstance(error, errors.Kc761toolError)
     assert error.formula_id == "F-MODEL-5"
     assert str(error) == "[F-MODEL-5] negative variance"
-    assert issubclass(errors.UsageError, errors.Kc761Error)
+    assert issubclass(errors.UsageError, errors.Kc761toolError)
 
 
 def test_strict_mode_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -74,7 +74,7 @@ def test_logging_format(capfd: pytest.CaptureFixture[str]) -> None:
     logger = runtime.configure_logging("contract-test")
     logger.info("hello %s", "world")
     captured = capfd.readouterr()
-    assert "[kc761.contract-test] info: hello world" in captured.err
+    assert "[kc761tool.contract-test] info: hello world" in captured.err
 
 
 def test_axis_contract() -> None:
@@ -116,22 +116,22 @@ def test_synthetic_fixtures_are_consistent() -> None:
 
 
 def test_cli_help_via_launcher() -> None:
-    result = _run_cli("kc761.py", "--help")
+    result = _run_cli("kc761tool.py", "--help")
     assert result.returncode == 0, result.stderr
     for command in ("calib", "unfold", "sim", "compose", "csv2root", "subbkg"):
         assert command in result.stdout
-    assert __version__ in _run_cli("kc761.py", "--version").stdout
+    assert __version__ in _run_cli("kc761tool.py", "--version").stdout
 
 
 def test_cli_help_via_module() -> None:
-    result = _run_cli("-m", "kc761", "--help")
+    result = _run_cli("-m", "kc761tool", "--help")
     assert result.returncode == 0, result.stderr
     assert "unfold" in result.stdout
 
 
 def test_cli_compose_missing_inputs_is_a_prefixed_runtime_failure() -> None:
     result = _run_cli(
-        "kc761.py",
+        "kc761tool.py",
         "compose",
         "--calib",
         "calib.root",
@@ -139,12 +139,12 @@ def test_cli_compose_missing_inputs_is_a_prefixed_runtime_failure() -> None:
         "sim.root",
     )
     assert result.returncode == 1
-    assert "[kc761.compose] error:" in result.stderr
+    assert "[kc761tool.compose] error:" in result.stderr
 
 
 def test_cli_unfold_alpha_is_mandatory() -> None:
     result = _run_cli(
-        "kc761.py",
+        "kc761tool.py",
         "unfold",
         "--data",
         "data.root",
@@ -164,7 +164,7 @@ def test_cli_unfold_alpha_is_mandatory() -> None:
 def test_cli_strict_env_and_flag_are_accepted() -> None:
     env = {**os.environ, "PYTHONPATH": str(ROOT), runtime.STRICT_ENV_VAR: "1"}
     result = subprocess.run(
-        [sys.executable, "kc761.py", "subbkg", "--sig", "a.root", "--bkg", "b.root"],
+        [sys.executable, "kc761tool.py", "subbkg", "--sig", "a.root", "--bkg", "b.root"],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -172,4 +172,4 @@ def test_cli_strict_env_and_flag_are_accepted() -> None:
         check=False,
     )
     assert result.returncode == 1
-    assert "[kc761.subbkg] error:" in result.stderr
+    assert "[kc761tool.subbkg] error:" in result.stderr

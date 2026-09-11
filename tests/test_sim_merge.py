@@ -8,12 +8,12 @@ import numpy as np
 import pytest
 import uproot
 
-from kc761 import errors
-from kc761.schema import _uproot
-from kc761.schema.axes import energy_axis
-from kc761.schema.products import Histogram1D, Histogram2D
-from kc761.sim import runner
-from kc761.sim.config import MATRIX_HIST_NAME, SPECTRUM_HIST_NAME, ZERO_DEPOSITION_HIST_NAME
+from kc761tool import errors
+from kc761tool.schema import _uproot
+from kc761tool.schema.axes import energy_axis
+from kc761tool.schema.products import Histogram1D, Histogram2D
+from kc761tool.sim import runner
+from kc761tool.sim.config import MATRIX_HIST_NAME, SPECTRUM_HIST_NAME, ZERO_DEPOSITION_HIST_NAME
 
 
 def _deposition_axis():

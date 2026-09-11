@@ -21,13 +21,13 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-from kc761.schema.axes import (
+from kc761tool.schema.axes import (
     Axis,
     channel_axis,
     energy_axis,
     reported_parameter_axis,
 )
-from kc761.schema.products import (
+from kc761tool.schema.products import (
     SCHEMA_VERSION,
     CalibProduct,
     ComposeProduct,

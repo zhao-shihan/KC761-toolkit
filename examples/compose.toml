@@ -1,4 +1,4 @@
-# kc761 compose config (D-139/D-166).
+# kc761tool compose config (D-139/D-166).
 config_version = 1
 
 [compose]

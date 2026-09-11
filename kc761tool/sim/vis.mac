@@ -1,0 +1,62 @@
+# Visualization settings for the kc761tool simulation.
+# This macro lives inside kc761tool/sim so the interactive session can execute it
+# with an absolute path from any working directory.
+
+# Open an OpenGL viewer window.
+/vis/open OGL 800x600-0+0
+#
+# Disable auto refresh and quieten vis messages while scene and trajectories
+# are established.
+/vis/viewer/set/autoRefresh false
+/vis/verbose errors
+#
+# Store one trajectory per event so the drawn tracks last one event.
+/tracking/storeTrajectory 1
+#
+# Draw geometry
+/vis/drawVolume
+#
+# Specify view angle
+/vis/viewer/set/upVector 0 0 1
+/vis/viewer/set/viewpointVector 1 0.75 0.5
+/vis/viewer/set/lightsVector 1 0 0
+#
+# Style (surface, wireframe, auxiliary edges, ...)
+/vis/viewer/set/style wireframe
+/vis/viewer/set/auxiliaryEdge true
+#
+# Draw smooth trajectories at end of event, showing trajectory points as
+# markers 2 pixels wide.
+/vis/scene/add/trajectories smooth
+/vis/modeling/trajectories/create/drawByCharge
+/vis/modeling/trajectories/drawByCharge-0/default/setDrawStepPts true
+/vis/modeling/trajectories/drawByCharge-0/default/setStepPtsSize 2
+#
+# To superimpose all of the events from a given run
+/vis/scene/endOfEventAction accumulate
+#
+# Decorations
+/vis/scene/add/eventID
+/vis/scene/add/date
+/vis/scene/add/axes 0 0 0 5 cm
+#
+# Semi-transparent rendering of all geometry, so that the crystal inside the
+# housing and the source inside its container remain visible.
+# "colour" is the Geant4 UI command name and is kept verbatim (D-182); it is
+# not one of this repository's own identifiers.
+/vis/geometry/set/visibility World 0 false
+/vis/geometry/set/colour Housing 0 1 1 0 0.5
+/vis/geometry/set/colour Crystal 0 1 1 0 1
+/vis/geometry/set/colour Source 0 1 1 1 0.5
+/vis/geometry/set/colour SourceCladFront 0 1 0.84 0 0.5
+/vis/geometry/set/colour SourceCladBack 0 1 0.84 0 0.5
+/vis/geometry/set/colour SourceTube 0 0 1 1 0.5
+/vis/geometry/set/colour SourceCupWall 0 0 1 1 0.5
+/vis/geometry/set/colour SourceCupBottom 0 0 1 1 0.5
+/vis/geometry/set/colour BetaShieldPlate 0 0.5 0.5 1 0.5
+/vis/geometry/set/colour BetaShieldBumpA 0 0.5 0.5 1 0.5
+/vis/geometry/set/colour BetaShieldBumpB 0 0.5 0.5 1 0.5
+#
+# Re-establish auto refreshing and verbosity
+/vis/viewer/set/autoRefresh true
+/vis/verbose warnings

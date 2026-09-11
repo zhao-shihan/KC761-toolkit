@@ -8,18 +8,18 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kc761 import errors
-from kc761.core import binning
-from kc761.schema import io
-from kc761.schema.axes import energy_axis
-from kc761.schema.products import (
+from kc761tool import errors
+from kc761tool.core import binning
+from kc761tool.schema import io
+from kc761tool.schema.axes import energy_axis
+from kc761tool.schema.products import (
     SCHEMA_VERSION,
     Histogram1D,
     InputFingerprint,
     McSpectrumProduct,
     Provenance,
 )
-from kc761.sim import certificates
+from kc761tool.sim import certificates
 from tests.fixtures import synthetic
 
 
@@ -88,7 +88,7 @@ def test_mc_spectrum_requires_the_fixed_source_mode_variance(tmp_path: Path) -> 
 
 
 def test_mc_spectrum_axis_must_be_energy(tmp_path: Path) -> None:
-    from kc761.schema.axes import channel_axis
+    from kc761tool.schema.axes import channel_axis
 
     product = _mc_spectrum_product()
     bad = replace(

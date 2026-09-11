@@ -909,7 +909,7 @@ diverge from them. Four mechanisms enforce that:
 
 1. **Symbolic generation (D-77).** `tools/generate_kernels.py` renders the
    energy model, resolution model, kernel and all their derivatives from
-   `sympy.diff` into `kc761/core/_gen/`, with a header recording the sympy
+   `sympy.diff` into `kc761tool/core/_gen/`, with a header recording the sympy
    version, the formula IDs and the exact command line. **Value and derivative
    always come from the same symbolic expression**; a hand-written derivative
    of a registered formula is a contract violation. The generator writes no
@@ -933,7 +933,7 @@ baselines (D-65). pytest/hypothesis encode invariants; they do not define them.
 
 ## 11. Runtime certificates
 
-Strict mode (`--strict` or `KC761_STRICT=1`) runs every suite below and aborts
+Strict mode (`--strict` or `KC761TOOL_STRICT=1`) runs every suite below and aborts
 on violation. Always-on schema, shape, unit and finiteness validation runs in
 both modes and cannot be disabled (D-62).
 
@@ -960,8 +960,8 @@ both modes and cannot be disabled (D-62).
 ## 12. Running
 
 ```bash
-python kc761.py --help
-python -m kc761 --help
+python kc761tool.py --help
+python -m kc761tool --help
 ```
 
 | Subcommand | Mathematical role |
@@ -987,8 +987,8 @@ its output and figure targets before starting work, so an existing file is
 refused up front rather than after a long run (D-171).
 
 ```bash
-python kc761.py unfold --strict ...        # every certificate
-KC761_STRICT=1 python kc761.py unfold ...  # same, via the environment
+python kc761tool.py unfold --strict ...        # every certificate
+KC761TOOL_STRICT=1 python kc761tool.py unfold ...  # same, via the environment
 ```
 
 ## 13. Configuration files
@@ -1041,13 +1041,13 @@ ruff check .
 pytest -q -m "not g4 and not root"        # 356 passed, 1 bench case skipped
 pytest -q tests/test_sim_g4.py            # needs geant4-pybind
 python tools/check_single_source.py       # the single-source gate
-python tools/generate_kernels.py          # regenerate kc761/core/_gen (committed)
+python tools/generate_kernels.py          # regenerate kc761tool/core/_gen (committed)
 python tools/benchmarks.py --scenario all # wall-clock, never a gate
-python kc761.py sim --dry-run ...         # print the resolved run, no side effects
+python kc761tool.py sim --dry-run ...         # print the resolved run, no side effects
 ```
 
 `g4`- and `root`-marked tests are skipped when the corresponding framework is
-unavailable, and `bench`-marked cases only run with `KC761_RUN_BENCH=1`. The
+unavailable, and `bench`-marked cases only run with `KC761TOOL_RUN_BENCH=1`. The
 performance crossovers and their measured before/after numbers are registered
 in [docs/plan.md](docs/plan.md) section 1.16.
 
@@ -1057,32 +1057,32 @@ For reference, the verification commands CI runs are:
 ruff check .
 pytest -q -m "not g4 and not root"
 python tools/check_single_source.py
-python kc761.py --help
-python -m kc761 --help
-for c in calib compose sim unfold; do python kc761.py "$c" -c "examples/$c.toml" --dry-run; done
+python kc761tool.py --help
+python -m kc761tool --help
+for c in calib compose sim unfold; do python kc761tool.py "$c" -c "examples/$c.toml" --dry-run; done
 ```
 
 ## 17. Repository layout
 
 | Path | Content |
 |------|---------|
-| `kc761.py`, `kc761/__main__.py` | entry points |
-| `kc761/core/model.py` | energy calibration (dual basis), resolution, certificates (F-MODEL-1..5) |
-| `kc761/core/binning.py` | channel/energy grids, working window and pad, fixed MC axis (F-BIN-1..4) |
-| `kc761/core/kernel.py` | exact Gaussian bin integrals, taper, sparse assembly (F-KERN-1..4) |
-| `kc761/core/response.py` | `C`, `R`, window slicing, response Jacobian (F-RESP-1..4) |
-| `kc761/core/solver.py` | Tikhonov objective, SNIP mask, active-set QP, KKT (F-SOLVE-1..6) |
-| `kc761/core/covariance.py` | Fisher information, `s^2` scaling, profile diagnostic (F-COV-1..3) |
-| `kc761/core/uncertainty.py` | stat/syst propagation, streaming MC term, bands (F-UNC-1..3) |
-| `kc761/core/projection.py` | overlap projections and variance propagation (F-PROJ-1..2) |
-| `kc761/core/_linalg.py` | shared SPD factorization policy (dense/banded/sparse crossovers) |
-| `kc761/core/_gen/` | committed sympy-generated kernels, manifest and freshness check |
-| `kc761/schema/` | product contracts, axes, uproot IO and certificates (F-IO-1) |
-| `kc761/calib/` | calibration fit, Bezier scale, covariance, product export (F-CAL-1..5) |
-| `kc761/unfold/` | selection, compose, solve, orchestration (F-UNF-1..6) |
-| `kc761/sim/` | Geant4 detector, sources, sampling, certificates (F-SIM-1..7) |
-| `kc761/*/plot.py` | self-contained figures (D-153) |
-| `kc761/cli/` | CLI, config-file mode and per-command wiring |
+| `kc761tool.py`, `kc761tool/__main__.py` | entry points |
+| `kc761tool/core/model.py` | energy calibration (dual basis), resolution, certificates (F-MODEL-1..5) |
+| `kc761tool/core/binning.py` | channel/energy grids, working window and pad, fixed MC axis (F-BIN-1..4) |
+| `kc761tool/core/kernel.py` | exact Gaussian bin integrals, taper, sparse assembly (F-KERN-1..4) |
+| `kc761tool/core/response.py` | `C`, `R`, window slicing, response Jacobian (F-RESP-1..4) |
+| `kc761tool/core/solver.py` | Tikhonov objective, SNIP mask, active-set QP, KKT (F-SOLVE-1..6) |
+| `kc761tool/core/covariance.py` | Fisher information, `s^2` scaling, profile diagnostic (F-COV-1..3) |
+| `kc761tool/core/uncertainty.py` | stat/syst propagation, streaming MC term, bands (F-UNC-1..3) |
+| `kc761tool/core/projection.py` | overlap projections and variance propagation (F-PROJ-1..2) |
+| `kc761tool/core/_linalg.py` | shared SPD factorization policy (dense/banded/sparse crossovers) |
+| `kc761tool/core/_gen/` | committed sympy-generated kernels, manifest and freshness check |
+| `kc761tool/schema/` | product contracts, axes, uproot IO and certificates (F-IO-1) |
+| `kc761tool/calib/` | calibration fit, Bezier scale, covariance, product export (F-CAL-1..5) |
+| `kc761tool/unfold/` | selection, compose, solve, orchestration (F-UNF-1..6) |
+| `kc761tool/sim/` | Geant4 detector, sources, sampling, certificates (F-SIM-1..7) |
+| `kc761tool/*/plot.py` | self-contained figures (D-153) |
+| `kc761tool/cli/` | CLI, config-file mode and per-command wiring |
 | `tools/` | kernel generation, the single-source gate and the timing tool |
 | `examples/` | shipped TOML configuration examples |
 | `tests/` | auxiliary tests and deterministic fixtures |

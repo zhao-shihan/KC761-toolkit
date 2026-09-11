@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 from scipy import optimize, sparse
 
-from kc761.core import solver
-from kc761.errors import ValidationError
+from kc761tool.core import solver
+from kc761tool.errors import ValidationError
 
 
 def _problem(seed: int = 0, m: int = 12, n: int = 6):

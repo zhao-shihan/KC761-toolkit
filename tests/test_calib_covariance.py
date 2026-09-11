@@ -10,10 +10,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from kc761.calib.covariance import calibration_covariance
-from kc761.calib.fit import run_fit
-from kc761.core.covariance import fisher_information
-from kc761.core.model import InternalCalibration, internal_jacobian, internal_to_reported
+from kc761tool.calib.covariance import calibration_covariance
+from kc761tool.calib.fit import run_fit
+from kc761tool.core.covariance import fisher_information
+from kc761tool.core.model import InternalCalibration, internal_jacobian, internal_to_reported
 from tests.test_calib_support import FEATURES_SMALL, Q_TRUE, make_dataset
 
 N_CHANNELS = 256

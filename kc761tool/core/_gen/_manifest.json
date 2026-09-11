@@ -1,0 +1,19 @@
+{
+  "command": "python tools/generate_kernels.py",
+  "formula_ids": [
+    "F-MODEL-1",
+    "F-MODEL-2",
+    "F-MODEL-3",
+    "F-MODEL-4",
+    "F-KERN-1",
+    "F-KERN-2",
+    "F-KERN-4"
+  ],
+  "generator_sha256": "3ec34685fa02a9f2ad8df102c4e70674596122d63ba007bcc1c4fc1559f574e8",
+  "modules": {
+    "__init__.py": "364473b42d8b09f2a8391f3ea38bf3edd6913b0491aa97d1c4b81426100a8c5f",
+    "kernel_expr.py": "ada0ac347da44757e168ceffe873f7ea2fba33e3fe28b159906184bd6fc55a9b",
+    "model_expr.py": "69d5a06700d6ff7f0aedfca35fa37dc668b9576dd55b46d74aca7b1d95f93e48"
+  },
+  "sympy_version": "1.14.0"
+}

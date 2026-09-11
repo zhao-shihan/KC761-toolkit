@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from kc761.cli.config import (
+from kc761tool.cli.config import (
     load_calib_config,
     load_compose_config,
     load_sim_config,
     load_unfold_config,
 )
-from kc761.errors import UsageError
+from kc761tool.errors import UsageError
 
 SOURCES = (
     "k40",

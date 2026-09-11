@@ -1,8 +1,8 @@
 # Product formats
 
 Status: **final**. The container names and the `meta` field
-list below are the frozen contract implemented by `kc761/schema/products.py` and
-`kc761/schema/io.py`; the low-level primitives in `kc761/schema/_uproot.py`
+list below are the frozen contract implemented by `kc761tool/schema/products.py` and
+`kc761tool/schema/io.py`; the low-level primitives in `kc761tool/schema/_uproot.py`
 were verified by the uproot spike (section 6). Object names and units are single
 sourced in `products.py` / `axes.py` (AGENTS hard rule 11).
 
@@ -126,7 +126,7 @@ no missing and no extra field (`SchemaError` otherwise). The complete list:
   (D-120).
 
 The former `calib_sha256`/`sim_sha256` fields are removed (D-89). Every input
-fingerprint is in `inputs_json`; `kc761/schema/io.py` exposes `fingerprint_for`
+fingerprint is in `inputs_json`; `kc761tool/schema/io.py` exposes `fingerprint_for`
 and `input_sha256` to look a digest up by path.
 
 Array-valued metadata (for example per-column information) must use a
@@ -138,7 +138,7 @@ one RNTuple must have equal length).
 Every product records (D-18): git revision and dirty flag, Python version,
 versions of the dependencies actually used, sha256 of every input file, the
 full command line, and a UTC timestamp. Provenance is written into the `meta`
-RNTuple; `kc761/schema/io.py` assembles it in one place. A non-git working
+RNTuple; `kc761tool/schema/io.py` assembles it in one place. A non-git working
 directory records `git_revision = "unknown"` and `git_dirty = 0` with one
 warning and does not abort (D-93).
 
@@ -157,7 +157,7 @@ Verified with `uproot 5.7.6`, `numpy 2.5.3`, Python 3.14.7 (the code targets
    `uproot.writing.identify.to_TH1x` / `to_TH2x` (with `to_TAxis` for the
    axes). `data` and `fSumw2` must use the same flow-padded layout; for TH2D
    the layout is the transposed, flattened array
-   (`with_flow.T.reshape(-1)`). `kc761/schema/_uproot.py` encapsulates this.
+   (`with_flow.T.reshape(-1)`). `kc761tool/schema/_uproot.py` encapsulates this.
 4. Reading: `values()` excludes flow bins; `errors()` returns
    `sqrt(fSumw2)` when the object has a variance buffer. `member("fSumw2")`
    never raises; use `len(hist.member("fSumw2")) > 0` to detect the buffer.
@@ -175,7 +175,7 @@ Verified with `uproot 5.7.6`, `numpy 2.5.3`, Python 3.14.7 (the code targets
    `uproot.writing.identify.to_THashList` / `to_TObjString`; `param_cov` uses
    them for `c0 c1 c2 c3 b0 b1 b2`. The canonical axis name travels in the axis
    `fName` and its unit is derived from that name through
-   `kc761.schema.axes.AXIS_UNITS`; the axis `fTitle` is a human-readable display
+   `kc761tool.schema.axes.AXIS_UNITS`; the axis `fTitle` is a human-readable display
    label (`Energy (keV)`, `Channel`) and is never parsed (D-170). ROOT object
    titles are human-readable as well (`HUMAN_TITLES`). **Reading variances uses the raw `fSumw2`
    buffer, not `errors()**2`, so `write -> read` is bit exact.**
@@ -190,9 +190,9 @@ the product kind exactly; duplicate on-disk object versions are rejected.
 
 ### 7.1 Command surface and exit codes
 
-`kc761` has six subcommands (`calib`, `unfold`, `sim`, `compose`, `csv2root`,
+`kc761tool` has six subcommands (`calib`, `unfold`, `sim`, `compose`, `csv2root`,
 `subbkg`; D-66). Exit codes are 0 success, 1 runtime failure, 2 usage error
-(D-68); every failure is logged as `[kc761.<command>] error: ...` (D-67).
+(D-68); every failure is logged as `[kc761tool.<command>] error: ...` (D-67).
 `sim`, `calib`, `compose` and `unfold` additionally accept `-c/--config FILE`
 and `--dry-run`; `csv2root` and `subbkg` take no config file (D-129).
 

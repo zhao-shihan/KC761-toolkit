@@ -1,4 +1,4 @@
-# kc761 calib config (D-139/D-169): one shared fit over the listed datasets.
+# kc761tool calib config (D-139/D-169): one shared fit over the listed datasets.
 config_version = 1
 
 [calib]

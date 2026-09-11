@@ -92,7 +92,7 @@ def _calib_rows() -> list[tuple[str, str, str, int, int]]:
 
 
 def _calib_specs():  # noqa: ANN202 - DatasetSpec tuple
-    from kc761.cli.calib import _build_spec
+    from kc761tool.cli.calib import _build_spec
 
     return [
         _build_spec(
@@ -151,13 +151,13 @@ def bench_kernel(repeat: int) -> dict[str, Any]:
     if not _have(CALIB_PRODUCT):
         return {"scenario": "kernel", "skipped": "work/calib/calib-2609a.root missing"}
 
-    from kc761.core.binning import ChannelGrid, source_mode_deposition_edges_kev
-    from kc761.core.kernel import response_triples
-    from kc761.core.model import energy_kev, resolution_sigma_kev
-    from kc761.core.response import response_parameter_jacobian
-    from kc761.schema.io import read_product
-    from kc761.schema.products import CalibProduct
-    from kc761.unfold.inputs import internal_calibration, resolution_params
+    from kc761tool.core.binning import ChannelGrid, source_mode_deposition_edges_kev
+    from kc761tool.core.kernel import response_triples
+    from kc761tool.core.model import energy_kev, resolution_sigma_kev
+    from kc761tool.core.response import response_parameter_jacobian
+    from kc761tool.schema.io import read_product
+    from kc761tool.schema.products import CalibProduct
+    from kc761tool.unfold.inputs import internal_calibration, resolution_params
 
     product = read_product(CALIB_PRODUCT, strict=False)
     assert isinstance(product, CalibProduct)
@@ -198,7 +198,7 @@ def bench_calib(repeat: int) -> dict[str, Any]:
     specs = _calib_specs()
     if not specs:
         return {"scenario": "calib", "skipped": "no calib datasets found"}
-    from kc761.calib.fit import run_fit
+    from kc761tool.calib.fit import run_fit
 
     timings, result = _time_call(
         lambda: run_fit(specs, output=None, plot=False, progress=None), repeat
@@ -216,9 +216,9 @@ def bench_calib(repeat: int) -> dict[str, Any]:
 def bench_unfold(repeat: int) -> dict[str, Any]:
     if not _have(CALIB_PRODUCT, SIM_PRODUCT, DATA_PRODUCT):
         return {"scenario": "unfold", "skipped": "work products missing"}
-    from kc761.errors import ProvenanceError, ValidationError
-    from kc761.schema.io import read_product
-    from kc761.unfold.unfold import run_unfold
+    from kc761tool.errors import ProvenanceError, ValidationError
+    from kc761tool.schema.io import read_product
+    from kc761tool.unfold.unfold import run_unfold
 
     # Load the products in memory and pass the objects: the provenance digest
     # check is a one-off file hash, and the shared ``work/`` tree may be

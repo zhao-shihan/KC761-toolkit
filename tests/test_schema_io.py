@@ -13,9 +13,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kc761.errors import Kc761Error, ProvenanceError, SchemaError
-from kc761.schema import io
-from kc761.schema.products import (
+from kc761tool.errors import Kc761toolError, ProvenanceError, SchemaError
+from kc761tool.schema import io
+from kc761tool.schema.products import (
     OBJECT_NAMES,
     TRACKED_DEPENDENCIES,
     CalibProduct,
@@ -193,7 +193,7 @@ def test_build_provenance_hashes_inputs(tmp_path: Path) -> None:
     source.write_bytes(b"channel,counts\n0,1\n")
     provenance = io.build_provenance(
         producer="test",
-        command="kc761 test",
+        command="kc761tool test",
         arguments=(("a", "1"), ("b", "2")),
         inputs=[source],
     )
@@ -210,7 +210,7 @@ def test_build_provenance_missing_input_raises(tmp_path: Path) -> None:
     with pytest.raises(ProvenanceError, match="input file not found"):
         io.build_provenance(
             producer="test",
-            command="kc761 test",
+            command="kc761tool test",
             arguments=(),
             inputs=[tmp_path / "absent.csv"],
         )
@@ -223,7 +223,7 @@ def test_build_provenance_non_git_fallback(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(io.subprocess, "run", _fail)
     with pytest.warns(RuntimeWarning, match="git metadata unavailable"):
         provenance = io.build_provenance(
-            producer="test", command="kc761 test", arguments=(), inputs=[]
+            producer="test", command="kc761tool test", arguments=(), inputs=[]
         )
     assert provenance.git_revision == "unknown"
     assert provenance.git_dirty is False
@@ -233,7 +233,7 @@ def test_provenance_arguments_survive_roundtrip(tmp_path: Path) -> None:
     product = synthetic.make_spectrum_product()
     custom = io.build_provenance(
         producer="test-producer",
-        command="kc761 spectrum --flag value",
+        command="kc761tool spectrum --flag value",
         arguments=(("z", "last"), ("a", "first"), ("m", "middle")),
         inputs=[],
     )
@@ -267,7 +267,7 @@ def test_write_rejects_nonfinite_values(tmp_path: Path) -> None:
         source_file=product.source_file,
         provenance=product.provenance,
     )
-    with pytest.raises(Kc761Error):
+    with pytest.raises(Kc761toolError):
         io.write_product(bad_product, tmp_path / "nan.root")
 
 
@@ -332,8 +332,8 @@ def test_human_titles_and_machine_axis_names(tmp_path: Path) -> None:
     """D-170: ROOT titles are human-readable; fName keeps the machine name."""
     import uproot
 
-    from kc761.schema.axes import human_axis_title
-    from kc761.schema.products import HUMAN_TITLES, OBJ_SPECTRUM
+    from kc761tool.schema.axes import human_axis_title
+    from kc761tool.schema.products import HUMAN_TITLES, OBJ_SPECTRUM
 
     product = synthetic.make_spectrum_product()
     path = tmp_path / "spectrum.root"

@@ -7,8 +7,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from kc761.errors import ValidationError
-from kc761.unfold.selection import fit_sigma, select_window
+from kc761tool.errors import ValidationError
+from kc761tool.unfold.selection import fit_sigma, select_window
 from tests.test_unfold_support import (
     N_CHANNELS,
     calibration,

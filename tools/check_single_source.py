@@ -8,7 +8,7 @@ Two independent checks run over the numeric core:
    at least ``MIN_SNIPPET`` characters may only appear in its owning file, its
    generated counterpart and the generator itself. Copy-pasted formula bodies
    in any other module fail the check.
-2. **Generated integrity.** ``kc761.core._gen.stale_files()`` must be empty:
+2. **Generated integrity.** ``kc761tool.core._gen.stale_files()`` must be empty:
    the committed kernels have to match the manifest written by
    ``tools/generate_kernels.py``.
 
@@ -22,8 +22,8 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CORE_DIR = REPO_ROOT / "kc761" / "core"
-SCAN_ROOTS = (REPO_ROOT / "kc761", REPO_ROOT / "tools")
+CORE_DIR = REPO_ROOT / "kc761tool" / "core"
+SCAN_ROOTS = (REPO_ROOT / "kc761tool", REPO_ROOT / "tools")
 GENERATED_DIR = CORE_DIR / "_gen"
 GENERATOR = "tools/generate_kernels.py"
 MIN_SNIPPET = 60
@@ -69,7 +69,7 @@ def _snippet_owners(files: list[Path]) -> dict[str, set[str]]:
 def _allowed(snippet_owner: str) -> set[str]:
     """Files that may legitimately repeat a snippet owned by ``snippet_owner``."""
     allowed = {snippet_owner}
-    if snippet_owner.startswith("kc761/core/_gen/"):
+    if snippet_owner.startswith("kc761tool/core/_gen/"):
         allowed.add(GENERATOR)
     return allowed
 
@@ -96,7 +96,7 @@ def check_snippets(files: list[Path]) -> list[str]:
 
 def check_generated() -> list[str]:
     sys.path.insert(0, str(REPO_ROOT))
-    from kc761.core import _gen  # noqa: PLC0415 - deferred so the CLI stays light
+    from kc761tool.core import _gen  # noqa: PLC0415 - deferred so the CLI stays light
 
     stale = _gen.stale_files()
     if stale:

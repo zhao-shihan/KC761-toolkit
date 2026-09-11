@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 from scipy.special import ndtr
 
-from kc761.core import kernel
-from kc761.core._gen import kernel_expr
-from kc761.errors import CertificateError
+from kc761tool.core import kernel
+from kc761tool.core._gen import kernel_expr
+from kc761tool.errors import CertificateError
 
 
 def test_gaussian_bin_probabilities_match_cdf_differences() -> None:

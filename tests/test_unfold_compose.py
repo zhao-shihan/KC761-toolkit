@@ -8,16 +8,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kc761.errors import ProvenanceError, SchemaError, UsageError, ValidationError
-from kc761.schema.axes import energy_axis
-from kc761.schema.io import input_sha256, read_product, sha256_file
-from kc761.schema.products import (
+from kc761tool.errors import ProvenanceError, SchemaError, UsageError, ValidationError
+from kc761tool.schema.axes import energy_axis
+from kc761tool.schema.io import input_sha256, read_product, sha256_file
+from kc761tool.schema.products import (
     Histogram1D,
     Histogram2D,
     InputFingerprint,
     Provenance,
 )
-from kc761.unfold import run_compose
+from kc761tool.unfold import run_compose
 from tests.test_unfold_support import (
     make_calib_product,
     make_sim_product,
@@ -131,5 +131,5 @@ def test_default_compose_product_uses_common_meta_only(tmp_path: Path) -> None:
     _, _, calib_path, sim_path = _inputs(tmp_path)
     result = run_compose(calib_path, sim_path, output=tmp_path / "compose.root")
     product = read_product(result.product_path, strict=True)
-    assert product.provenance.command == "kc761 compose"
-    assert product.provenance.producer == "kc761-compose"
+    assert product.provenance.command == "kc761tool compose"
+    assert product.provenance.producer == "kc761tool-compose"

@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from kc761.cli import main
-from kc761.cli._common import REPO_ROOT, default_output
+from kc761tool.cli import main
+from kc761tool.cli._common import REPO_ROOT, default_output
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "data"
 SMALL_CSV = FIXTURES / "kc761_small.csv"
@@ -84,8 +84,8 @@ def test_calib_mc_flag_parses_dry_run(capsys: Any) -> None:
 
 
 def test_calib_optimizer_flags_map_to_fit_settings() -> None:
-    from kc761.calib.types import FitSettings
-    from kc761.cli.calib import _settings
+    from kc761tool.calib.types import FitSettings
+    from kc761tool.cli.calib import _settings
 
     assert _settings(None, None) is None
     custom = _settings(123, 1e-4)

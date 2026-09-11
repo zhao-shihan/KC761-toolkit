@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from kc761.cli import main
-from kc761.schema.io import read_product, write_product
-from kc761.schema.products import SimProduct
+from kc761tool.cli import main
+from kc761tool.schema.io import read_product, write_product
+from kc761tool.schema.products import SimProduct
 from tests.fixtures import synthetic
 
 pytestmark = [

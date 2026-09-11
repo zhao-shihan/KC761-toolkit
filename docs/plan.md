@@ -26,13 +26,13 @@ suite defines "correct"; tests are auxiliary (Section 5).
 
 | ID | Decision |
 |----|----------|
-| D-1 | Whole-repository scope, including the C++ macros. Old packages are replaced by `kc761/`. |
+| D-1 | Whole-repository scope, including the C++ macros. Old packages are replaced by `kc761tool/`. |
 | D-2 | No backward compatibility: old formats are not read, old command lines are not preserved. |
 | D-3 | Correctness from code construction (single source of truth, symbolic generation) plus runtime certificates; never from baseline/regression comparisons. |
-| D-4 | Keep the `kc761` name for packages and the command. |
+| D-4 | Keep the `kc761` name for packages and the command. **Superseded by D-183**: the package, the launcher and the command are `kc761tool`. |
 | D-5 | Repository artifacts (docs, docstrings, CLI text, comments) are written in **English**. |
 | D-6 | Python >= 3.12. |
-| D-7 | **No packaging**: no `pyproject.toml`, no `setup.py`, no installable distribution. The supported entry points are the repository-root launcher `kc761.py` and `python -m kc761`. Tool configuration uses `ruff.toml` and `pytest.ini` only. |
+| D-7 | **No packaging**: no `pyproject.toml`, no `setup.py`, no installable distribution. The supported entry points are the repository-root launcher `kc761tool.py` and `python -m kc761tool`. Tool configuration uses `ruff.toml` and `pytest.ini` only. |
 | D-8 | Dependencies are not constrained in advance; introduce what the work needs and record it here. |
 
 ### 1.2 Persistence and data contracts
@@ -88,13 +88,13 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | ID | Decision |
 |----|----------|
 | D-60 | Formula single source: each formula/constant has exactly one implementation; derivatives/kernels are generated from sympy, never hand-copied. |
-| D-61 | Runtime certificates run in **strict mode only** (`--strict` or `KC761_STRICT=1`); all suites (KKT, conservation, PSD, column sums, efficiency bounds, monotonicity, finiteness). |
+| D-61 | Runtime certificates run in **strict mode only** (`--strict` or `KC761TOOL_STRICT=1`); all suites (KKT, conservation, PSD, column sums, efficiency bounds, monotonicity, finiteness). |
 | D-62 | Basic schema/shape/finiteness validation is always on and cannot be disabled. |
 | D-63 | Certificates fail fast, with the offending formula ID and inputs recorded. |
 | D-64 | Each formula carries an ID registered in `docs/derivations.md` with its derivation and approximations; code docstrings reference the ID. |
 | D-65 | Tests (pytest + hypothesis) are auxiliary only and never define correctness. CI runs ruff + tests. |
-| D-66 | CLI: a single `kc761` command with six subcommands `calib`, `unfold`, `sim`, `compose`, `csv2root`, `subbkg`; window options use long names with short aliases; `app/*.py` is deleted. |
-| D-67 | Logging uses stdlib `logging` with the format `[kc761.<command>] level: message`; errors use the `Kc761Error` hierarchy and a uniform `[kc761.<command>] error:` prefix. |
+| D-66 | CLI: a single `kc761tool` command with six subcommands `calib`, `unfold`, `sim`, `compose`, `csv2root`, `subbkg`; window options use long names with short aliases; `app/*.py` is deleted. |
+| D-67 | Logging uses stdlib `logging` with the format `[kc761tool.<command>] level: message`; errors use the `Kc761toolError` hierarchy and a uniform `[kc761tool.<command>] error:` prefix. |
 | D-68 | Exit codes: 0 success, 1 runtime failure, 2 usage error. |
 | D-69 | The static quality gate is **ruff only** (no separate type checker); CI runs ruff and the auxiliary tests. |
 | D-70 | Plots keep the established visual style. The "shared plotting code" clause is superseded by D-153 (per-package figure modules). |
@@ -107,9 +107,9 @@ suite defines "correct"; tests are auxiliary (Section 5).
 |----|----------|
 | D-73 | Non-strict resolution negativity: when `sigma**2 < 0` on the export grid and strict mode is off, clamp `sigma` to the documented floor `SIGMA_FLOOR_KEV`, emit a warning and record it (the unfold layer writes the record into `meta`). Strict mode still raises the F-MODEL-5 certificate error. Closes Appendix A item 1. |
 | D-74 | The SNIP peak mask (`snip_iter`, `mask_z0`, `mask_floor`) is removed entirely; `D` is only the normalized finite-difference operator (F-SOLVE-1). Closes Appendix A item 2. **Superseded by D-154**: a redesigned SNIP peak mask is part of the default operator (F-SOLVE-4..6). |
-| D-75 | Every `core` derivative is owned by `kc761/core`. Additional formula IDs: F-KERN-4 (`d p / d c`, `d p / d sigma` and the taper derivatives) and F-RESP-4 (chain assembly of `dC/dq`), appended to the registry; further IDs may be appended as derivations require. |
+| D-75 | Every `core` derivative is owned by `kc761tool/core`. Additional formula IDs: F-KERN-4 (`d p / d c`, `d p / d sigma` and the taper derivatives) and F-RESP-4 (chain assembly of `dC/dq`), appended to the registry; further IDs may be appended as derivations require. |
 | D-76 | Support taper: `w = 3 s**2 - 2 s**3` with `s = clip((n*sigma - abs(x)) / sigma, 0, 1)`, equivalently `w = 1 - 3 r**2 + 2 r**3` with `r = clip((abs(x) - (n-1)*sigma) / sigma, 0, 1)`; exact column renormalization follows (F-KERN-2). |
-| D-77 | `sympy` is a runtime dependency. `tools/generate_kernels.py` generates `kc761/core/_gen/`; generated artifacts are committed and their headers record the sympy version, the formula IDs and the exact command. Imports perform a staleness check and regenerate when necessary. CI installs sympy. |
+| D-77 | `sympy` is a runtime dependency. `tools/generate_kernels.py` generates `kc761tool/core/_gen/`; generated artifacts are committed and their headers record the sympy version, the formula IDs and the exact command. Imports perform a staleness check and regenerate when necessary. CI installs sympy. |
 | D-78 | New product `format_version` starts at 1 and is independent of the calibration-file version. Closes Appendix A item 7. |
 
 ### 1.7 Core interface contracts
@@ -171,7 +171,7 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-112 | Unfold fit weights are data-side only (F-UNF-2): `sigma_fit**2 = max(stat, 1) + (syst_frac * data)**2`. The simulation-MC term enters only the systematic band (F-UNC-2), never the weights, so the unfold does not iterate. |
 | D-113 | `calib_only` relabels the channel axis to the channel-derived deposition axis `E(i +- 1/2)` stored in `C.y`, keeps counts and `fSumw2` bin-by-bin unchanged, sets `mode = calib_only`, carries only common meta plus `mode`, and needs no `alpha`. |
 | D-114 | Axis and provenance validation: `C.y` (deposition) must equal `G.x` bitwise, `C.x` must equal the data channel axis, and `N_j` must use `G.y`; a mismatch is `ValidationError`. Input digests recorded by an upstream product (`fingerprint_for`/`input_sha256`) are checked against the actual file whenever present (`ProvenanceError` on mismatch). |
-| D-115 | Compose orchestration lives in `kc761/unfold/compose.py` (`run_compose`); `kc761 compose` stays a thin CLI wrapper. |
+| D-115 | Compose orchestration lives in `kc761tool/unfold/compose.py` (`run_compose`); `kc761tool compose` stays a thin CLI wrapper. |
 | D-116 | Solver failures (iteration exhaustion, unbounded objective, non-positive-definite normal matrix) raise `SolverError` in every mode; no product and no `.part` file is left behind. |
 | D-117 | `refolded` is `R . mu` evaluated on the reported channel window `[chlo, chhi]` (F-UNF-5). |
 | D-118 | Unfold diagnostics (F-UNF-4): `chi2` is the weighted residual sum of squares over the fit rows; `dof = n_fit_rows - n_active` with `n_active` the number of strictly positive solution entries; `covariance_scale = 1.0` (the analytic propagation is not rescaled). |
@@ -182,12 +182,12 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | ID | Decision |
 |----|----------|
 | D-120 | New additive product kind `mc_spectrum` (source-mode simulated spectrum), separate from the measured `spectrum` kind. It carries one `kc761_mc_spectrum` TH1D (energy axis in keV, counts, required `fSumw2`) plus common meta and the fields `source_key`, `mode_name`, `geometry_name`, `geometry_param_mm`, `n_events`, `seed`, `workers`. The CLI connects `calib --mc` to it; the calib library only consumes a `Histogram1D`. |
-| D-121 | (revised) The matrix-mode **primary** and **deposition** axes are both the calibration product's `C.y` (channel-derived square layout), bitwise (D-114); `G` has shape `(n_deposition, n_primary)` with equal axes. The fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins` (D-33) is used only by the source-mode `mc_spectrum` and the parameter-independent fit-time `C_fit` (D-101); `kc761/calib` imports it and its former local `FIXED_DEPOSITION_*` names are aliases. |
-| D-122 | `kc761/sim` owns the final source registry: the seven source keys `k40`, `lu176`, `am241`, `th232`, `th232-unshielded`, `ra226`, `ra226-unshielded`, carried verbatim with per-entry provenance notes; source geometry, container, shield and material values are unchanged (D-34). Closes Appendix A item 6. |
+| D-121 | (revised) The matrix-mode **primary** and **deposition** axes are both the calibration product's `C.y` (channel-derived square layout), bitwise (D-114); `G` has shape `(n_deposition, n_primary)` with equal axes. The fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins` (D-33) is used only by the source-mode `mc_spectrum` and the parameter-independent fit-time `C_fit` (D-101); `kc761tool/calib` imports it and its former local `FIXED_DEPOSITION_*` names are aliases. |
+| D-122 | `kc761tool/sim` owns the final source registry: the seven source keys `k40`, `lu176`, `am241`, `th232`, `th232-unshielded`, `ra226`, `ra226-unshielded`, carried verbatim with per-entry provenance notes; source geometry, container, shield and material values are unchanged (D-34). Closes Appendix A item 6. |
 | D-123 | (revised) Simulation randomness is deterministic for a fixed base seed **and a fixed worker count/order**: the same invocation reproduces bit-for-bit. Matrix mode derives an independent RNG stream per active primary column from `(base seed, column index)`; source mode derives one stream per fixed event block from `(base seed, block index)`. Both derivations are the single formula F-SIM-7. Bit-for-bit equivalence across *different* worker counts is not part of the contract. The default base seed is `908136382`. |
 | D-124 | The worker count is estimated from available memory and the per-worker footprint (histograms plus a documented Geant4 baseline), and the estimate is logged with its reason; an explicit `threads` argument overrides it. `MAX_CHANNELS` (D-52) still bounds the deposition axis. |
 | D-125 | Each worker writes only the minimal raw ROOT histograms (spectrum, or G plus zero-deposition counts). Merging is done in Python with `uproot` (D-11): axis arrays are checked bitwise and contents summed; the final `mc_spectrum`/`SimProduct` is written through `schema.write_product` (atomic, refuse-overwrite, provenance). Temporary worker files are removed on success and on failure; no `.part` file is left behind. |
-| D-126 | The source-mode interactive/visualization path is kept. The Geant4 macros move into `kc761/sim` and the interactive macro enables `/tracking/storeTrajectory 1`; the repository-root macro file is not used. The per-event ntuple remains deleted (D-30). |
+| D-126 | The source-mode interactive/visualization path is kept. The Geant4 macros move into `kc761tool/sim` and the interactive macro enables `/tracking/storeTrajectory 1`; the repository-root macro file is not used. The per-event ntuple remains deleted (D-30). |
 | D-127 | Physical-layer certificates owned by the simulation layer: F-SIM-1 event accounting (`sum_deposition + zero_j = N_j`, `sum_j N_j = n_events`), F-SIM-2 exact stored variance (matrix: `N_j p (1-p)`; source spectrum: `c (1 - c/P)` with `P` the recorded pulse total), F-SIM-3 `eta in [0, 1]` with `eta_j = column_sum_j / N_j`, and the new F-SIM-6 physical boundary (any G entry whose deposition-bin lower edge exceeds its primary-column upper edge is exactly zero). F-SIM-6 runs in strict mode and fails with its formula ID. |
 | D-128 | The source-mode spectrum variance uses the conditional-binomial convention of D-127 with the recorded pulse total `P = sum(counts)` as the fixed total; the derivation documents this as a plug-in approximation to the multinomial over pulses. |
 
@@ -201,30 +201,30 @@ suite defines "correct"; tests are auxiliary (Section 5).
 | D-132 | Relative paths in a config file resolve against the directory containing that file (`~` is expanded); absolute paths are used as-is. **Superseded by D-164**: they resolve against the current working directory. |
 | D-133 | Products written in config mode record the config file path and sha256 in `provenance.inputs` (D-18) and the fully resolved settings in their existing settings/meta fields. |
 | D-134 | `[sim]` replaces the batch runner: it carries batch options (`resume`, `force`, `dry_run`) and a list of `[[sim.runs]]` single-run specs. A run specifies a source key XOR one matrix mode (`plane-front-gamma`/`sphere-gamma`) plus `calib`; `events` is required (interactive runs are not part of config mode); `threads`, `seed`, `verbose` and `output` are optional. Runs execute sequentially (run-level parallelism is not part of the contract). |
-| D-135 | Each sim run executes in a fresh child process by re-invoking `sys.executable -m kc761 sim ...` in single-run mode; the parent process never imports Geant4. This is required because a `G4RunManager` can be initialized only once per process. |
+| D-135 | Each sim run executes in a fresh child process by re-invoking `sys.executable -m kc761tool sim ...` in single-run mode; the parent process never imports Geant4. This is required because a `G4RunManager` can be initialized only once per process. |
 | D-136 | sim batch failure policy: a failed run is recorded and the batch continues; the process returns 1 if any run failed and 0 only when all succeeded. |
 | D-137 | sim resume: `resume = true` (default) skips a run whose target exists and passes schema validation, and fails loudly when an existing target is invalid (never delete or overwrite another product); `resume = false` applies the D-17 refuse-overwrite rule. |
 | D-138 | `output` is optional everywhere in config mode; when absent the D-19 default naming applies, e.g. source mode `<source>-n<N>-s<SEED>.root`, matrix `<calib-stem>-<mode>-n<N>-s<SEED>.root`, and `<command>[-<label>]...` under `work/<subcommand>/` for calib/compose/unfold. |
 | D-139 | `calib` config mode runs one fit from `[[calib.datasets]]` (data, sim, label plus optional channel window and `syst_frac`); `compose`/`unfold` config mode run one operation from their tables. Mode-dependent required fields are enforced per mode: `calib_only` requires neither `alpha` nor the energy window, and the single-run CLI applies the same rule. |
 | D-140 | Business options `force`, `no_plot`, `dry_run` and `resume` may appear in config files; `strict` and `log_level` stay CLI-only and apply to the whole invocation. English-commented `examples/*.toml` are shipped for the four config-capable subcommands. |
-| D-141 | Config parsing and validation live in `kc761/cli/config.py` as strict, frozen dataclasses; the module imports no Geant4 and no numerics. The sim batch driver only validates, expands argv, manages resume and subprocesses, and aggregates the exit code. |
+| D-141 | Config parsing and validation live in `kc761tool/cli/config.py` as strict, frozen dataclasses; the module imports no Geant4 and no numerics. The sim batch driver only validates, expands argv, manages resume and subprocesses, and aggregates the exit code. |
 | D-142 | The plot CLI surface (Appendix A item 4) is resolved as a single `--no-plot` switch (plots on by default) for `calib` and `unfold`, with `no_plot` as the config key; `compose` and `sim` produce no plots and redirecting plots to another directory is not supported. |
 
 ### 1.13 Consolidation
 
 | ID | Decision |
 |----|----------|
-| D-143 | Canonical matrix-mode tokens are the hyphen strings `plane-front-gamma` and `sphere-gamma`, single-sourced in `kc761.sim.sources` (`MODE_NAME_PLANE`, `MODE_NAME_SPHERE`, `MATRIX_MODE_NAMES`). They are used for the CLI flags, the config `mode` value, the default file-name token and the sim `mode_name`; underscore and short aliases are rejected (the runner accepts only the canonical name or the integer mode). |
+| D-143 | Canonical matrix-mode tokens are the hyphen strings `plane-front-gamma` and `sphere-gamma`, single-sourced in `kc761tool.sim.sources` (`MODE_NAME_PLANE`, `MODE_NAME_SPHERE`, `MATRIX_MODE_NAMES`). They are used for the CLI flags, the config `mode` value, the default file-name token and the sim `mode_name`; underscore and short aliases are rejected (the runner accepts only the canonical name or the integer mode). |
 | D-144 | The calibration simulated-spectrum option is `calib --mc` (no `--sim` alias) and the config key in `[[calib.datasets]]` is `mc`; docs, examples and help text use it. `compose`/`unfold` keep `--sim`/`sim` for the matrix simulation product. |
 | D-145 | Appendix A item 5 is closed: `calib --max-iter N` and `calib --tolerance T` are part of the frozen CLI, mapping to `FitSettings(maxiter, ftol=xtol=gtol=T)`; both default to the library `FitSettings`. |
 | D-146 | Revises D-111: `select_window` raises `ValidationError` when the requested energy window lies entirely outside the channel energy range; it never degenerates to a single top channel. Windows that merely extend beyond the acquisition are still clipped as before. |
-| D-147 | Cross-package error taxonomy: argument/config misuse raises `UsageError` (CLI) or `ValidationError` (library inputs), product/schema violations raise `SchemaError`, and solver/covariance failures raise `SolverError`; the CLI maps `UsageError` to exit 2 and every other `Kc761Error` to exit 1. |
+| D-147 | Cross-package error taxonomy: argument/config misuse raises `UsageError` (CLI) or `ValidationError` (library inputs), product/schema violations raise `SchemaError`, and solver/covariance failures raise `SolverError`; the CLI maps `UsageError` to exit 2 and every other `Kc761toolError` to exit 1. |
 | D-148 | `param_cov` axis bin labels are an always-on structural part of the calib product contract and are validated on every read (previously strict-only). |
 | D-149 | The README describes the current implementation state. Any large-scale real end-to-end run (real CSV data, full source-mode simulation campaigns) requires prior user confirmation of parameters/budget; products are written under `work/` and are never deleted by tooling. |
 | D-150 | `core.solver.solve_nonnegative` gains an optional keyword-only `normal=(H, b, penalty_scale)` injection; the unfolding layer builds `normal_equations` once and passes it, so the solver no longer rebuilds the identical half-Hessian that F-UNC already needs. Behavior is unchanged. |
 | D-151 | `uncertainty.simulation_mc_variance` keeps the exact free-set inverse `H_FF**-1` materialization (D-119). This is documented as a scale limitation: it is acceptable for the supported 2048-channel window (~32 MiB) but a band-only solve path is deferred to a later perf pass; no correctness shortcut is taken. **Superseded by D-173 (§1.16): the band-only streaming path is implemented and the full materialization is gone.** |
 | D-152 | Audit-only fields are retained deliberately and documented as such: `SpectrumProduct.source_file` (originating path), the unfold setting values recorded in the product meta, and the generator manifest `formula_ids`. They are provenance/audit records, not inputs to any numeric path; removing them would lose traceability. |
-| D-153 | Supersedes the "shared plotting code" clause of D-70: each figure module (`kc761/calib/plot.py`, `kc761/unfold/plot.py`) is a self-contained figure module (same geometry, palette, log axes, legends, bands, output-format inference). The shared `kc761/plotting/` package is removed; the `DatasetDetail` gained plotting-only raw-MC/scale fields (`raw_mc_counts`, `raw_mc_uncertainties`, `scale_params`) populated in diagnostics, never in the fit. |
+| D-153 | Supersedes the "shared plotting code" clause of D-70: each figure module (`kc761tool/calib/plot.py`, `kc761tool/unfold/plot.py`) is a self-contained figure module (same geometry, palette, log axes, legends, bands, output-format inference). The shared `kc761tool/plotting/` package is removed; the `DatasetDetail` gained plotting-only raw-MC/scale fields (`raw_mc_counts`, `raw_mc_uncertainties`, `scale_params`) populated in diagnostics, never in the fit. |
 
 ### 1.14 SNIP-based regularization
 
@@ -272,9 +272,9 @@ already bound; no baseline or golden output defines correctness.
 | D-172 | Performance umbrella; supersedes the "deferred" clause of D-151. The response kernel is assembled with a vectorized support pattern (one `searchsorted` over all columns plus one generated-expression call over the flattened entries); the generated kernels apply `sympy.cse`; the normal equations use dense BLAS above a measured crossover; `core._linalg` exposes a reusable `SpdFactor`; the active-set solver densifies a dense Hessian once and slices with `numpy.ix_`; `compose_parameter_jacobian` accepts the solve window; `simulation_mc_variance` uses the D-173 streaming path. Definitions and certificates are unchanged. |
 | D-173 | D-151 is implemented as a streaming F-UNC-2 path: the free-set system is factorized once and solved in blocks of `MC_BLOCK_COLUMNS = 128`, and block-local `P^T(a*g)`, `P^T g`, `P^T(g^2)` contractions replace the full `U (R^T W C)`. Neither `H_FF**-1` nor `U (R^T W C)` is materialized as a whole; the only dense `O(n^2)` object is the data-side `R^T W C`. Equivalence with the D-119 direct linearization holds at `rtol = 1e-9` including active bins (the reduced free-set inverse is the boundary convention). |
 | D-174 | numba is a hard dependency and every kernel (value F-KERN-2, derivatives F-KERN-4, quotient F-KERN-2/4) and model expression is generated from sympy by `tools/generate_kernels.py` (`_gen.kernel_expr.scalar_*`); no hand-written formula remains in the optimized paths. Both the response fill and the reported-basis Jacobian are fused `prange` (TBB) kernels; the Jacobian computes the F-RESP-4 chain, the seven per-column local-derivative sums and the generated quotient in a single pass per column, with no `7 x nnz` temporaries. There is **no small-input NumPy fallback or size threshold**: the fallback was removed because it only served toy sizes and the acceptance tests are production-scale. Disjoint per-column writes make both kernels bitwise reproducible across thread counts. Assembly uses `core._linalg.csr_from_column_triples` (direct CSC, no scipy COO sort) and `compose_parameter_jacobian` uses a dense BLAS-3 product (measured 4.2x faster than sparse at 2048). Measured at the 2048 scale: kernel fill 1.9x (Jacobian) / 4.1x (value) at 8 threads; fused Jacobian 2.3x/3.3x/9.2x at 1/8/32 threads; `calib` 12.85 s (NumPy, 1 thread) to ~6.5 s (numba, 32 threads, BLAS/OMP/MKL single-thread), χ² unchanged. Re-measured and rejected at production scale: a separate `prange` quotient over precomputed `7 x nnz` locals (regressed), an all-seven `np.add.reduceat` vectorization (memory-bandwidth regression) and a shared `np.lexsort` (slower than scipy's counting sort). External QP solvers were prototyped as a replacement for the self-written active set and **rejected**: on a real-structured 2048-dimensional QP (`R = C G / N` window) OSQP needed tight tolerances plus polishing to satisfy F-SOLVE-3 — dense-`P` 77.6 s / 18125 iterations, sparse augmented form 826.9 s / 119600 — versus 1.67 s for the active set, and its `mu` differed by `O(1e3)` at equal objective because the windowed unfolding problem is rank deficient (`R` is 1399 x 2048, so `A = R^T W R` has rank <= 1399 and the `alpha D'^T D'` penalty does not fix every flat direction). `osqp`, `qpsolvers` and `threadpoolctl` are therefore **not** dependencies; BLAS/OMP/MKL threads remain controlled by the environment and numba `prange` is the only in-process parallelism. Parallelism is numba `prange` only; `multiprocessing` is not used because the independent products are too small for the pickling overhead. |
-| D-175 | The dense/sparse and factorization crossovers are single-sourced in `kc761.core._linalg`: `DENSE_LIMIT = 512`, `BAND_FRACTION = 4`, `DENSE_NORMAL_LIMIT = 8_000_000` entries and `DENSE_NORMAL_DENSITY = 0.05`. `prefer_dense_normal`/`prefer_dense_factor` are the only definitions of the policy and are shared by the solver, uncertainty propagation and the normal-equation product. |
+| D-175 | The dense/sparse and factorization crossovers are single-sourced in `kc761tool.core._linalg`: `DENSE_LIMIT = 512`, `BAND_FRACTION = 4`, `DENSE_NORMAL_LIMIT = 8_000_000` entries and `DENSE_NORMAL_DENSITY = 0.05`. `prefer_dense_normal`/`prefer_dense_factor` are the only definitions of the policy and are shared by the solver, uncertainty propagation and the normal-equation product. |
 | D-176 | D-52 fail-fast now carries the requested memory estimate: `core.binning.channels_limit_message(n)` reports the size of one dense `n x n` float64 matrix, and `ChannelGrid` plus `run_matrix` use it. `MAX_CHANNELS` is unchanged at 4096; an 8192-bin request is rejected before any dense allocation. |
-| D-177 | Benchmarks live in `tools/benchmarks.py` (scenarios `kernel`, `calib`, `unfold`, `memory`, with RSS and optional `tracemalloc`). The `bench` pytest marker marks wall-clock cases; CI excludes it (`-m "not g4 and not root"`; the case is also skipped unless `KC761_RUN_BENCH=1`). Wall-clock is never a correctness gate. |
+| D-177 | Benchmarks live in `tools/benchmarks.py` (scenarios `kernel`, `calib`, `unfold`, `memory`, with RSS and optional `tracemalloc`). The `bench` pytest marker marks wall-clock cases; CI excludes it (`-m "not g4 and not root"`; the case is also skipped unless `KC761TOOL_RUN_BENCH=1`). Wall-clock is never a correctness gate. |
 | D-178 | Simulation micro-optimizations do not change F-SIM-4/5/7 or D-123: the Geant4 analysis manager, its fill callbacks, the primary-generator callables and the inverse-keV conversion are resolved once per worker/action instead of per event/step; the histogram merges accumulate in place. The F-SIM-7 seed chain and F-SIM-4 sampling are untouched, and the `g4` tests pass unchanged. |
 
 Measured on the development host with one BLAS/OMP/MKL thread, 2048-channel
@@ -314,19 +314,20 @@ options above were re-measured on the same 2048-scale products.
 
 | ID | Decision |
 |----|----------|
-| D-179 | Repository state: the tree contains only `kc761/`, `kc761.py`, `tests/`, `tools/`, `examples/`, `docs/`, the tool configuration (`ruff.toml`, `pytest.ini`, `.github/`) and the untracked `work/` data and products. The C++ I/O path and the replaced packages are gone, and no module retains a reference to them. `work/` is user state and is never deleted or overwritten by tooling without `--force`. |
+| D-179 | Repository state: the tree contains only `kc761tool/`, `kc761tool.py`, `tests/`, `tools/`, `examples/`, `docs/`, the tool configuration (`ruff.toml`, `pytest.ini`, `.github/`) and the untracked `work/` data and products. The C++ I/O path and the replaced packages are gone, and no module retains a reference to them. `work/` is user state and is never deleted or overwritten by tooling without `--force`. |
 | D-180 | CI is finalized for Python 3.12/3.13 without Geant4 or a ROOT executable: it installs the runtime requirements except `geant4-pybind`, then ruff, pytest and hypothesis, and runs the single-source gate, `ruff check .`, `pytest -q -m "not g4 and not root"`, both entry-point `--help` calls and `--dry-run` on the four shipped example configs. There is no `g4` job and `bench`-marked cases are excluded from the gate. |
 | D-181 | Documentation is finalized in English: README, architecture, formats, derivations, this plan and AGENTS.md describe the implemented final state, with no stub or deleted-path language. The formula registry in `docs/derivations.md` is complete and Appendix A has no open points left. |
 | D-182 | The repository spelling standard is **American English** (refines D-5, which fixes the language but not the variant): `center`, `color`, `behavior`, `normalize`/`normalization`, `modeled`, `labeled`, `defense`, `neighbor`, `realized`, `vectorized`, `toward`/`afterward`/`outward`, and so on, in docs, docstrings, comments, CLI text, error messages and identifiers alike. This is a spelling normalization only: no formula, constant, axis convention, product key or object name changes. Literals owned by another project's interface are exempt and stay verbatim; the Geant4 UI commands `/gps/pos/centre` and `/vis/geometry/set/colour` are the only such literals in the tree, and both are marked as external where they appear. |
+| D-183 | The package, the launcher and the command are renamed `kc761` -> `kc761tool`, superseding D-4. The tree carries `kc761tool/` and `kc761tool.py`; the entry points are `python kc761tool.py ...` and `python -m kc761tool ...`; the argparse program name, the `[kc761tool.<command>]` logging prefix and logger names (`kc761tool.<command>`), the `Kc761toolError` base class, the `KC761TOOL_STRICT` / `KC761TOOL_RUN_BENCH` environment variables and the `producer="kc761tool-<subcommand>"` provenance strings all follow the command name. Every naming reference elsewhere in this register is updated accordingly (D-1, D-7, D-61, D-66, D-67, D-75, D-77, D-115, D-121, D-122, D-126, D-135, D-141, D-143, D-147, D-153, D-175, D-177, D-179, Appendix A item 5). This is a naming change only: the device name `KC761` (the MEASALL KC761x/KC761 gamma spectrometer), the device CSV export parser `parse_kc761_csv` and its `kc761_small.csv` fixture, and the frozen product object names `kc761_spectrum`, `kc761_spectrum_unfolded`, `kc761_spectrum_refolded`, `kc761_spectrum_calibrated` and `kc761_mc_spectrum` (D-98, D-120) are deliberately unchanged, so no formula, constant, axis convention, product key or object name changes. |
 
 ## 2. Architecture
 
 ```
-kc761.py                      # repository-root launcher (adds repo root to sys.path, calls kc761.cli)
-kc761/
+kc761tool.py                  # repository-root launcher (adds repo root to sys.path, calls kc761tool.cli)
+kc761tool/
   __init__.py                 # version
-  __main__.py                 # python -m kc761
-  errors.py                   # Kc761Error hierarchy
+  __main__.py                 # python -m kc761tool
+  errors.py                   # Kc761toolError hierarchy
   runtime.py                  # logging, strict-mode resolution
   core/                       # pure numerics: stdlib + numpy/scipy/numba only, no IO
     model.py                  # E(ch) dual basis, Bernstein sigma, formula registry
@@ -360,7 +361,7 @@ Dependency rules:
   uproot and file IO.
 * `calib`, `unfold` and `sim` import `core` and `schema`.
 * `cli` imports everything; each figure module owns its own matplotlib style (D-153).
-* Nothing imports Geant4 except `kc761/sim` (lazily, inside functions), so the
+* Nothing imports Geant4 except `kc761tool/sim` (lazily, inside functions), so the
   contract layer stays importable in a no-G4/no-ROOT environment.
 
 ## 3. Data contracts
@@ -394,7 +395,7 @@ axes follow D-20.
 ### 3.3 `meta` RNTuple fields (finalized)
 
 The authoritative field list is `docs/formats.md` section 4; it is implemented
-in `kc761/schema/products.py` (`meta_field_types`).
+in `kc761tool/schema/products.py` (`meta_field_types`).
 
 * Every product: `format_version` (int), `product_kind` (str), `producer`
   (str), `created_utc` (str), `git_revision` (str), `git_dirty` (int),
@@ -485,10 +486,10 @@ derivations may add detail but must not contradict them.
    has one implementation. Mechanical checks fail the build when a
    duplicate formula body appears outside its owning module.
 2. **Symbolic generation.** Kernels and derivatives are generated from sympy
-   into `kc761/core/_gen/` with a header recording sympy version, formula ID
+   into `kc761tool/core/_gen/` with a header recording sympy version, formula ID
    and the generation command. Hand-written derivatives are forbidden.
 3. **Runtime certificates (strict mode).** All certificate suites run under
-   `--strict` / `KC761_STRICT=1` and abort on violation: KKT and
+   `--strict` / `KC761TOOL_STRICT=1` and abort on violation: KKT and
    complementarity, count conservation (`sum(counts) + zero = N_j`,
    `sum(N_j) = n_events`), column sums, efficiency bounds `[0,1]`, energy
    monotonicity, covariance PSD, resolution positivity, finiteness.
@@ -526,9 +527,9 @@ derivations may add detail but must not contradict them.
 4. **No packaging.** Import paths are guaranteed only by the launcher and the
    `pytest.ini` `pythonpath` setting; this is documented as the only supported
    usage.
-5. **`kc761.py` versus the `kc761/` package.** The launcher executes as
-   `__main__` and never imports itself; `python -m kc761` uses
-   `kc761/__main__.py`. Tests import the package, not the launcher.
+5. **`kc761tool.py` versus the `kc761tool/` package.** The launcher executes as
+   `__main__` and never imports itself; `python -m kc761tool` uses
+   `kc761tool/__main__.py`. Tests import the package, not the launcher.
 
 ## 8. Acceptance (non-baseline)
 

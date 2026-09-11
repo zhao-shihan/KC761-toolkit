@@ -15,8 +15,8 @@ wins and this file must be fixed in the same change.
    `/vis/geometry/set/colour`, each marked as external where it appears.
 2. **No packaging.** No `pyproject.toml`, `setup.py`, `setup.cfg` or
    installable distribution. Tool configuration lives in `ruff.toml` and
-   `pytest.ini`. Supported entry points: `python kc761.py ...` and
-   `python -m kc761 ...`.
+   `pytest.ini`. Supported entry points: `python kc761tool.py ...` and
+   `python -m kc761tool ...` (D-7, renamed by D-183).
 3. **Python >= 3.12.** Use `from __future__ import annotations` and modern
    typing syntax.
 4. **Frozen decisions are frozen.** `docs/plan.md` Section 1 is normative.
@@ -29,18 +29,18 @@ wins and this file must be fixed in the same change.
    certificates.
 6. **Tests are auxiliary.** pytest/hypothesis checks codify invariants but do
    not define correctness. CI runs ruff, the single-source gate and tests.
-7. **No stubs.** `kc761/` must not contain
+7. **No stubs.** `kc761tool/` must not contain
    `NotImplementedError`, placeholder bodies or unfinished paths. The
-   single-source gate enforces the stub check for `kc761/core`; anywhere else,
+   single-source gate enforces the stub check for `kc761tool/core`; anywhere else,
    an unfinished path must fail loudly rather than degrade silently.
-8. **Strict mode.** `--strict` or `KC761_STRICT=1` enables all certificate
+8. **Strict mode.** `--strict` or `KC761TOOL_STRICT=1` enables all certificate
    suites (KKT, conservation, PSD, column sums, efficiency bounds,
    monotonicity, positivity, finiteness). Basic schema/shape/finiteness
    validation is always on. Certificates fail fast and report the formula ID.
 9. **Formula IDs.** Every formula gets an ID in `docs/derivations.md`; code
    references it. IDs are append-only; derivations may gain detail but must not
    contradict frozen decisions.
-10. **Products.** Read/write only through `kc761/schema/io.py`: atomic write,
+10. **Products.** Read/write only through `kc761tool/schema/io.py`: atomic write,
     reopen validation, full provenance, refuse-overwrite unless `--force`.
 11. **Single source.** No duplicated formula, constant, axis convention or
     object-name literal across modules. Cross-language copies do not exist
@@ -53,15 +53,15 @@ wins and this file must be fixed in the same change.
 
 | Path | Owner | Notes |
 |------|-------|-------|
-| `kc761/core/model.py`, `binning.py`, `kernel.py`, `response.py`, `projection.py` | core | formula IDs F-MODEL/F-BIN/F-KERN/F-RESP/F-PROJ |
-| `kc761/core/solver.py`, `covariance.py`, `uncertainty.py` | core | F-SOLVE/F-COV/F-UNC |
-| `kc761/schema/axes.py`, `products.py`, `io.py` | schema | product contract; changes go through the contract-change process |
-| `kc761/schema/_uproot.py` | schema | verified spike helpers; keep the head comment in sync with `docs/formats.md` |
-| `kc761/calib/` | calib | F-CAL |
-| `kc761/unfold/` | unfold | uses F-SOLVE/F-UNC |
-| `kc761/sim/` | sim | F-SIM |
-| `kc761/cli/`, `kc761.py`, `kc761/__main__.py` | cli | CLI surface only; no numerics |
-| `kc761/errors.py`, `kc761/runtime.py` | infrastructure | change requires a plan update |
+| `kc761tool/core/model.py`, `binning.py`, `kernel.py`, `response.py`, `projection.py` | core | formula IDs F-MODEL/F-BIN/F-KERN/F-RESP/F-PROJ |
+| `kc761tool/core/solver.py`, `covariance.py`, `uncertainty.py` | core | F-SOLVE/F-COV/F-UNC |
+| `kc761tool/schema/axes.py`, `products.py`, `io.py` | schema | product contract; changes go through the contract-change process |
+| `kc761tool/schema/_uproot.py` | schema | verified spike helpers; keep the head comment in sync with `docs/formats.md` |
+| `kc761tool/calib/` | calib | F-CAL |
+| `kc761tool/unfold/` | unfold | uses F-SOLVE/F-UNC |
+| `kc761tool/sim/` | sim | F-SIM |
+| `kc761tool/cli/`, `kc761tool.py`, `kc761tool/__main__.py` | cli | CLI surface only; no numerics |
+| `kc761tool/errors.py`, `kc761tool/runtime.py` | infrastructure | change requires a plan update |
 | `tests/`, `tests/fixtures/synthetic.py` | shared | fixture changes must stay deterministic |
 | `tools/` | shared | kernel generation and the single-source gate; keep `docs/derivations.md` in sync |
 | `examples/` | shared | shipped TOML examples; keep in sync with `README.md` and `docs/formats.md` |
@@ -84,9 +84,9 @@ wins and this file must be fixed in the same change.
 ruff check .
 pytest -q -m "not g4 and not root"
 python tools/check_single_source.py
-python kc761.py --help
-python -m kc761 --help
-for c in calib compose sim unfold; do python kc761.py "$c" -c "examples/$c.toml" --dry-run; done
+python kc761tool.py --help
+python -m kc761tool --help
+for c in calib compose sim unfold; do python kc761tool.py "$c" -c "examples/$c.toml" --dry-run; done
 ```
 
 CI runs the same commands on Python 3.12 and 3.13, installing the runtime

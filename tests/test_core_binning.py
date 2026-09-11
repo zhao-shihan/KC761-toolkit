@@ -5,9 +5,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from kc761.core import binning
-from kc761.core.model import InternalCalibration
-from kc761.errors import ValidationError
+from kc761tool.core import binning
+from kc761tool.core.model import InternalCalibration
+from kc761tool.errors import ValidationError
 
 
 def test_channel_grid() -> None:

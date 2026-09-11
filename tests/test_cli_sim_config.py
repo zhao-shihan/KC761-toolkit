@@ -11,10 +11,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from kc761.cli import main
-from kc761.schema.axes import channel_axis
-from kc761.schema.io import write_product
-from kc761.schema.products import (
+from kc761tool.cli import main
+from kc761tool.schema.axes import channel_axis
+from kc761tool.schema.io import write_product
+from kc761tool.schema.products import (
     SCHEMA_VERSION,
     Histogram1D,
     Provenance,
@@ -70,7 +70,7 @@ def test_dry_run_prints_commands_without_spawning(
     tmp_path: Path, monkeypatch: Any, capsys: Any
 ) -> None:
     recorder = Recorder()
-    monkeypatch.setattr("kc761.cli.sim.subprocess.run", recorder)
+    monkeypatch.setattr("kc761tool.cli.sim.subprocess.run", recorder)
     out1 = tmp_path / "a.root"
     out2 = tmp_path / "b.root"
     config = _config(
@@ -91,7 +91,7 @@ def test_dry_run_prints_commands_without_spawning(
 
 def test_serial_order_and_argv_expansion(tmp_path: Path, monkeypatch: Any) -> None:
     recorder = Recorder([0, 0])
-    monkeypatch.setattr("kc761.cli.sim.subprocess.run", recorder)
+    monkeypatch.setattr("kc761tool.cli.sim.subprocess.run", recorder)
     out1 = tmp_path / "a.root"
     out2 = tmp_path / "b.root"
     config = _config(
@@ -106,7 +106,7 @@ def test_serial_order_and_argv_expansion(tmp_path: Path, monkeypatch: Any) -> No
     assert main(["sim", "-c", str(config), "--strict"]) == 0
     assert len(recorder.calls) == 2
     first, second = recorder.calls
-    assert first[0][1:4] == ["-m", "kc761", "sim"]
+    assert first[0][1:4] == ["-m", "kc761tool", "sim"]
     assert "--am241" in first[0]
     assert "--lu176" in second[0]
     assert "-s" in second[0] and "99" in second[0]
@@ -118,7 +118,7 @@ def test_serial_order_and_argv_expansion(tmp_path: Path, monkeypatch: Any) -> No
 
 def test_matrix_run_uses_mode_flag_and_calib(tmp_path: Path, monkeypatch: Any) -> None:
     recorder = Recorder([0])
-    monkeypatch.setattr("kc761.cli.sim.subprocess.run", recorder)
+    monkeypatch.setattr("kc761tool.cli.sim.subprocess.run", recorder)
     calib = tmp_path / "calib.root"
     output = tmp_path / "g.root"
     config = _config(
@@ -139,7 +139,7 @@ def test_batch_failure_continues_and_returns_one(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     recorder = Recorder([1, 0])
-    monkeypatch.setattr("kc761.cli.sim.subprocess.run", recorder)
+    monkeypatch.setattr("kc761tool.cli.sim.subprocess.run", recorder)
     config = _config(
         tmp_path,
         "[[sim.runs]]\n"
@@ -157,7 +157,7 @@ def test_config_matrix_default_filename_token(
     tmp_path: Path, monkeypatch: Any, capsys: Any
 ) -> None:
     recorder = Recorder()
-    monkeypatch.setattr("kc761.cli.sim.subprocess.run", recorder)
+    monkeypatch.setattr("kc761tool.cli.sim.subprocess.run", recorder)
     calib = tmp_path / "calib.root"
     config = _config(
         tmp_path,
@@ -175,7 +175,7 @@ def test_resume_skips_a_valid_existing_target(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     recorder = Recorder()
-    monkeypatch.setattr("kc761.cli.sim.subprocess.run", recorder)
+    monkeypatch.setattr("kc761tool.cli.sim.subprocess.run", recorder)
     target = tmp_path / "existing.root"
     _valid_product(target)
     config = _config(
@@ -192,7 +192,7 @@ def test_resume_invalid_existing_target_fails_without_spawning(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     recorder = Recorder()
-    monkeypatch.setattr("kc761.cli.sim.subprocess.run", recorder)
+    monkeypatch.setattr("kc761tool.cli.sim.subprocess.run", recorder)
     target = tmp_path / "broken.root"
     target.write_bytes(b"not a root file")
     config = _config(
@@ -207,7 +207,7 @@ def test_resume_invalid_existing_target_fails_without_spawning(
 
 def test_batch_force_flag_is_propagated(tmp_path: Path, monkeypatch: Any) -> None:
     recorder = Recorder([0])
-    monkeypatch.setattr("kc761.cli.sim.subprocess.run", recorder)
+    monkeypatch.setattr("kc761tool.cli.sim.subprocess.run", recorder)
     config = _config(
         tmp_path,
         "force = true\nresume = false\n"
@@ -221,7 +221,7 @@ def test_batch_force_flag_is_propagated(tmp_path: Path, monkeypatch: Any) -> Non
 
 def test_parent_does_not_import_geant4(tmp_path: Path, monkeypatch: Any) -> None:
     recorder = Recorder([0])
-    monkeypatch.setattr("kc761.cli.sim.subprocess.run", recorder)
+    monkeypatch.setattr("kc761tool.cli.sim.subprocess.run", recorder)
     config = _config(
         tmp_path,
         "[[sim.runs]]\n"

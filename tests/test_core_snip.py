@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from scipy import sparse
 
-from kc761.core.solver import (
+from kc761tool.core.solver import (
     RegularizationSpec,
     SnipSettings,
     normal_equations,
@@ -15,7 +15,7 @@ from kc761.core.solver import (
     solve_nonnegative,
     verify_snip_mask,
 )
-from kc761.errors import CertificateError, ValidationError
+from kc761tool.errors import CertificateError, ValidationError
 
 
 def _spectrum() -> tuple[np.ndarray, np.ndarray]:

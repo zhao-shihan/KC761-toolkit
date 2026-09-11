@@ -7,17 +7,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kc761.errors import SchemaError, UsageError, ValidationError
-from kc761.schema.axes import channel_axis
-from kc761.schema.io import input_sha256, read_product, sha256_file
-from kc761.schema.products import (
+from kc761tool.errors import SchemaError, UsageError, ValidationError
+from kc761tool.schema.axes import channel_axis
+from kc761tool.schema.io import input_sha256, read_product, sha256_file
+from kc761tool.schema.products import (
     UNFOLD_MODE_CALIB_ONLY,
     UNFOLD_MODE_FULL,
     UNFOLD_SETTING_TYPES,
     Histogram1D,
     SpectrumProduct,
 )
-from kc761.unfold import run_unfold
+from kc761tool.unfold import run_unfold
 from tests.test_unfold_support import (
     N_CHANNELS,
     SCHEMA_VERSION,

@@ -7,10 +7,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from kc761.cli import main
-from kc761.cli.csv2root import parse_kc761_csv
-from kc761.errors import Kc761Error
-from kc761.schema.io import read_product
+from kc761tool.cli import main
+from kc761tool.cli.csv2root import parse_kc761_csv
+from kc761tool.errors import Kc761toolError
+from kc761tool.schema.io import read_product
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "data"
 SMALL_CSV = FIXTURES / "kc761_small.csv"
@@ -43,7 +43,7 @@ def test_parse_skips_blank_lines_and_handles_crlf() -> None:
     ],
 )
 def test_bad_header_or_time_is_an_error(bad: str) -> None:
-    with pytest.raises(Kc761Error):
+    with pytest.raises(Kc761toolError):
         parse_kc761_csv(bad)
 
 
@@ -59,19 +59,19 @@ def test_bad_header_or_time_is_an_error(bad: str) -> None:
     ],
 )
 def test_bad_data_line_is_an_error(bad: str) -> None:
-    with pytest.raises(Kc761Error):
+    with pytest.raises(Kc761toolError):
         parse_kc761_csv(bad)
 
 
 def test_non_contiguous_channels_are_an_error() -> None:
-    with pytest.raises(Kc761Error, match="contiguous"):
+    with pytest.raises(Kc761toolError, match="contiguous"):
         parse_kc761_csv("Channel,Count #0d0h0m10s\n0,1,\n2,1,\n")
-    with pytest.raises(Kc761Error, match="contiguous"):
+    with pytest.raises(Kc761toolError, match="contiguous"):
         parse_kc761_csv("Channel,Count #0d0h0m10s\n0,1,\n0,2,\n")
 
 
 def test_empty_file_is_an_error() -> None:
-    with pytest.raises(Kc761Error, match="empty"):
+    with pytest.raises(Kc761toolError, match="empty"):
         parse_kc761_csv("")
 
 

@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from kc761.core import covariance
-from kc761.errors import CertificateError, SolverError, ValidationError
+from kc761tool.core import covariance
+from kc761tool.errors import CertificateError, SolverError, ValidationError
 
 
 def test_fisher_information_matches_weighted_product() -> None:

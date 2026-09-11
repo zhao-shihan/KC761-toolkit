@@ -5,4 +5,4 @@ line-length = 100
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
 
 [lint.isort]
-known-first-party = ["kc761"]
+known-first-party = ["kc761tool"]

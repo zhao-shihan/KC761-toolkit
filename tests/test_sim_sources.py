@@ -5,11 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from kc761 import errors
-from kc761.core import binning
-from kc761.sim import geometry, sources
-from kc761.sim.detector import build_plane_gamma_source, build_sphere_gamma_source
-from kc761.sim.generator import column_seed
+from kc761tool import errors
+from kc761tool.core import binning
+from kc761tool.sim import geometry, sources
+from kc761tool.sim.detector import build_plane_gamma_source, build_sphere_gamma_source
+from kc761tool.sim.generator import column_seed
 
 
 def test_source_registry_matches_the_seven_frozen_keys() -> None:
@@ -64,7 +64,7 @@ def test_geometry_rejects_non_positive_values() -> None:
 
 
 def test_material_provenance_covers_all_custom_materials() -> None:
-    from kc761.sim import materials
+    from kc761tool.sim import materials
 
     for name in materials.CUSTOM_MATERIAL_ATOMS:
         assert name in materials.MATERIAL_PROVENANCE
@@ -98,7 +98,7 @@ def test_matrix_primary_axis_is_calibration_derived() -> None:
 
 
 def test_fixed_axis_has_a_single_source_shared_with_calib() -> None:
-    from kc761.calib import model as calib_model
+    from kc761tool.calib import model as calib_model
 
     assert calib_model.FIXED_DEPOSITION_BINS is binning.SOURCE_MODE_DEPOSITION_BINS
     assert calib_model.FIXED_DEPOSITION_MAX_KEV is binning.SOURCE_MODE_DEPOSITION_MAX_KEV
@@ -161,7 +161,7 @@ def test_slices_partition_columns_and_locate_events() -> None:
 
 
 def test_column_and_block_seeds_are_stable_distinct_and_in_range() -> None:
-    from kc761.sim.generator import block_seed, splitmix64
+    from kc761tool.sim.generator import block_seed, splitmix64
 
     assert splitmix64(0) == splitmix64(0)
     assert column_seed(908136382, 0) == column_seed(908136382, 0)
@@ -194,7 +194,7 @@ def test_every_source_material_is_resolvable() -> None:
     Without this invariant the shielded sources failed at Geant4 build time
     with "unknown custom source material 'R4600'".
     """
-    from kc761.sim import materials
+    from kc761tool.sim import materials
 
     def material_names(spec: sources.SourceSpec):
         yield spec.material
