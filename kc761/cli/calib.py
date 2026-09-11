@@ -1,4 +1,4 @@
-"""``kc761 calib``: energy/resolution calibration (W6).
+"""``kc761 calib``: energy/resolution calibration.
 
 One or more data/MC dataset pairs are fitted with a shared calibration. The
 measured spectrum is a ``spectrum`` product and ``--mc`` reads an

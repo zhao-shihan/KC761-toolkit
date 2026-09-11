@@ -1,8 +1,8 @@
-"""Calibration workstream package (W3).
+"""Calibration package.
 
 User-facing orchestration for the energy/resolution fit, Bezier dataset
 scaling, covariance estimation and calibration product export. Formula IDs
-F-CAL-1..F-CAL-5 (``docs/derivations.md``). The W6 CLI imports
+F-CAL-1..F-CAL-5 (``docs/derivations.md``). The CLI imports
 :func:`kc761.calib.run_fit`.
 """
 

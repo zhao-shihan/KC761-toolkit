@@ -1,4 +1,4 @@
-"""``kc761 unfold``: regularized unfolding (W6).
+"""``kc761 unfold``: regularized unfolding.
 
 Full mode composes the response from a calibration product and a matrix-mode
 simulation product, solves the non-negative Tikhonov problem and exports the

@@ -87,10 +87,10 @@ BOUNDS_RESOL: Final[tuple[tuple[float, float], ...]] = (
     (0.0, 80.0),
     (0.0, 100.0),
 )
-"""Start values and bounds (F-CAL-3; specification reference to the rewrite).
+"""Start values and bounds (F-CAL-3; specification reference).
 
 The bounds keep ``E(ch)`` monotone (F-MODEL-3) and contain the resolution
-parameters used by the pre-rewrite fits (docs/plan.md D-103).
+parameters used by the fit (docs/plan.md D-103).
 """
 
 
@@ -146,7 +146,7 @@ class DatasetDetail:
     chi2: float
     #: Rebin of the raw source-mode MC template onto the window energy edges and
     #: its per-bin uncertainty, plus the fitted Bezier scale parameters; these
-    #: reproduce the legacy "Raw MC (scaled)" figure layer (R2/D-153). They are
+    #: reproduce the "Raw MC (scaled)" figure layer (D-153). They are
     #: plotting diagnostics only and never enter the fit.
     raw_mc_counts: NDArray[np.float64]
     raw_mc_uncertainties: NDArray[np.float64]

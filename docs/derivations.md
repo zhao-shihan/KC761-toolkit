@@ -1,63 +1,63 @@
 # Derivations and formula registry
 
-Status: W1-W5 are implemented; W6 wires the CLI surface. F-IO-1 is in
-section 4. IDs are append-only; derivations may gain detail but must never
-contradict `docs/plan.md`.
+Status: final. Every registered formula is implemented and guarded by the
+runtime certificates in section 3; F-IO-1 is in section 4. IDs are append-only;
+derivations may gain detail but must never contradict `docs/plan.md`.
 
 ## 1. Formula IDs
 
 | ID | Statement | Owner module | Status |
 |----|-----------|--------------|--------|
-| F-MODEL-1 | `E(ch) = c0 + k1 ch + (4 k2 - 3 k1 - k3)/(2 ch_max) ch^2 + 2 (k1 - 2 k2 + k3)/(3 ch_max^2) ch^3` | `core/model.py` | implemented (W1) |
-| F-MODEL-2 | internal `(c0,k1,k2,k3)` -> reported `(c0..c3)` map, its constant Jacobian and inverse | `core/model.py` | implemented (W1) |
-| F-MODEL-3 | strict monotonicity of `E(ch)` on `[0, ch_max]` for the fitted bounds | `core/model.py` | implemented (W1) |
-| F-MODEL-4 | `sigma^2(t) = (1-t)^2 b0^2 + 2 (1-t) t b1^2 + t^2 b2^2`, `t = max(E, 0)/E_REF`, `E_REF = 2000 keV`; derivative with respect to `(b0, b1, b2)` | `core/model.py` | implemented (W1) |
-| F-MODEL-5 | resolution positivity certificate; strict raises, non-strict clamps to `SIGMA_FLOOR_KEV` (D-73) | `core/model.py` | implemented (W1) |
-| F-BIN-1 | channel axis `-0.5 .. n-0.5`; variable energy axis in keV | `core/binning.py` | implemented (W1) |
-| F-BIN-2 | parameter-independent evaluation geometry: full deposition axis x requested channel rows, no bin selection (D-79) | `core/binning.py` | implemented (W1, D-79) |
-| F-BIN-3 | working window and pad from the local resolution width | `core/binning.py` | implemented (W1) |
-| F-BIN-4 | fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins` (source-mode spectrum and fit-time `C_fit` only; the matrix primary axis is `C.y`, D-121 revised) | `core/binning.py` | implemented (W5) |
-| F-KERN-1 | exact Gaussian bin integral `Phi((e_{i+1}-c_j)/s_j) - Phi((e_i-c_j)/s_j)` | `core/kernel.py` | implemented (W1) |
-| F-KERN-2 | smoothstep support taper (D-76) and exact column renormalization; empty columns are zero | `core/kernel.py` | implemented (W1) |
-| F-KERN-3 | sparse triple assembly of C from the kernel | `core/kernel.py` | implemented (W1) |
-| F-KERN-4 | unnormalized local kernel derivatives `dn/d(e_lo)`, `dn/d(e_hi)`, `dn/d sigma`, `dn/dc` (sympy-generated; quotient rule in F-RESP-4, D-83) | `core/kernel.py` | implemented (W1, D-75/D-83) |
-| F-RESP-1 | `C[i,j]` assembly (sparse); every column sums to 1 or is exactly zero (D-79) | `core/response.py` | implemented (W1) |
-| F-RESP-2 | `R = C . p_tilde . diag(eta) = C . G . diag(1/N)` (equivalent forms) | `core/response.py` | implemented (W1) |
-| F-RESP-3 | full-axis composition followed by window slicing; split full-axis/sliced certificates (D-82) | `core/response.py` | implemented (W1) |
-| F-RESP-4 | chain assembly of `dC/dq` and `dR/dq` from the model and kernel derivatives (sympy-generated) | `core/response.py` | implemented (W1, D-75) |
-| F-PROJ-1 | rebinning/folding projection matrix | `core/projection.py` | implemented (W1) |
-| F-PROJ-2 | variance propagation through the projection | `core/projection.py` | implemented (W1) |
-| F-CAL-1 | fit weights `var = max(stat, 1) + (syst_frac * data)**2 + MC` and the folded-prediction MC term (D-102) | `calib/model.py` | implemented (W3) |
-| F-CAL-2 | per-dataset quadratic Bezier scale model (free middle control abscissa `s0`, D-103), value and derivatives | `calib/scaling.py` | implemented (W3) |
-| F-CAL-3 | fit parameter start values and bounds (specification reference, D-103) | `calib/model.py` | implemented (W3) |
-| F-CAL-4 | calibration prediction Jacobian and exact chi-square gradient (chain through F-RESP-4) | `calib/model.py` | implemented (W3) |
-| F-CAL-5 | calibration covariance: Fisher inverse, scale marginalization, reported-basis transform, `s**2` scaling (D-105) | `calib/covariance.py` | implemented (W3) |
-| F-SIM-1 | fixed per-column sampling, uniform energy draw within the column, exact event accounting `sum(counts) + zero = N_j` | `sim/sources.py`, `sim/certificates.py` | implemented (W5) |
-| F-SIM-2 | exact fixed-total variance in `fSumw2`: `N_j p (1-p)` (matrix) and `c (1 - c/P)` (source spectrum) | `sim/certificates.py` | implemented (W5) |
-| F-SIM-3 | detection efficiency `eta_j = column_sum_j / N_j` (equivalently `1 - zero_j/N_j`) | `sim/certificates.py` | implemented (W5) |
-| F-SIM-4 | plane and circumscribed-sphere source sampling (Lambertian) | `sim/generator.py` | implemented (W5) |
-| F-SIM-5 | 10 us pulse merging for the source mode | `sim/actions.py` | implemented (W5) |
-| F-SIM-6 | physical boundary certificate: deposition-bin lower edge above a primary-column upper edge is exactly zero | `sim/certificates.py` | implemented (W5) |
-| F-SIM-7 | deterministic seed derivation: `column_seed(seed, column)` and `block_seed(seed, block)`; same seed + worker partition is bit-for-bit (D-123 revised) | `sim/generator.py` | implemented (W5) |
-| F-SOLVE-1 | Tikhonov objective `chi2 + alpha * ||D_tilde mu||^2`, `D_tilde = D . diag(sqrt(diag(R^T W R)))`, dimensionless `alpha` (D-80); with the SNIP peak mask `D' = diag(rho**0.5) D` (F-SOLVE-6/D-154, supersedes D-74) | `core/solver.py` | implemented (W1) |
-| F-SOLVE-2 | self-implemented banded Cholesky active-set non-negative QP | `core/solver.py` | implemented (W1) |
-| F-SOLVE-3 | KKT certificate in units of the data-gradient scale (D-84) | `core/solver.py` | implemented (W1) |
-| F-SOLVE-4 | SNIP LLS baseline on the measured spectrum: transform, resolution-derived iteration count, `max(y, 0)` handling (D-155/D-157) | `core/solver.py` | implemented (R2) |
-| F-SOLVE-5 | resolution-matched peak significance and the fixed diagonal peak mask `W` (D-156) | `core/solver.py` | implemented (R2) |
-| F-SOLVE-6 | masked penalty operator `D_tilde' = diag(rho**0.5) D . diag(sqrt(diag(A)))`, its certificates and acceptance metrics (D-158/D-161) | `core/solver.py` | implemented (R2) |
-| F-COV-1 | Fisher information from the analytic Jacobian | `core/covariance.py` | implemented (W1) |
-| F-COV-2 | `s**2 = chi2/dof` scaling (PDG convention); PD required, no pseudo-inverse fallback (D-84) | `core/covariance.py` | implemented (W1) |
-| F-COV-3 | optional profile-covariance diagnostic | `core/covariance.py` | implemented (W1) |
-| F-UNC-1 | statistical covariance propagation through the reduced free-set system `H_FF**-1` (D-86) | `core/uncertainty.py` | implemented (W1) |
-| F-UNC-2 | systematic propagation (calibration covariance, simulation MC, data-side term) | `core/uncertainty.py` | implemented (W1) |
-| F-UNC-3 | strict band decomposition `total**2 = stat**2 + syst**2` | `core/uncertainty.py` | implemented (W1) |
-| F-UNF-1 | energy window -> channel/primary selection from `E(ch)` at channel centres (D-111) | `unfold/selection.py` | implemented (W4) |
-| F-UNF-2 | unfold fit weights `sigma_fit**2 = max(stat, 1) + (syst_frac*data)**2`, data-side only (D-112) | `unfold/selection.py` | implemented (W4) |
-| F-UNF-3 | exact-zero primary-column pruning and reduced non-negative solve (D-110) | `unfold/solve.py` | implemented (W4) |
-| F-UNF-4 | unfold diagnostics: weighted chi2, `dof = n_fit_rows - n_active`, `covariance_scale = 1` (D-118) | `unfold/solve.py` | implemented (W4) |
-| F-UNF-5 | refolded `R . mu` restricted to the reported channel window `[chlo, chhi]` (D-117) | `unfold/unfold.py` | implemented (W4) |
-| F-UNF-6 | calib-only channel-to-energy relabeling on `C.y = E(i +- 1/2)` (D-113) | `unfold/unfold.py` | implemented (W4) |
-| F-IO-1 | atomic write, reopen validation and provenance protocol | `schema/io.py` | implemented (W2) |
+| F-MODEL-1 | `E(ch) = c0 + k1 ch + (4 k2 - 3 k1 - k3)/(2 ch_max) ch^2 + 2 (k1 - 2 k2 + k3)/(3 ch_max^2) ch^3` | `core/model.py` | implemented |
+| F-MODEL-2 | internal `(c0,k1,k2,k3)` -> reported `(c0..c3)` map, its constant Jacobian and inverse | `core/model.py` | implemented |
+| F-MODEL-3 | strict monotonicity of `E(ch)` on `[0, ch_max]` for the fitted bounds | `core/model.py` | implemented |
+| F-MODEL-4 | `sigma^2(t) = (1-t)^2 b0^2 + 2 (1-t) t b1^2 + t^2 b2^2`, `t = max(E, 0)/E_REF`, `E_REF = 2000 keV`; derivative with respect to `(b0, b1, b2)` | `core/model.py` | implemented |
+| F-MODEL-5 | resolution positivity certificate; strict raises, non-strict clamps to `SIGMA_FLOOR_KEV` (D-73) | `core/model.py` | implemented |
+| F-BIN-1 | channel axis `-0.5 .. n-0.5`; variable energy axis in keV | `core/binning.py` | implemented |
+| F-BIN-2 | parameter-independent evaluation geometry: full deposition axis x requested channel rows, no bin selection (D-79) | `core/binning.py` | implemented |
+| F-BIN-3 | working window and pad from the local resolution width | `core/binning.py` | implemented |
+| F-BIN-4 | fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins` (source-mode spectrum and fit-time `C_fit` only; the matrix primary axis is `C.y`, D-121 revised) | `core/binning.py` | implemented |
+| F-KERN-1 | exact Gaussian bin integral `Phi((e_{i+1}-c_j)/s_j) - Phi((e_i-c_j)/s_j)` | `core/kernel.py` | implemented |
+| F-KERN-2 | smoothstep support taper (D-76) and exact column renormalization; empty columns are zero | `core/kernel.py` | implemented |
+| F-KERN-3 | sparse triple assembly of C from the kernel | `core/kernel.py` | implemented |
+| F-KERN-4 | unnormalized local kernel derivatives `dn/d(e_lo)`, `dn/d(e_hi)`, `dn/d sigma`, `dn/dc` (sympy-generated; quotient rule in F-RESP-4, D-83) | `core/kernel.py` | implemented |
+| F-RESP-1 | `C[i,j]` assembly (sparse); every column sums to 1 or is exactly zero (D-79) | `core/response.py` | implemented |
+| F-RESP-2 | `R = C . p_tilde . diag(eta) = C . G . diag(1/N)` (equivalent forms) | `core/response.py` | implemented |
+| F-RESP-3 | full-axis composition followed by window slicing; split full-axis/sliced certificates (D-82) | `core/response.py` | implemented |
+| F-RESP-4 | chain assembly of `dC/dq` and `dR/dq` from the model and kernel derivatives (sympy-generated) | `core/response.py` | implemented |
+| F-PROJ-1 | rebinning/folding projection matrix | `core/projection.py` | implemented |
+| F-PROJ-2 | variance propagation through the projection | `core/projection.py` | implemented |
+| F-CAL-1 | fit weights `var = max(stat, 1) + (syst_frac * data)**2 + MC` and the folded-prediction MC term (D-102) | `calib/model.py` | implemented |
+| F-CAL-2 | per-dataset quadratic Bezier scale model (free middle control abscissa `s0`, D-103), value and derivatives | `calib/scaling.py` | implemented |
+| F-CAL-3 | fit parameter start values and bounds (specification reference, D-103) | `calib/model.py` | implemented |
+| F-CAL-4 | calibration prediction Jacobian and exact chi-square gradient (chain through F-RESP-4) | `calib/model.py` | implemented |
+| F-CAL-5 | calibration covariance: Fisher inverse, scale marginalization, reported-basis transform, `s**2` scaling (D-105) | `calib/covariance.py` | implemented |
+| F-SIM-1 | fixed per-column sampling, uniform energy draw within the column, exact event accounting `sum(counts) + zero = N_j` | `sim/sources.py`, `sim/certificates.py` | implemented |
+| F-SIM-2 | exact fixed-total variance in `fSumw2`: `N_j p (1-p)` (matrix) and `c (1 - c/P)` (source spectrum) | `sim/certificates.py` | implemented |
+| F-SIM-3 | detection efficiency `eta_j = column_sum_j / N_j` (equivalently `1 - zero_j/N_j`) | `sim/certificates.py` | implemented |
+| F-SIM-4 | plane and circumscribed-sphere source sampling (Lambertian) | `sim/generator.py` | implemented |
+| F-SIM-5 | 10 us pulse merging for the source mode | `sim/actions.py` | implemented |
+| F-SIM-6 | physical boundary certificate: deposition-bin lower edge above a primary-column upper edge is exactly zero | `sim/certificates.py` | implemented |
+| F-SIM-7 | deterministic seed derivation: `column_seed(seed, column)` and `block_seed(seed, block)`; same seed + worker partition is bit-for-bit (D-123 revised) | `sim/generator.py` | implemented |
+| F-SOLVE-1 | Tikhonov objective `chi2 + alpha * ||D_tilde mu||^2`, `D_tilde = D . diag(sqrt(diag(R^T W R)))`, dimensionless `alpha` (D-80); with the SNIP peak mask `D' = diag(rho**0.5) D` (F-SOLVE-6/D-154, supersedes D-74) | `core/solver.py` | implemented |
+| F-SOLVE-2 | self-implemented banded Cholesky active-set non-negative QP | `core/solver.py` | implemented |
+| F-SOLVE-3 | KKT certificate in units of the data-gradient scale (D-84) | `core/solver.py` | implemented |
+| F-SOLVE-4 | SNIP LLS baseline on the measured spectrum: transform, resolution-derived iteration count, `max(y, 0)` handling (D-155/D-157) | `core/solver.py` | implemented |
+| F-SOLVE-5 | resolution-matched peak significance and the fixed diagonal peak mask `W` (D-156) | `core/solver.py` | implemented |
+| F-SOLVE-6 | masked penalty operator `D_tilde' = diag(rho**0.5) D . diag(sqrt(diag(A)))`, its certificates and acceptance metrics (D-158/D-161) | `core/solver.py` | implemented |
+| F-COV-1 | Fisher information from the analytic Jacobian | `core/covariance.py` | implemented |
+| F-COV-2 | `s**2 = chi2/dof` scaling (PDG convention); PD required, no pseudo-inverse fallback (D-84) | `core/covariance.py` | implemented |
+| F-COV-3 | optional profile-covariance diagnostic | `core/covariance.py` | implemented |
+| F-UNC-1 | statistical covariance propagation through the reduced free-set system `H_FF**-1` (D-86) | `core/uncertainty.py` | implemented |
+| F-UNC-2 | systematic propagation (calibration covariance, simulation MC, data-side term) | `core/uncertainty.py` | implemented |
+| F-UNC-3 | strict band decomposition `total**2 = stat**2 + syst**2` | `core/uncertainty.py` | implemented |
+| F-UNF-1 | energy window -> channel/primary selection from `E(ch)` at channel centres (D-111) | `unfold/selection.py` | implemented |
+| F-UNF-2 | unfold fit weights `sigma_fit**2 = max(stat, 1) + (syst_frac*data)**2`, data-side only (D-112) | `unfold/selection.py` | implemented |
+| F-UNF-3 | exact-zero primary-column pruning and reduced non-negative solve (D-110) | `unfold/solve.py` | implemented |
+| F-UNF-4 | unfold diagnostics: weighted chi2, `dof = n_fit_rows - n_active`, `covariance_scale = 1` (D-118) | `unfold/solve.py` | implemented |
+| F-UNF-5 | refolded `R . mu` restricted to the reported channel window `[chlo, chhi]` (D-117) | `unfold/unfold.py` | implemented |
+| F-UNF-6 | calib-only channel-to-energy relabeling on `C.y = E(i +- 1/2)` (D-113) | `unfold/unfold.py` | implemented |
+| F-IO-1 | atomic write, reopen validation and provenance protocol | `schema/io.py` | implemented |
 
 ## 2. Sympy generation convention
 
@@ -67,7 +67,7 @@ contradict `docs/plan.md`.
    the exact command line.
 3. Value and derivative always come from the same symbolic expression; a
    hand-written derivative of a registered formula is a contract violation.
-4. The mechanical single-source check (W1) fails when a registered expression
+4. The mechanical single-source check fails when a registered expression
    appears outside its `_gen` module or its owning implementation.
 
 ## 3. Runtime certificates (strict mode)
@@ -169,7 +169,7 @@ Strict mode raises `CertificateError("F-MODEL-5")` when
 `sigma^2 < -SIGMA_POSITIVITY_TOL_KEV2` (`1e-9`) on the export grid. Outside
 strict mode a non-positive variance is clamped to
 `SIGMA_FLOOR_KEV = 1e-3 keV`, a `RuntimeWarning` is emitted and
-`resolution_clamped_mask` lets W4 record the affected energies in `meta`
+`resolution_clamped_mask` lets the caller record the affected energies in `meta`
 (D-73). Values in `[-tol, 0]` are treated as zero-width in strict mode and
 as clamped outside it.
 
@@ -429,8 +429,8 @@ gauge plateau (F-CAL-3); the scale block is marginalized stably in F-CAL-5.
 
 The internal core starts at `(-180, 1.5, 2.5, 3.5, 2, 20, 40)` with bounds
 `c0 in (-300, -100)`, `k1 in (1, 2)`, `k2 in (2, 3)`, `k3 in (3, 4)`,
-`b0 in (0, 10)`, `b1 in (0, 80)`, `b2 in (0, 100)`; these are the pre-rewrite
-ranges (specification reference, D-103) and keep `E(ch)` monotone (F-MODEL-3).
+`b0 in (0, 10)`, `b1 in (0, 80)`, `b2 in (0, 100)`; these are the frozen ranges
+(specification reference, D-103) and keep `E(ch)` monotone (F-MODEL-3).
 The scale values are bounded to `[0.01, 3]` times the dataset's overall
 normalization `sum(data) / sum(model)`; `s0` is bounded strictly inside the
 window (F-CAL-2). A constant scale makes `ds/ds0` vanish, so the seed is
@@ -485,7 +485,7 @@ verified in the tests with a well-conditioned Fisher.
 `base, rem = divmod(n_events, n_active)`; the active columns in ascending order receive
 `base + 1` for the first `rem` and `base` otherwise. In column `j`, `N_j` events are generated;
 each event's primary energy is `E = lo_j + u (hi_j - lo_j)` with `u` uniform in `[0, 1)` and
-`[lo_j, hi_j] = [max(edge_j, 0), edge_{j+1}]`. This is exactly the legacy round-robin
+`[lo_j, hi_j] = [max(edge_j, 0), edge_{j+1}]`. This is exactly the round-robin
 assignment `active[(offset + event) mod n_active]` as a count vector.
 
 **Accounting.** Every event either deposits a positive total in the crystal (filling `G` in
@@ -558,7 +558,7 @@ partition, merging the summed histograms reproduces the invocation result bit-fo
 integer-valued). Source-mode blocks have the fixed size `SOURCE_MODE_EVENT_BLOCK` and are never
 split across workers.
 
-**R1 revision (D-123).** Bit-for-bit equivalence across *different* worker counts is not a
+**Revision (D-123).** Bit-for-bit equivalence across *different* worker counts is not a
 contract: Geant4's engine state (including internal generator caches) makes a mid-run reseed
 process-dependent. The matrix per-column streams do not depend on the partition, and the matrix
 merged result is worker-count independent in practice (covered by a test), but only the
@@ -720,7 +720,7 @@ area bias; (c) pull coverage with the mask on/off; (d) robustness to threshold
 and iteration perturbations; (e) bitwise reproducibility. No golden or
 reference outputs are used.
 
-**Default-parameter study (R2, preliminary).** A sensitivity grid was run on
+**Default-parameter study (preliminary).** A sensitivity grid was run on
 the real Th232 window (1259 bins, alpha = 0.1, strict). Mask off gave
 chi2 = 315.9, 537 active bins, max(mu) = 2.73e5. The adopted defaults
 (5 sigma / 2 sigma_E / floor 0.1, resolution-derived m) gave chi2 = 256.2,
@@ -795,7 +795,7 @@ Three contributions, all first-order at fixed active set:
 
    `dg_a/dG_js = [ delta_{a,s} (C_j^T W r) + (R^T W C_j)_a mu_s ] / N_s`
 
-   (D-119). The earlier rank-one form `d_js e_s^T` dropped the second term;
+   (D-119). A rank-one form `d_js e_s^T` drops the second term;
    finite differences on random problems show it contributes at the same order
    as the first (~50% of the derivative), so it must be kept. With the
    recorded-bin multinomial covariance `Cov(G_s) = N_s (diag(p_s) - p_s p_s^T)`
@@ -882,9 +882,9 @@ list of `[name, value]` pairs, `inputs_json` a list of
 `{"path", "sha256"}`, `dependency_versions` a list of `[name, version]`;
 calibration parameter vectors are JSON number lists in the frozen
 `PARAM_NAMES_REPORTED` order. Variances are read back from the raw `fSumw2`
-buffer (not `errors()**2`), so a write/read cycle is bit exact. Historical
-note: the earlier W0 draft stored `calib_sha256`/`sim_sha256` fields and a
-`geometry_param` key; both were removed in W2 (D-88/D-89).
+buffer (not `errors()**2`), so a write/read cycle is bit exact. The
+`calib_sha256`/`sim_sha256` and `geometry_param` fields are not part of the
+contract (D-88/D-89).
 
 ### F-UNF-1 - energy window to channel and primary selection
 

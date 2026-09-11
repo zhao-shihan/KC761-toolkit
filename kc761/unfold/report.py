@@ -1,4 +1,4 @@
-"""Text report for an unfold run (W4).
+"""Text report for an unfold run.
 
 The report is a plain newline-joined string with the frozen diagnostics
 (F-UNF-4): window, alpha, degrees of freedom, band summary, the F-MODEL-5

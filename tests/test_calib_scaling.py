@@ -1,4 +1,4 @@
-"""W3 Bezier scale tests (F-CAL-2).
+"""Bezier scale tests (F-CAL-2).
 
 Analytic derivatives are compared to central differences (auxiliary only,
 D-65). The rank structure documents the model class: the four-parameter family

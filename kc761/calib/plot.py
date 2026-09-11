@@ -1,6 +1,6 @@
-"""Calibration fit figure (legacy-faithful port, R2/D-153).
+"""Calibration fit figure (D-153).
 
-This is a deliberate port of the pre-rewrite ``kc761calib/plot.py`` so the
+This module reproduces the calibration figure so the
 calibration figure is visually identical: same figure geometry, palette,
 logarithmic energy axes with rotated ticks, scale twin axis, raw-MC stairs with
 their statistical error bars, covariance bands (scaled for visibility),
@@ -37,7 +37,7 @@ from kc761.core.model import (
 )
 from kc761.errors import UsageError
 
-# Palette: colours of the plotted artists, grouped per panel (legacy values).
+# Palette: colours of the plotted artists, grouped per panel (values).
 _COLOR_DATA = "blue"  # experimental counts (uncertainty bars)
 _COLOR_FIT = "red"  # best-fit folded simulation
 _COLOR_SIM_RAW = "dimgray"  # scaled raw simulation (stairs)
@@ -71,7 +71,7 @@ _LOG_X_LABELROTATION = 45.0
 
 
 def _save_fig(fig, out_plot: str | Path, force: bool) -> Path:
-    """Save the figure (legacy layout); refuse overwrite unless ``force``."""
+    """Save the figure; refuse overwrite unless ``force``."""
     for ax in fig.axes:
         ax.tick_params(direction="in", which="both")
     out = Path(out_plot)
@@ -418,7 +418,7 @@ def plot_fit(
     path: str | Path,
     force: bool = False,
 ) -> Path:
-    """Render the fit result into ``path`` (legacy layout, D-153)."""
+    """Render the fit result into ``path`` (D-153)."""
     calibration = InternalCalibration.from_array(np.asarray(result.core_internal)[:4])
     n = len(details)
     fig, gs = _figure_grid(n)

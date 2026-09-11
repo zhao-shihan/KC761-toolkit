@@ -1,4 +1,4 @@
-"""Text report of a calibration fit (W3).
+"""Text report of a calibration fit.
 
 Prints the chi-square per degree of freedom, the reported parameters with their
 F-CAL-5 uncertainties, the per-dataset Bezier scale (F-CAL-2) and the

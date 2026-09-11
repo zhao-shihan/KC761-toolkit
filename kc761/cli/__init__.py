@@ -4,7 +4,7 @@ Six frozen subcommands (docs/plan.md D-66) in pipeline order: ``csv2root``,
 ``subbkg``, ``sim``, ``calib``, ``compose``, ``unfold``. Logging, strict mode
 and the exit-code
 policy (0 success / 1 runtime failure / 2 usage error) live here; the
-subcommand modules only declare arguments and dispatch to their workstream.
+subcommand modules only declare arguments and dispatch to their implementation.
 """
 
 from __future__ import annotations

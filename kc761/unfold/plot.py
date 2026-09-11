@@ -1,6 +1,6 @@
-"""Unfold figure (legacy-faithful port, R2/D-153).
+"""Unfold figure (D-153).
 
-A deliberate port of the pre-rewrite ``kc761unfold/plot.py``: three stacked
+This module reproduces the unfolding figure: three stacked
 panels with height ratio 2:2:1 (linear-y spectrum, log-y spectrum, relative
 residuals), or the two spectrum panels alone in ``calib_only`` mode. The energy
 x-axis is logarithmic with rotated ticks; bins at or below zero energy are
@@ -26,7 +26,7 @@ from kc761.errors import UsageError
 from kc761.schema.products import UNFOLD_MODE_CALIB_ONLY
 from kc761.unfold.types import UnfoldResult
 
-# Palette (legacy kc761calib conventions): colours of the plotted artists.
+# Palette (calibration-figure conventions): colours of the plotted artists.
 _COLOR_DATA = "blue"  # calibrated spectrum (histogram + uncertainty bars)
 _COLOR_FIT = "red"  # unfolded spectrum (histogram + uncertainty bars)
 _COLOR_REFOLD = "dimgray"  # refolded prediction (stairs)
@@ -89,7 +89,7 @@ def _draw_layer(ax, centers, edges, counts, sigma_total, sigma_syst, color, labe
 
 
 def _series(result: UnfoldResult):
-    """Return the legacy-compatible series on the common primary energy axis."""
+    """Return the series on the common primary energy axis."""
     assert result.unfolded is not None
     edges = np.asarray(result.unfolded.axis.edges, dtype=float)
     centers = 0.5 * (edges[:-1] + edges[1:])
@@ -195,7 +195,7 @@ def _residual_panel(ax, result: UnfoldResult, title: str) -> None:
 
 
 def plot_unfold(result: UnfoldResult, *, path: str | Path, force: bool = False) -> Path:
-    """Render the result into ``path`` (legacy layout, D-153)."""
+    """Render the result into ``path`` (D-153)."""
     if result.unfolded is None:
         raise UsageError("nothing to plot: the unfold result carries no spectrum")
     calib_only = result.mode == UNFOLD_MODE_CALIB_ONLY

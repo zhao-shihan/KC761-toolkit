@@ -1,4 +1,4 @@
-"""``kc761 compose``: build the primary-to-channel response (W6).
+"""``kc761 compose``: build the primary-to-channel response.
 
 Writes the inspection artifact ``R = C . p_tilde . diag(eta)`` from a
 calibration product and a matrix-mode simulation product (D-43). Composition

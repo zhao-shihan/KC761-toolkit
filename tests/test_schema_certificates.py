@@ -1,4 +1,4 @@
-"""W2 strict-mode product certificates and always-on rejection tests.
+"""Strict-mode product certificates and always-on rejection tests.
 
 The always-on checks (version, object set/type, axes, shape, finiteness, meta
 fields) must reject malformed files in both modes. The product-level

@@ -1,7 +1,7 @@
 """Calibration product assembly (F-RESP-1/F-IO-1, D-101/D-106).
 
 Builds the export response matrix on the channel-derived non-uniform axis
-``E(i +- 1/2)`` (the legacy axis construction, D-101) from the fitted core,
+``E(i +- 1/2)`` (the axis construction, D-101) from the fitted core,
 together with the reported parameters, the reported-basis covariance and the
 F-MODEL-5 clamp summary.
 """

@@ -1,4 +1,4 @@
-"""W0 contract tests: imports, stubs, errors, runtime, CLI surface, fixtures."""
+"""Contract tests: imports, stubs, errors, runtime, CLI surface, fixtures."""
 
 from __future__ import annotations
 

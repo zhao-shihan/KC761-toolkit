@@ -1,4 +1,4 @@
-"""W5 no-Geant4 tests: source registry, geometry provenance and schedules."""
+"""No-Geant4 tests: source registry, geometry provenance and schedules."""
 
 from __future__ import annotations
 
@@ -189,7 +189,7 @@ def test_mode_metadata_labels() -> None:
 
 
 def test_every_source_material_is_resolvable() -> None:
-    """R2 regression: Ra226/Th232 shields use the prebuilt R4600 material.
+    """Ra226/Th232 shields use the prebuilt R4600 material.
 
     Without this invariant the shielded sources failed at Geant4 build time
     with "unknown custom source material 'R4600'".

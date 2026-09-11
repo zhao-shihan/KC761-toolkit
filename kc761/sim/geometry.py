@@ -1,10 +1,9 @@
 """Frozen detector geometry values with per-field provenance (D-34).
 
-The numeric values are carried over unchanged from the pre-rewrite detector
-construction (D-34); only their organisation changed: they now live in one
-frozen dataclass with an explicit provenance note per field. ``assumed`` marks
-a value whose source measurement was not available to the rewrite; ``measured``
-marks a value that is a physical property of the instrument.
+The numeric values are the detector constants (D-34), collected in one frozen
+dataclass with an explicit provenance note per field. ``assumed`` marks a
+value whose source measurement is not available; ``measured`` marks a value
+that is a physical property of the instrument.
 
 No Geant4 import happens here.
 """
@@ -66,7 +65,7 @@ class DetectorGeometry:
 
 
 DEFAULT_GEOMETRY: Final = DetectorGeometry()
-"""The unchanged pre-rewrite detector geometry (D-34)."""
+"""The detector geometry constants (D-34)."""
 
 
 def geometry_provenance() -> dict[str, str]:

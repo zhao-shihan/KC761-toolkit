@@ -1,4 +1,4 @@
-"""W5 tests: mc_spectrum/SimProduct round-trips and physical certificates."""
+"""Product tests: mc_spectrum/SimProduct round-trips and physical certificates."""
 
 from __future__ import annotations
 

@@ -3,12 +3,12 @@
 The scale corrects the overall difference between the simulated and the real
 spectra across a dataset's fixed fit channel window ``[x_lo, x_hi]``. It is the
 quadratic **Bezier curve** with control points ``(x_lo, s1)``, ``(s0, s2)`` and
-``(x_hi, s3)`` (the legacy form, docs/plan.md D-103), written as a function of
+``(x_hi, s3)`` (the frozen form, docs/plan.md D-103), written as a function of
 the channel by inverting the control-abscissa curve:
 
     x(t) = x_lo + 2 (s0 - x_lo) t + (x_lo - 2 s0 + x_hi) t^2,
     s(t) = (1-t)^2 s1 + 2 (1-t) t s2 + t^2 s3,
-    t(x) = d / (a + sqrt(a^2 + c d)),  a = s0 - x_lo, c = x_lo - 2 s0 + x_hi, d = x - x_lo.
+    t(x) = d / (a + sqrt(a^2 + c d)), a = s0 - x_lo, c = x_lo - 2 s0 + x_hi, d = x - x_lo.
 
 ``s0`` is the middle control **abscissa** (a free fit parameter) and
 ``s1, s2, s3`` are the scale values at the control abscissae

@@ -1,7 +1,7 @@
-"""``kc761 csv2root``: strict CSV to spectrum product conversion (W6).
+"""``kc761 csv2root``: strict CSV to spectrum product conversion.
 
 Parses the KC761 MCA export ``Channel,Count #<D>d<H>h<M>m<S>s`` (the sample
-files in ``work/data/exp/2609a/``). The parser is strict by decision (D-72/D-130):
+files in ``work/data/2609a/``). The parser is strict by decision (D-72/D-130):
 a malformed header, an invalid acquisition time, a wrong column count, a
 duplicated/non-monotonic/non-contiguous channel or a negative count is an
 error. The grammar and ranges are recorded in ``docs/formats.md``.
@@ -47,7 +47,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         "input",
         type=str,
         metavar="CSV",
-        help="input CSV file (for example work/data/exp/2609a/am241.csv)",
+        help="input CSV file (for example work/data/2609a/am241.csv)",
     )
     add_output_options(
         parser, with_plot=False, default_hint="next to the input CSV file"

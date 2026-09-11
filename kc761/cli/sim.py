@@ -1,4 +1,4 @@
-"""``kc761 sim``: Geant4 simulation (W6).
+"""``kc761 sim``: Geant4 simulation.
 
 Single-run mode keeps the frozen flag surface: one source key XOR one matrix
 mode (``--plane-front-gamma``/``--sphere-gamma`` with the calibration product),

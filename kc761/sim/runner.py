@@ -457,8 +457,8 @@ def run_matrix(
 
     The calibration product supplies both energy axes: the deposition axis is
     ``C.y`` and the primary (incident gamma) axis is the *same* channel-derived
-    axis, so ``G`` is a square matrix on the legacy layout. This is the frozen
-    D-121 revision; the fixed source-mode Monte-Carlo axis is used only by the
+    axis, so ``G`` is a square matrix on this layout. This is the frozen
+    D-121 layout; the fixed source-mode Monte-Carlo axis is used only by the
     source-mode ``mc_spectrum``.
     """
     validate_output_path(output, force=force)
@@ -644,7 +644,7 @@ def prepare_interactive(
 ):  # noqa: ANN201
     """Build an initialized source-mode run manager for a UI session (D-126).
 
-    The caller (W6) drives the Geant4 UI, executes ``init_vis.mac`` and
+    The caller drives the Geant4 UI, executes ``init_vis.mac`` and
     ``vis.mac`` and calls ``/run/beamOn``. No output file is opened until a run
     starts.
     """

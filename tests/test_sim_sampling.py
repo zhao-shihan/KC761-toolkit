@@ -1,4 +1,4 @@
-"""W5 no-Geant4 tests: sampling formulas, seed derivation, worker independence."""
+"""No-Geant4 tests: sampling formulas, seed derivation, worker independence."""
 
 from __future__ import annotations
 

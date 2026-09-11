@@ -1,8 +1,7 @@
 # Architecture
 
-Status: W0-W6 implemented (W7 pending). The authoritative specification is
-[docs/plan.md](plan.md); this document explains the layering rules that the
-code must keep.
+Status: final. The authoritative specification is [docs/plan.md](plan.md); this
+document explains the layering rules that the code keeps.
 
 ## Layering
 
@@ -27,7 +26,6 @@ Rules:
 3. `kc761/calib`, `kc761/unfold` and `kc761/sim` contain orchestration and
    physics/fit logic. They import `core` and `schema`.
 4. `kc761/cli` is a leaf.
-   style helpers across callers (single shared implementation).
 5. `kc761/sim` is the only place allowed to import Geant4, and only lazily
    inside functions, so that the contract layer imports in a no-G4
    environment.
@@ -57,13 +55,15 @@ Rules:
 | `calib/fit.py` | single bounded trust-region Gauss-Newton stage, `FitProgress` callback (D-168), certificates, product write, figure; public `run_fit` | F-CAL-1..5 |
 | `calib/product.py` | export `C` on the channel-derived axis `E(i +- 1/2)` (D-101), reported parameters, clamp record | F-RESP-1/F-IO-1 |
 | `calib/report.py` | text report of chi2/dof, parameters, scales and clamp statistics | - |
-| `calib/plot.py` | calibration figure, legacy-faithful self-contained port | D-153 |
+| `calib/types.py` | calibration dataclasses (`DatasetSpec`, `FitProgress`, `FitResult`, `DatasetDetail`) shared by model/optimizer/covariance/report | F-CAL-1..5 |
+| `calib/plot.py` | calibration figure (self-contained module) | D-153 |
 | `unfold/inputs.py` | product loading, axis bitwise checks, upstream provenance checks | D-114 |
 | `unfold/compose.py` | `run_compose`: full-axis composition and compose artifact | F-RESP-2/F-RESP-3 |
 | `unfold/selection.py` | energy window to channel/primary selection and data-side fit weights | F-UNF-1/F-UNF-2 |
 | `unfold/solve.py` | SNIP mask settings plumbing, exact-zero pruning, non-negative solve, strict uncertainty bands, diagnostics | F-UNF-3/F-UNF-4 |
 | `unfold/unfold.py` | `run_unfold`: full and `calib_only` orchestration, product assembly | F-UNF-5/F-UNF-6 |
-| `unfold/report.py`, `unfold/plot.py` | text report and legacy-faithful figure | D-70/D-153 |
+| `unfold/types.py` | unfolding dataclasses (`UnfoldSettings`, `UnfoldResult`, selection/band containers) shared by solve/orchestration/CLI | F-UNF-1..6 |
+| `unfold/report.py`, `unfold/plot.py` | text report and figure | D-70/D-153 |
 | `sim/config.py` | run defaults: base seed, event-block size, raw histogram names, memory budget | F-SIM-7/D-123/D-124 |
 | `sim/geometry.py` | frozen detector geometry dataclass with per-field provenance | D-34 |
 | `sim/materials.py` | material compositions/densities and the lazy Geant4 builder | D-32/D-34 |
@@ -77,12 +77,12 @@ Rules:
 | `cli/` | one command with six subcommand modules, output/provenance plumbing and the `sim` batch driver | D-66/D-67/D-68/D-134 |
 | `cli/config.py` | strict TOML parsing (stdlib `tomllib` only; no Geant4, no numerics) for `sim`/`calib`/`compose`/`unfold` | D-129..D-144 |
 
-## CLI orchestration (W6)
+## CLI orchestration
 
 * `kc761/cli/_common.py` owns the cross-command plumbing: the `work/<command>/`
   default-name convention (D-19), full-argv provenance pairs (D-18), the
   config/run-option mutual-exclusion check (D-130) and the shared option
-  groups. Handlers import their workstream entry point lazily, so `--help`
+  groups. Handlers import their entry point lazily, so `--help`
   does not import Geant4 or the numerics stack.
 * The library entry points (`run_fit`, `run_compose`, `run_unfold`,
   `run_source`, `run_matrix`) take an optional `extra_inputs` sequence that is
@@ -114,7 +114,7 @@ Rules:
   and implemented by `products.meta_field_types`; adding or renaming a field
   is a contract change (see `AGENTS.md`).
 * `schema/io.py` exposes `build_provenance`, `sha256_file`,
-  `fingerprint_for`/`input_sha256` (input lookup for later workstreams),
+  `fingerprint_for`/`input_sha256` (input lookup for later stages),
   `write_product`, `read_product` and `verify_product`. The readers/writers
   take keyword-only `strict: bool = False`: always-on schema/axes/units/shape/
   finiteness validation runs in both modes, while the product certificates
@@ -124,7 +124,7 @@ Rules:
   `CovarianceEstimate`, `UncertaintyBands`, `SparseTriples`,
   `KernelGradients`, `RegularizationSpec`, `ProjectionPlan`,
   `BandComponent`) are the frozen interfaces between numerics and
-  orchestration. The W1 repairs in `docs/plan.md` section 1.7 added
+  orchestration. The interface repairs in `docs/plan.md` section 1.7 added
   keyword-only parameters (`channel_max`, `primary_edges_kev`, `strict`,
   propagation context) and the `ComposedResponse.channel_low/high` fields;
   existing positional signatures are unchanged.
@@ -138,20 +138,19 @@ Rules:
   by `_manifest.json`; the mechanical single-source gate is
   `tools/check_single_source.py`.
 
-## Open points
+## Resolved contract points
 
-See `docs/plan.md` Appendix A. Items 4 (plot CLI surface) and 8 (csv2root
-strict grammar) are resolved by W6 (D-142; `docs/formats.md` section 7). Item 5
-(optimizer controls) is addressed by the W6 `calib --max-iter/--tolerance`
-flags, which map onto `FitSettings` and keep the D-107 defaults when omitted.
-Item 3 (`calib --sim` naming) is resolved by D-144: the option is
-`calib --mc` (no alias) and the config key is `mc`. The non-strict resolution clamp (D-73)
-and the removal of the SNIP peak mask (D-74) are decided and implemented in
-`kc761/core/`.
+All contract points are resolved; the full record is `docs/plan.md`
+Appendix A. In brief: the plot CLI surface is the `--no-plot` switch (D-142);
+the `csv2root` grammar is frozen in `docs/formats.md` section 7.3 (D-72); the
+optimizer controls are `calib --max-iter/--tolerance` mapping onto
+`FitSettings` (D-145, defaults from D-107); calibration consumes `--mc` (D-144);
+the non-strict resolution clamp is D-73 and the default-on SNIP peak mask is
+D-154 (which supersedes the D-74 removal). No open points remain.
 
 ## Terminology: `sim` versus `mc` (D-167)
 
-* **`sim`** is the Geant4 simulation workstream (`kc761/sim/`, the `sim`
+* **`sim`** is the Geant4 simulation layer (`kc761/sim/`, the `sim`
   command, `run_source`/`run_matrix`) and the **matrix-mode response product**
   `sim` (`primary_to_deposition`). `compose` and `unfold` consume it as
   `--sim`; the `[sim]` config table lists those runs.

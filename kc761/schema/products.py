@@ -5,7 +5,7 @@ The product kinds and their object names are frozen here and described in
 (``AGENTS.md``).
 
 Node classes hold numpy arrays and axes only; validation and IO live in
-``kc761.schema.io`` (W2). Every name, unit and meta field literal used by the
+``kc761.schema.io``. Every name, unit and meta field literal used by the
 IO layer is defined here or in :mod:`kc761.schema.axes` so there is a single
 source for the product contract (AGENTS hard rule 11).
 
@@ -26,10 +26,10 @@ from kc761.schema.axes import Axis
 
 SCHEMA_VERSION = 1
 
-#: Metadata object name; it is an RNTuple (D-12 as revised 2026-09-10).
+#: Metadata object name; it is an RNTuple (D-12 as revised).
 META_NTUPLE_NAME = "meta"
 
-# --- product kinds (D-12 / W2 decision 1) ---------------------------------
+# --- product kinds (D-12/D-87) -----------------------------------------
 PRODUCT_KIND_CALIB: Final = "calib"
 PRODUCT_KIND_SIM: Final = "sim"
 PRODUCT_KIND_COMPOSE: Final = "compose"
@@ -69,7 +69,7 @@ OBJ_SPECTRUM: Final = "kc761_spectrum"
 OBJ_MC_SPECTRUM: Final = "kc761_mc_spectrum"
 
 #: Object collection per dispatch key. The set on disk must match exactly
-#: (no extra, no missing object; W2 decision 6).
+#: (no extra, no missing object; D-92).
 OBJECT_NAMES: Final[dict[str, tuple[str, ...]]] = {
     # Pipeline order: measured/simulated spectra, calibration, simulation
     # matrix, composed response, unfolded results.
@@ -141,7 +141,7 @@ META_INPUTS_JSON: Final = "inputs_json"
 META_CHANNEL_MAX: Final = "channel_max"
 META_PARAMS_REPORTED_JSON: Final = "params_reported_json"
 META_RESOL_PARAMS_JSON: Final = "resol_params_json"
-#: W3 calibration fit diagnostics (D-49/D-106). ``chi2``/``dof`` and
+#: Calibration fit diagnostics (D-49/D-106). ``chi2``/``dof`` and
 #: ``covariance_scale`` are shared with the unfold settings; the remaining
 #: fields are calib-only.
 META_FIT_STATUS: Final = "fit_status"
@@ -189,7 +189,7 @@ META_SOURCE_FILE: Final = "source_file"
 META_SOURCE_KEY: Final = "source_key"
 
 #: Ordered dependency list whose versions are recorded in provenance (D-18).
-#: W5 passes Geant4 through ``extra_dependencies``.
+#: The simulation layer passes Geant4 through ``extra_dependencies``.
 TRACKED_DEPENDENCIES: Final[tuple[str, ...]] = (
     "numpy",
     "scipy",
@@ -389,8 +389,8 @@ class CalibProduct:
     resol_params: tuple[float, float, float]
     channel_max: float
     provenance: Provenance
-    #: W3 fit diagnostics (D-49/D-106). Defaulted so pre-W3 synthetic fixtures
-    #: and the W2 round-trip tests keep constructing valid products.
+    #: Calibration fit diagnostics (D-49/D-106). Defaulted so synthetic fixtures
+    #: and the round-trip tests keep constructing valid products.
     chi2: float = 0.0
     dof: int = 0
     covariance_scale: float = 1.0

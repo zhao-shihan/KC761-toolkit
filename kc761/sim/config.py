@@ -1,6 +1,6 @@
-"""Run-level constants for the Geant4 simulation workstream (W5).
+"""Run-level constants for the Geant4 simulation package.
 
-These values are the frozen pre-rewrite run defaults (docs/plan.md D-30..D-38,
+These values are the frozen run defaults (docs/plan.md D-30..D-38,
 D-120..D-128). Geometry values live in :mod:`kc761.sim.geometry`, the source
 registry in :mod:`kc761.sim.sources` and the material data in
 :mod:`kc761.sim.materials`; this module only holds run orchestration constants.
@@ -32,13 +32,13 @@ and are never split across workers, so each block's stream is fixed."""
 # names; the zero-deposition counter and the source-mode raw spectrum are
 # sim-local. ``SPECTRUM_HIST_NAME`` is the *worker scratch* name, deliberately
 # distinct from ``OBJ_MC_SPECTRUM`` (``kc761_mc_spectrum``), which is only used
-# by the merged final product (R2: remove the name ambiguity).
+# by the merged final product (to remove the name ambiguity).
 MATRIX_HIST_NAME: Final = OBJ_PRIMARY_TO_DEPOSITION
 ZERO_DEPOSITION_HIST_NAME: Final = "zero_deposition_counts"
 SPECTRUM_HIST_NAME: Final = "source_spectrum_counts"
 
 # Memory budget (D-124). ``G4_WORKER_BASELINE_BYTES`` is an **uncalibrated
-# assumption** for the resident Geant4 process footprint (R2: not measured on
+# assumption** for the resident Geant4 process footprint (not measured on
 # this machine); it only biases the automatic worker-count estimate, never a
 # physics or product result, and an explicit ``threads`` overrides it.
 MEMORY_SAFETY_FRACTION: Final = 0.8

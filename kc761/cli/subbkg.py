@@ -1,6 +1,6 @@
-"""``kc761 subbkg``: DAQ-time scaled background subtraction (W6).
+"""``kc761 subbkg``: DAQ-time scaled background subtraction.
 
-Keeps the pre-rewrite algorithm (legacy ``kc761util/subbkg.cxx``): the net
+The net
 spectrum is ``S - r B`` with ``r = t_sig / t_bkg``, each input bin error is
 floored at one count before subtraction, and the net variance is
 ``sig_err**2 + r**2 * bkg_err**2``. Inputs and output are ``spectrum`` products;

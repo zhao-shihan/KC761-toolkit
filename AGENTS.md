@@ -1,4 +1,4 @@
-# Agent instructions (KC761 rewrite)
+# Agent instructions (KC761 toolkit)
 
 Binding rules for every change in this repository. They restate the frozen
 decisions in `docs/plan.md`; if anything here conflicts with the plan, the plan
@@ -15,17 +15,19 @@ wins and this file must be fixed in the same change.
 3. **Python >= 3.12.** Use `from __future__ import annotations` and modern
    typing syntax.
 4. **Frozen decisions are frozen.** `docs/plan.md` Section 1 is normative.
-   Undecided points are listed in Appendix A; raise them as questions, never
-   resolve them by assumption or silent code change.
+   Existing contract points are recorded in Appendix A; a new one must be
+   raised as a question, never resolved by assumption or silent code change.
 5. **No baseline/golden correctness.** Never define correctness by comparing
-   against legacy outputs, golden files or regression references. Correctness
+   against stored reference outputs, golden files or regression references.
+   Correctness
    comes from single-source formulas, sympy-generated code and runtime
    certificates.
 6. **Tests are auxiliary.** pytest/hypothesis checks codify invariants but do
-   not define correctness. CI runs ruff + tests.
-7. **Workstream discipline.** W0 establishes contracts and skeleton only.
-   Stubs must keep raising `NotImplementedError` until their owning workstream
-   implements them. Do not implement logic assigned to a later workstream.
+   not define correctness. CI runs ruff, the single-source gate and tests.
+7. **No stubs.** `kc761/` must not contain
+   `NotImplementedError`, placeholder bodies or unfinished paths. The
+   single-source gate enforces the stub check for `kc761/core`; anywhere else,
+   an unfinished path must fail loudly rather than degrade silently.
 8. **Strict mode.** `--strict` or `KC761_STRICT=1` enables all certificate
    suites (KKT, conservation, PSD, column sums, efficiency bounds,
    monotonicity, positivity, finiteness). Basic schema/shape/finiteness
@@ -46,34 +48,41 @@ wins and this file must be fixed in the same change.
 
 | Path | Owner | Notes |
 |------|-------|-------|
-| `kc761/core/model.py`, `binning.py`, `kernel.py`, `response.py`, `projection.py` | W1 | formula IDs F-MODEL/F-BIN/F-KERN/F-RESP/F-PROJ |
-| `kc761/core/solver.py`, `covariance.py`, `uncertainty.py` | W1 | F-SOLVE/F-COV/F-UNC |
-| `kc761/schema/axes.py`, `products.py`, `io.py` | W2 | product contract; changes go through the contract-change process |
-| `kc761/schema/_uproot.py` | W2 | verified spike helpers; keep the head comment in sync with `docs/formats.md` |
-| `kc761/calib/` | W3 | F-CAL |
-| `kc761/unfold/` | W4 | uses F-SOLVE/F-UNC |
-| `kc761/sim/` | W5 | F-SIM |
-| `kc761/cli/`, `kc761.py`, `kc761/__main__.py` | W6 | CLI surface only; no numerics |
-| `kc761/errors.py`, `kc761/runtime.py` | W0 (stable) | change requires a plan update |
+| `kc761/core/model.py`, `binning.py`, `kernel.py`, `response.py`, `projection.py` | core | formula IDs F-MODEL/F-BIN/F-KERN/F-RESP/F-PROJ |
+| `kc761/core/solver.py`, `covariance.py`, `uncertainty.py` | core | F-SOLVE/F-COV/F-UNC |
+| `kc761/schema/axes.py`, `products.py`, `io.py` | schema | product contract; changes go through the contract-change process |
+| `kc761/schema/_uproot.py` | schema | verified spike helpers; keep the head comment in sync with `docs/formats.md` |
+| `kc761/calib/` | calib | F-CAL |
+| `kc761/unfold/` | unfold | uses F-SOLVE/F-UNC |
+| `kc761/sim/` | sim | F-SIM |
+| `kc761/cli/`, `kc761.py`, `kc761/__main__.py` | cli | CLI surface only; no numerics |
+| `kc761/errors.py`, `kc761/runtime.py` | infrastructure | change requires a plan update |
 | `tests/`, `tests/fixtures/synthetic.py` | shared | fixture changes must stay deterministic |
-| `docs/plan.md` | user-approved | edit only to record a new decision |
-| `docs/architecture.md`, `docs/formats.md`, `docs/derivations.md` | owning workstream | update in the same change as the code |
-| legacy `app/`, `kc761calib/`, `kc761sim/`, `kc761unfold/`, `kc761util/`, C++ sources | W7 deletion | do not modify before W7 |
+| `tools/` | shared | kernel generation and the single-source gate; keep `docs/derivations.md` in sync |
+| `examples/` | shared | shipped TOML examples; keep in sync with `README.md` and `docs/formats.md` |
+| `docs/plan.md` | authoritative | edit only to record a new decision |
+| `docs/architecture.md`, `docs/formats.md`, `docs/derivations.md` | owning layer | update in the same change as the code |
+| `work/` | user | untracked data and products; tooling must never delete or overwrite without `--force` |
 
 ## Contract-change process
 
-1. Raise the point as a question (open points are tracked in `docs/plan.md`
-   Appendix A).
+1. Raise the point as a question (existing contract points are recorded in
+   `docs/plan.md` Appendix A).
 2. Record the decision in `docs/plan.md` Section 1 (or Appendix A resolution).
 3. Update the affected formula registry, ownership table and product schema.
-4. Implement it in the owning workstream; stubs in earlier workstreams must not
-   be bypassed.
+4. Implement it in the owning layer; no other contract may bypass or
+   duplicate the agreed contract.
 
 ## Verification commands
 
 ```bash
 ruff check .
 pytest -q -m "not g4 and not root"
+python tools/check_single_source.py
 python kc761.py --help
 python -m kc761 --help
+for c in calib compose sim unfold; do python kc761.py "$c" -c "examples/$c.toml" --dry-run; done
 ```
+
+CI runs the same commands on Python 3.12 and 3.13, installing the runtime
+requirements except `geant4-pybind` (no Geant4, no ROOT executable; D-180).

@@ -1,13 +1,13 @@
 """Material compositions for the KC761 simulation (D-32/D-34).
 
-The compositions and densities are the unchanged pre-rewrite values (D-34);
+The compositions and densities are the unchanged values (D-34);
 the module separates the pure data tables (importable without Geant4) from the
 lazy Geant4 builders so tests can check the data without loading Geant4.
 
 Provenance:
-* ``CsI_Tl``: the Tl mole fraction is ``1 / 1999`` of the Cs+I pairs. The
-  pre-rewrite comment called it "1000 ppm molar"; the numeric composition is
-  kept unchanged (D-34) and the note corrected here.
+* ``CsI_Tl``: the Tl mole fraction is ``1 / 1999`` of the Cs+I pairs (the
+  "1000 ppm molar" label is a rounded description; the numeric composition is
+  fixed by D-34).
 * ``ABS``: representative acrylonitrile-butadiene-styrene mass fractions
   (assumed).
 * ``R4600``: the exact formulation is unpublished; a representative C/H/O mix
@@ -148,7 +148,7 @@ def build_all_materials(*specs: SourceSpec):  # noqa: ANN201
             return
         if name in PREBUILT_MATERIALS:
             # Built unconditionally above; a source geometry (shield/container)
-            # may reference it without a density (R2: Ra226/Th232 use R4600).
+            # may reference it without a density (Ra226/Th232 use R4600).
             if density is not None:
                 value = _require_custom_density(name, density)
                 previous = densities.get(name)
@@ -186,7 +186,7 @@ def build_all_materials(*specs: SourceSpec):  # noqa: ANN201
         if spec.container is not None:
             require(spec.container.material, None)
         if spec.shield is not None:
-            # The shield material is registered too (the legacy builder relied
+            # The shield material is registered too (the builder relied
             # on R4600 being built unconditionally, which would break for any
             # other shield material).
             require(spec.shield.material, None)

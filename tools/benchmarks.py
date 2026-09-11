@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproducible performance benchmarks for the numeric hotspots (P1).
+"""Reproducible performance benchmarks for the numeric hotspots.
 
 This tool is intentionally outside the correctness path: it measures the
 wall-clock time and peak memory of the heavy numeric stages so that an

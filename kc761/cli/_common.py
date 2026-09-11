@@ -1,8 +1,7 @@
 """Shared CLI option groups.
 
-Naming policy (W0 brief, consistent with docs/plan.md D-66): long names are
-primary, pre-rewrite short spellings stay available as aliases for the
-options that had them. Window options use ``--energy-low/--elo``,
+Naming policy: long names are primary; short spellings stay available as
+aliases for the options that had them. Window options use ``--energy-low/--elo``,
 ``--energy-high/--ehi``, ``--channel-low/--chlo`` and
 ``--channel-high/--chhi``.
 

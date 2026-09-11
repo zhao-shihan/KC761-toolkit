@@ -1,6 +1,6 @@
-"""Unfolding workstream package (W4).
+"""Unfolding package.
 
-Public entries for the W6 CLI:
+Public entries for the CLI:
 
 * :func:`kc761.unfold.compose.run_compose` - compose ``R = C . p_tilde .
   diag(eta)`` over the full primary axis and optionally write the inspection

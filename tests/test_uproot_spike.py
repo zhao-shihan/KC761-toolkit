@@ -1,4 +1,4 @@
-"""W0 uproot spike tests: TH1D/TH2D variance and meta RNTuple round-trip.
+"""uproot spike tests: TH1D/TH2D variance and meta RNTuple round-trip.
 
 These tests freeze the behaviour that ``docs/formats.md`` section 6 records:
 uproot's tuple histogram syntax cannot carry ``fSumw2``, while the model

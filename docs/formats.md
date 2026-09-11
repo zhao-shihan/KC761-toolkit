@@ -1,9 +1,9 @@
 # Product formats
 
-Status: **W2 implemented**. The container names and the `meta` field list below
-are the frozen contract implemented by `kc761/schema/products.py` and
+Status: **final**. The container names and the `meta` field
+list below are the frozen contract implemented by `kc761/schema/products.py` and
 `kc761/schema/io.py`; the low-level primitives in `kc761/schema/_uproot.py`
-were verified by the W0 spike (section 6). Object names and units are single
+were verified by the uproot spike (section 6). Object names and units are single
 sourced in `products.py` / `axes.py` (AGENTS hard rule 11).
 
 ## 1. Envelope
@@ -13,8 +13,7 @@ Files are written to `<target>.part`, closed, reopened and validated object by
 object, then renamed onto `<target>`. An existing target is refused unless
 `--force` is given.
 
-`format_version` starts at 1 for the new schema (independent of the legacy
-versioning; see plan Appendix A item 7). Readers must reject any other value
+`format_version` starts at 1 for the new schema (see plan Appendix A item 7). Readers must reject any other value
 with `SchemaError`.
 
 ## 2. Axes, units and orientation
@@ -79,7 +78,7 @@ RNTuple). Native ROOT reading requires ROOT >= 6.30; uproot is unaffected.
 name, never by position. The reader requires the field set to match exactly:
 no missing and no extra field (`SchemaError` otherwise). The complete list:
 
-* Common (`product_kind` dispatches the reader; W2 D-87): `format_version`
+* Common (`product_kind` dispatches the reader; D-87): `format_version`
   (int, currently 1), `product_kind` (str), `producer` (str), `created_utc`
   (str), `git_revision` (str), `git_dirty` (int 0/1), `python_version` (str),
   `dependency_versions` (str, JSON list of `[name, version]` in the frozen
@@ -95,7 +94,8 @@ no missing and no extra field (`SchemaError` otherwise). The complete list:
   sitting on a fit bound, e.g. the `s0` polynomial-stratum limit; D-103),
   `resol_clamp_count` (int),
   `resol_clamp_energy_low_kev`, `resol_clamp_energy_high_kev` (float; both 0
-  when the count is 0). These are the W3 fit diagnostics of D-49/D-105/D-106.
+  when the count is 0). These are the calibration fit diagnostics of
+  D-49/D-105/D-106.
 * sim: `mode` (int), `mode_name` (str), `geometry_name` (str),
   `geometry_param_mm` (float), `angular_distribution` (str), `seed` (int),
   `n_events` (int), `workers` (int). There is no per-file `calib_sha256`: the
@@ -142,7 +142,7 @@ RNTuple; `kc761/schema/io.py` assembles it in one place. A non-git working
 directory records `git_revision = "unknown"` and `git_dirty = 0` with one
 warning and does not abort (D-93).
 
-## 6. uproot spike results (W0)
+## 6. uproot spike results
 
 Verified with `uproot 5.7.6`, `numpy 2.5.3`, Python 3.14.7 (the code targets
 >= 3.12). Results are frozen by `tests/test_uproot_spike.py`:
@@ -180,12 +180,13 @@ Verified with `uproot 5.7.6`, `numpy 2.5.3`, Python 3.14.7 (the code targets
    titles are human-readable as well (`HUMAN_TITLES`). **Reading variances uses the raw `fSumw2`
    buffer, not `errors()**2`, so `write -> read` is bit exact.**
 
-Constraints respected in W2: `meta` fields all have length 1; variable length
+Constraints respected in the schema layer: `meta` fields all have length 1;
+variable length
 data uses separate histogram objects; the atomic-write protocol reopens with
 uproot before renaming; the object set on disk must equal `OBJECT_NAMES` for
 the product kind exactly; duplicate on-disk object versions are rejected.
 
-## 7. CLI outputs, CSV import and background subtraction (W6)
+## 7. CLI outputs, CSV import and background subtraction
 
 ### 7.1 Command surface and exit codes
 

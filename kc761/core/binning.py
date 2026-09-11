@@ -35,7 +35,7 @@ from kc761.core.model import (
 from kc761.errors import ValidationError
 
 MAX_CHANNELS = 4096
-"""Validated support limit (D-52); W1 may lower it with a measured justification."""
+"""Validated support limit (D-52); it may be lowered with a measured justification."""
 
 
 def dense_matrix_bytes(n_channels: int) -> int:

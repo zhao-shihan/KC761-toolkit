@@ -219,7 +219,7 @@ def _git_state() -> tuple[str, bool]:
     except (OSError, subprocess.SubprocessError):
         warnings.warn(
             "git metadata unavailable; recording git_revision='unknown', "
-            "git_dirty=0 (W2 decision 7)",
+            "git_dirty=0 (D-93)",
             RuntimeWarning,
             stacklevel=3,
         )
@@ -254,7 +254,7 @@ def build_provenance(
     ``arguments`` is serialized in the given order; ``inputs`` are hashed and
     stored as :class:`InputFingerprint` records. A missing git repository is a
     warning, not an error: ``git_revision='unknown'`` and ``git_dirty=0`` are
-    recorded instead (W2 decision 7).
+    recorded instead (D-93).
     """
     if not producer:
         raise ProvenanceError("producer must be a non-empty string")
@@ -302,7 +302,7 @@ def fingerprint_for(
 
 
 def input_sha256(provenance: Provenance, path: str | Path) -> str | None:
-    """Convenience wrapper around :func:`fingerprint_for` for W4 checks."""
+    """Convenience wrapper around :func:`fingerprint_for` for downstream checks."""
     fingerprint = fingerprint_for(provenance, path)
     return None if fingerprint is None else fingerprint.sha256
 
@@ -1106,7 +1106,7 @@ def _check_calib_labels(file: Any) -> None:
     """Always-on structural check of the ``param_cov`` bin labels (D-148).
 
     The labels are part of the frozen product contract, so they are verified in
-    every read, not only under ``--strict`` (R2 decision 6).
+    every read, not only under ``--strict`` (D-148).
     """
     hist = file[OBJ_PARAM_COV]
     expected = tuple(PARAM_NAMES_REPORTED)

@@ -1,6 +1,6 @@
-"""Calibration fit entry point (F-CAL-1..F-CAL-5, W3).
+"""Calibration fit entry point (F-CAL-1..F-CAL-5).
 
-``run_fit`` is the public W6 entry: it builds the global model, runs the
+``run_fit`` is the public entry: it builds the global model, runs the
 single-stage bounded quasi-Newton fit with the analytic F-CAL-4 gradient,
 certifies the result (F-MODEL-3/F-MODEL-5/F-COV-2), extracts the reported
 covariance (F-CAL-5), and optionally writes the calibration product and the
@@ -105,14 +105,14 @@ def run_fit(
     plot_force: bool = False,
     extra_inputs: Sequence[str | Path] = (),
 ) -> FitResult:
-    """Fit a shared calibration over one or more datasets (W3).
+    """Fit a shared calibration over one or more datasets.
 
     The product is written only when ``output`` is given; ``plot=True`` writes
     a figure next to ``output`` (or to ``plot_path``). Non-convergence is
     recorded in ``fit_status`` and, outside strict mode, still writes the
     product; strict mode raises. Degenerate fits raise in every mode.
     ``extra_inputs`` are hashed into the product provenance in addition to the
-    dataset paths; the W6 config mode passes the configuration file here
+    dataset paths; the config mode passes the configuration file here
     (D-133). ``progress`` receives an initial summary event (``nfev == 0``),
     time-cadenced progress events (``progress_every_s`` seconds; ``0`` means
     every evaluation) and one final event; ``output`` is validated before the

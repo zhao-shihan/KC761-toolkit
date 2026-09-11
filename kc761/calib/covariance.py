@@ -6,7 +6,7 @@ full-parameter Fisher inverse with the per-dataset scale **marginalized**
 internal slope basis to the reported cubic basis with the constant F-MODEL-2
 Jacobian (``b`` unchanged).
 
-The legacy quadratic-Bezier scale has a singular stratum: for a constant scale
+The quadratic-Bezier scale has a singular stratum: for a constant scale
 or a quadratic-polynomial scale (``s0`` at the window midpoint) the ``s0``
 control channel is an exact gauge of the four-parameter representation, and
 more generally it is only weakly identified when the data are nearly

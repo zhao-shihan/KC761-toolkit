@@ -18,8 +18,8 @@ Frozen decisions (docs/plan.md):
 * F-MODEL-5/D-73: strict mode raises :class:`kc761.errors.CertificateError`
   when ``sigma**2 < 0``. Outside strict mode the resolution is explicitly
   clamped to :data:`SIGMA_FLOOR_KEV`, a warning is emitted and
-  :func:`resolution_clamped_mask` lets the caller record the affected bins
-  (W4 writes the record into ``meta``).
+  :func:`resolution_clamped_mask` lets the caller record the affected bins,
+  which the unfold layer stores in ``meta``.
 """
 
 from __future__ import annotations
@@ -307,7 +307,8 @@ def resolution_clamped_mask(
 ) -> NDArray[np.bool_]:
     """Energies whose resolution variance is clamped outside strict mode (D-73).
 
-    W4 uses this to record how many bins were affected by the documented floor.
+    The caller uses this to record how many bins were affected by the documented
+    floor.
     """
     energy = as_float_array("energy_kev", energy_kev)
     params = _resol_params(resol_params)

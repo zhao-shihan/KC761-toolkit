@@ -1,4 +1,4 @@
-"""Shared deterministic synthetic builders for the W3 calibration tests.
+"""Shared deterministic synthetic builders for the calibration tests.
 
 Not a test module: it only provides helpers. The generated data are auxiliary
 (D-65) and never define correctness.

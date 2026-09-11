@@ -1,8 +1,9 @@
-"""Non-negative solve and strict uncertainty propagation (F-UNF-3/F-UNF-4, W4).
+"""Non-negative solve and strict uncertainty propagation (F-UNF-3/F-UNF-4).
 
 The solver is :func:`kc761.core.solver.solve_nonnegative`; the uncertainty
 bands come from :mod:`kc761.core.uncertainty` with the **same** half-Hessian
-``H`` that defines the solved objective (requirement C of the W4 brief), so the
+``H`` that defines the solved objective (requirement C of the solver contract),
+so the
 values and the bands cannot drift. Exactly-zero response columns are removed
 (F-UNF-3) and re-inserted as zeros in the full-axis solution.
 """

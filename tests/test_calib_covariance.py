@@ -1,4 +1,4 @@
-"""W3 covariance tests (F-CAL-5) and a pull-coverage check.
+"""Calibration covariance tests (F-CAL-5) and a pull-coverage check.
 
 The pull distribution is auxiliary (D-65): it samples several synthetic
 datasets drawn with the fitted variance and checks that the F-CAL-5 covariance

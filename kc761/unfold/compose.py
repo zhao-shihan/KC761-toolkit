@@ -1,6 +1,6 @@
 """Compose orchestration: ``R = C . p_tilde . diag(eta)`` (F-RESP-2/F-RESP-3).
 
-``run_compose`` is the W6 entry for ``kc761 compose``; it reads a calibration
+``run_compose`` is the entry for ``kc761 compose``; it reads a calibration
 product and a matrix-mode simulation product, checks their axes bitwise
 (D-114), composes the full-primary response and writes the inspection artifact.
 """

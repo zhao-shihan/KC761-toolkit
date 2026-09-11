@@ -202,7 +202,7 @@ def build_stepping_action(detector, event_action):  # noqa: ANN001, ANN201
     ``detector.crystal_lv`` is resolved lazily on the first step: Geant4 calls
     ``G4VUserActionInitialization.Build`` before the detector's ``Construct``
     runs, so reading it eagerly would capture ``None`` and silently drop every
-    deposit (the legacy ``kc761sim`` action resolved it lazily as well).
+    deposit (the action resolved it lazily as well).
     """
     from geant4_pybind import G4UserSteppingAction
 

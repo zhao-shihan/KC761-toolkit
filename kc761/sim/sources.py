@@ -1,6 +1,6 @@
 """Source registry, geometry descriptions and matrix-mode sampling surfaces.
 
-The values are the unchanged pre-rewrite data (D-34): the seven source keys
+The values are the unchanged data (D-34): the seven source keys
 (D-122), the composite beta shield, the gold-foil sandwich, the tube/cup
 containers and the matrix modes' plane/sphere surfaces (D-31). Only the
 organisation changed: the registry carries an explicit provenance note per key
@@ -350,7 +350,7 @@ _RA226_UNSHIELDED: Final = SourceSpec(
     nuclide=(88, 226),
     geometry=Sphere(radius=2.5),
     material="G4_GLASS_PLATE",
-    provenance="assumed (glass ball diameter 5 mm; legacy value)",
+    provenance="assumed (glass ball diameter 5 mm)",
     container=Tube(
         material="G4_STAINLESS-STEEL",
         inner_radius=2.5,
@@ -368,7 +368,7 @@ SOURCES: Final[dict[str, SourceSpec]] = {
         geometry=Box(size_x=130.0, size_y=75.0, size_z=60.0),
         material="K2CO3",
         mass_g=500.0,
-        provenance="assumed (geometry and 500 g mass; legacy value)",
+        provenance="assumed (geometry and 500 g mass)",
     ),
     "lu176": SourceSpec(
         key="lu176",
@@ -377,7 +377,7 @@ SOURCES: Final[dict[str, SourceSpec]] = {
         geometry=Box(size_x=30.0, size_y=30.0, size_z=5.0),
         material="Lu2O3",
         mass_g=10.0,
-        provenance="assumed (geometry and 10 g mass; legacy value)",
+        provenance="assumed (geometry and 10 g mass)",
     ),
     "am241": SourceSpec(
         key="am241",
@@ -393,7 +393,7 @@ SOURCES: Final[dict[str, SourceSpec]] = {
         ),
         material="G4_Au",
         nucleus_limits=(241, 241, 95, 95),
-        provenance="assumed (foil thicknesses 2/1/2 um; legacy value)",
+        provenance="assumed (foil thicknesses 2/1/2 um)",
     ),
     "th232": SourceSpec(
         key="th232",
@@ -413,7 +413,7 @@ SOURCES: Final[dict[str, SourceSpec]] = {
             bottom_thickness=1.0,
         ),
         shield=BETA_SHIELD,
-        provenance="assumed (ellipsoid 1x1x0.85 cm, 10 g, cup and shield; legacy value)",
+        provenance="assumed (ellipsoid 1x1x0.85 cm, 10 g, cup and shield)",
     ),
     "th232-unshielded": SourceSpec(
         key="th232-unshielded",
@@ -433,14 +433,14 @@ SOURCES: Final[dict[str, SourceSpec]] = {
             axis="y",
         ),
         container_offset=(0.0, 0.0, -1.3),
-        provenance="assumed (cylinder 0.87x1.5 cm, 10 g, tube offset -1.3 mm; legacy value)",
+        provenance="assumed (cylinder 0.87x1.5 cm, 10 g, tube offset -1.3 mm)",
     ),
     "ra226": replace(
         _RA226_UNSHIELDED,
         key="ra226",
         name="Ra-226 in glass ball (diameter 5 mm) in stainless-steel tube on the beta shield",
         shield=BETA_SHIELD,
-        provenance="assumed (glass ball 5 mm, steel tube, beta shield; legacy value)",
+        provenance="assumed (glass ball 5 mm, steel tube, beta shield)",
     ),
     "ra226-unshielded": _RA226_UNSHIELDED,
 }
@@ -467,7 +467,7 @@ MODE_SPHERE: Final = 2
 #: Canonical external matrix-mode tokens (D-143/D-2). They are the single source
 #: for the CLI flag spelling, the config ``mode`` value, the default file-name
 #: token and the ``mode_name`` recorded in the sim product. No underscore or
-#: legacy alias is accepted anywhere.
+#: short alias is accepted anywhere.
 MODE_NAME_PLANE: Final = "plane-front-gamma"
 MODE_NAME_SPHERE: Final = "sphere-gamma"
 MATRIX_MODE_NAMES: Final[tuple[str, str]] = (MODE_NAME_PLANE, MODE_NAME_SPHERE)
@@ -593,11 +593,11 @@ def mode_metadata(source: MatrixSource) -> tuple[int, str, str, float]:
 # --------------------------------------------------------------------------
 @dataclass(frozen=True)
 class ColumnSchedule:
-    """Fixed per-column event counts ``N_j`` with the legacy remainder rule.
+    """Fixed per-column event counts ``N_j`` with the remainder rule.
 
     ``n_events`` is split evenly over the active columns; the first
     ``n_events % n_active`` active columns (in ascending index order) receive
-    one extra event. This is exactly the legacy round-robin assignment
+    one extra event. This is exactly the round-robin assignment
     ``active[(offset + event) % n_active]`` and keeps ``sum_j N_j = n_events``.
     """
 

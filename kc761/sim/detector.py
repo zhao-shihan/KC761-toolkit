@@ -1,6 +1,6 @@
 """Detector and source geometry construction (Geant4, imported lazily).
 
-The construction follows the unchanged pre-rewrite geometry (D-34); every
+The construction follows the geometry constants (D-34); every
 length is derived from :mod:`kc761.sim.geometry` and the source dataclasses, so
 no dimension appears twice. The source builders are pure (no Geant4) and live
 here next to the construction they feed.

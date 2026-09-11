@@ -1,4 +1,4 @@
-"""Calibration fit data types (W3).
+"""Calibration fit data types.
 
 Small frozen containers shared by the forward model, the optimizer, the
 covariance extraction and the report. Formula IDs: F-CAL-1..F-CAL-5

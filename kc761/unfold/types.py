@@ -1,6 +1,6 @@
-"""Orchestration types for the unfolding workstream (W4).
+"""Orchestration types for the unfolding pipeline.
 
-These containers are the interface between the W6 CLI thin wrappers and the
+These containers are the interface between the CLI thin wrappers and the
 ``kc761/unfold`` implementation. Numerics and product contracts stay in
 ``kc761.core`` and ``kc761.schema``; this module only groups the pieces that a
 caller receives back (settings, selection, results).

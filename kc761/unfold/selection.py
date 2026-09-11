@@ -1,4 +1,4 @@
-"""Window selection and data-side fit weights (F-UNF-1/F-UNF-2, W4).
+"""Window selection and data-side fit weights (F-UNF-1/F-UNF-2).
 
 * F-UNF-1: the requested energy window is mapped to channel rows through
   ``E(ch)`` at the channel centres and to reported primary bins through the

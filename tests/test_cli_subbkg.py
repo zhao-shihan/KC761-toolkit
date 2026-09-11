@@ -1,4 +1,4 @@
-"""subbkg semantics: DAQ-time scaling, error floor, net variance (W6)."""
+"""subbkg semantics: DAQ-time scaling, error floor, net variance."""
 
 from __future__ import annotations
 

@@ -1,10 +1,6 @@
 target-version = "py312"
 line-length = 100
 
-# The legacy tree is frozen until W7 (AGENTS.md) and is intentionally not
-# linted; it will be deleted, not maintained.
-extend-exclude = ["app", "kc761calib", "kc761sim", "kc761unfold", "kc761util"]
-
 [lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
 

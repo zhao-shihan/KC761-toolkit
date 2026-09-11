@@ -1,4 +1,4 @@
-"""W3 forward-model tests (F-CAL-1/F-CAL-3/F-CAL-4).
+"""Calibration forward-model tests (F-CAL-1/F-CAL-3/F-CAL-4).
 
 Analytic Jacobians and gradients are checked against central differences; the
 restricted active-column response is checked against the full fixed-axis

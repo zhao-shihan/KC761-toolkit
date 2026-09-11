@@ -1,4 +1,4 @@
-"""Verified low-level uproot helpers (W0 spike).
+"""Verified low-level uproot helpers.
 
 Keep the head comment in sync with ``docs/formats.md`` section 6 (AGENTS.md).
 
@@ -10,9 +10,9 @@ Spike conclusions (uproot 5.7.6, validated by ``tests/test_uproot_spike.py``):
   transposed, flattened array.
 * ``hist.errors()`` returns ``sqrt(fSumw2)`` when the buffer exists;
   ``len(hist.member("fSumw2")) > 0`` detects it.
-* Scalar/string metadata uses a ``meta`` RNTuple (D-12 as revised
-  2026-09-10), written explicitly with ``file.mkrntuple(...)``. Uproot's dict
-  assignment already defaults to RNTuple, but the explicit call pins the type.
+* Scalar/string metadata uses a ``meta`` RNTuple (D-12 as revised), written
+  explicitly with ``file.mkrntuple(...)``. Uproot's dict assignment already
+  defaults to RNTuple, but the explicit call pins the type.
   ``TParameter``/``TNamed``/``TMatrixDSym`` have no writable uproot model.
 * Axis bin labels *are* writable through ``to_THashList``/``to_TObjString``;
   ``param_cov`` uses them to carry ``c0 c1 c2 c3 b0 b1 b2`` (verified).

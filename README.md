@@ -6,13 +6,10 @@ simulations, an energy/resolution calibration with a statistical response
 matrix, and non-negative regularized spectrum unfolding with propagated
 uncertainties.
 
-**Status: implemented.** The W0-W6 rewrite and the R1/R2 review passes are in
-place; the contract and decision register live in [docs/plan.md](docs/plan.md),
-the product schemas in [docs/formats.md](docs/formats.md) and the formulas in
-[docs/derivations.md](docs/derivations.md). The pre-rewrite packages
-(`kc761calib/`, `kc761sim/`, `kc761unfold/`, `kc761util/`, `app/` and the C++
-sources) are still present for reference and are deleted in W7; the new code
-does not import them.
+**Status: final.** The specification is [docs/plan.md](docs/plan.md), the
+product schemas are in [docs/formats.md](docs/formats.md) and the formulas are
+in [docs/derivations.md](docs/derivations.md). The repository contains the
+`kc761/` implementation, the two entry points, tests, tools, examples and docs.
 
 ## Requirements
 
@@ -80,8 +77,8 @@ See [examples/](examples/) for a commented file per subcommand, and
 
 ## Data and outputs
 
-* Raw measurements live in `work/data/exp/<campaign>/` (for example
-  `work/data/exp/2609a/`); `work/` is not committed.
+* Raw measurements live in `work/data/<campaign>/` (for example
+  `work/data/2609a/`); `work/` is not committed.
 * Default products are written under `work/<subcommand>/`; `csv2root` and
   `subbkg` default next to their input file (D-165) and `compose` next to its
   `--sim` input (D-166). Existing files are refused unless `--force` is passed,
@@ -91,19 +88,19 @@ See [examples/](examples/) for a commented file per subcommand, and
 
 ```bash
 ruff check .
-pytest -q -m "not g4 and not root and not bench"
-pytest -q tests/test_sim_g4.py          # needs geant4-pybind
+pytest -q -m "not g4 and not root"      # 356 passed, 1 bench case skipped
+pytest -q tests/test_sim_g4.py           # needs geant4-pybind
 python tools/check_single_source.py
-python tools/benchmarks.py --scenario all      # wall-clock, never a gate
-python kc761.py sim --dry-run ...        # print the resolved run, no side effects
+python tools/benchmarks.py --scenario all       # wall-clock, never a gate
+python kc761.py sim --dry-run ...         # print the resolved run, no side effects
 ```
 
 `g4`- and `root`-marked tests are skipped when the corresponding framework is
 unavailable, and `bench`-marked cases only run with `KC761_RUN_BENCH=1`. Tests
 are auxiliary: correctness is defined by the derivations and the runtime
-certificates, not by stored reference outputs. The P1 performance pass and its
-measured before/after numbers are registered in [docs/plan.md](docs/plan.md)
-section 1.16.
+certificates, not by stored reference outputs. The performance crossovers and
+their measured before/after numbers are registered in
+[docs/plan.md](docs/plan.md) section 1.16.
 
 ## Repository layout
 
@@ -113,7 +110,7 @@ section 1.16.
 | `kc761/core/` | pure numerics: models, binning, kernels, response, solver, covariance, uncertainty |
 | `kc761/schema/` | product contracts, axes, uproot IO and certificates |
 | `kc761/calib/`, `kc761/unfold/`, `kc761/sim/` | calibration, unfolding and Geant4 packages |
-| `kc761/*/plot.py` | self-contained, legacy-faithful figures (D-153) |
+| `kc761/*/plot.py` | self-contained figures (D-153) |
 | `kc761/cli/` | CLI, config-file mode and per-command wiring |
 | `tools/` | sympy kernel generation, the single-source gate and the `benchmarks.py` timing tool |
 | `examples/` | shipped TOML configuration examples |
@@ -123,7 +120,7 @@ section 1.16.
 
 ## Documentation
 
-* [docs/plan.md](docs/plan.md) - frozen plan, decision register and open points.
+* [docs/plan.md](docs/plan.md) - final plan, decision register and contract points.
 * [docs/architecture.md](docs/architecture.md) - layering and module map.
 * [docs/formats.md](docs/formats.md) - product schemas and uproot spike results.
 * [docs/derivations.md](docs/derivations.md) - formula registry and derivations.

@@ -1,4 +1,4 @@
-"""W2 schema IO tests: atomic write, overwrite policy, provenance and round-tripping.
+"""Schema IO tests: atomic write, overwrite policy, provenance and round-tripping.
 
 These tests are auxiliary (D-65): they codify the F-IO-1 protocol but do not
 define correctness. Every product is written, reopened and compared field by

@@ -1,6 +1,6 @@
-"""Unfold orchestration: full mode and ``calib_only`` (W4, F-UNF-4..F-UNF-6).
+"""Unfold orchestration: full mode and ``calib_only``.
 
-``run_unfold`` is the W6 entry for ``kc761 unfold``. It loads the data, calib
+``run_unfold`` is the entry for ``kc761 unfold``. It loads the data, calib
 and simulation products, checks the axis contract (D-114), composes the
 full-primary response, solves the padded window (F-UNF-3), propagates the
 strict stat/syst bands (F-UNC-1..3) and writes the unfold product.

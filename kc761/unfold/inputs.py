@@ -1,7 +1,7 @@
-"""Product loading and cross-product axis/provenance validation (W4, D-114).
+"""Product loading and cross-product axis/provenance validation.
 
 All product access goes through :mod:`kc761.schema.io` (AGENTS hard rule 10).
-The helpers here enforce the W4 axis contract bitwise:
+The helpers here enforce the axis contract bitwise:
 
 * ``C.y`` (deposition) equals ``G.x``;
 * ``C.x`` equals the measured channel axis;

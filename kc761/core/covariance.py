@@ -12,8 +12,8 @@ Formula IDs (docs/derivations.md): F-COV-1 .. F-COV-3.
 * F-COV-3: profile covariance is an optional diagnostic only; it never
   replaces the analytic estimate.
 
-The legacy mixed estimator (marginal slice widths times a Gaussian
-correlation matrix) is removed; it had no statistical definition.
+A mixed estimator (marginal slice widths times a Gaussian correlation
+matrix) is not used: it has no statistical definition.
 """
 
 from __future__ import annotations

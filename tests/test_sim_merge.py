@@ -1,4 +1,4 @@
-"""W5 no-Geant4 tests: worker histogram merging and thread estimation."""
+"""No-Geant4 tests: worker histogram merging and thread estimation."""
 
 from __future__ import annotations
 

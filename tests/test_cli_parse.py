@@ -44,7 +44,7 @@ def test_sim_without_selection_is_usage_error() -> None:
     assert run_cli(["sim"]) == 2
 
 
-def test_calib_legacy_sim_flag_is_not_accepted() -> None:
+def test_calib_rejects_sim_alias() -> None:
     """D-144: the calibration simulation option is --mc, with no --sim alias."""
     assert (
         run_cli(

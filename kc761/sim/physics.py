@@ -1,6 +1,6 @@
 """Physics list and radioactive-decay/GPS configuration (D-32).
 
-``build_physics_list`` returns the unchanged pre-rewrite physics list:
+``build_physics_list`` returns the unchanged physics list:
 ``G4EmPenelopePhysics`` plus the decay, hadronic and ion extensions with the
 0.1 mm default cut. Geant4 is imported inside the builders only.
 """

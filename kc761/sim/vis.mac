@@ -1,4 +1,4 @@
-# Visualization settings for the kc761 simulation (W5; D-126).
+# Visualization settings for the kc761 simulation.
 # This macro lives inside kc761/sim so the interactive session can execute it
 # with an absolute path from any working directory.
 

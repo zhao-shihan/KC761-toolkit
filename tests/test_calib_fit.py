@@ -1,4 +1,4 @@
-"""W3 fit orchestration and product tests (F-CAL-1..F-CAL-5, D-106).
+"""Calibration fit orchestration and product tests (F-CAL-1..F-CAL-5, D-106).
 
 The synthetic recovery check is auxiliary (D-65); it uses data drawn with the
 fitted variance so the F-CAL-1 weights are exact.

@@ -1,4 +1,4 @@
-"""Deterministic fixtures for the W4 unfold tests.
+"""Deterministic fixtures for the unfold tests.
 
 Small, fixed-seed inputs: a real calibration product on the channel-derived
 deposition axis ``E(i +- 1/2)``, a matrix-mode simulation whose ``G.x`` equals

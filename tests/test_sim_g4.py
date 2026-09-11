@@ -1,4 +1,4 @@
-"""W5 Geant4 integration tests (marker ``g4``; skipped without Geant4).
+"""Geant4 integration tests (marker ``g4``; skipped without Geant4).
 
 Each simulation run happens in a spawned subprocess (one Geant4 run manager per
 process), so these tests exercise the real runner, merge and product output.
