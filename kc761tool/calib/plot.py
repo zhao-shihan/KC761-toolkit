@@ -10,7 +10,19 @@ share a style layer.
 """
 
 from __future__ import annotations
-from kc761tool.errors import UsageError
+
+from pathlib import Path
+
+import matplotlib
+import numpy as np
+from matplotlib import pyplot as plt
+from matplotlib.backend_bases import FigureCanvasBase
+from matplotlib.gridspec import GridSpecFromSubplotSpec
+from scipy import optimize
+
+from kc761tool.calib.model import DatasetDetail
+from kc761tool.calib.scaling import scale_curve
+from kc761tool.calib.types import FitResult
 from kc761tool.core.model import (
     PARAM_NAMES_REPORTED,
     InternalCalibration,
@@ -19,18 +31,7 @@ from kc761tool.core.model import (
     resolution_sigma_grad,
     resolution_sigma_kev,
 )
-from kc761tool.calib.types import FitResult
-from kc761tool.calib.scaling import scale_curve
-from kc761tool.calib.model import DatasetDetail
-from scipy import optimize
-from matplotlib.gridspec import GridSpecFromSubplotSpec
-from matplotlib.backend_bases import FigureCanvasBase
-from matplotlib import pyplot as plt
-import numpy as np
-
-from pathlib import Path
-
-import matplotlib
+from kc761tool.errors import UsageError
 
 # Must run before pyplot is imported; 3.11+ ignores a use() after it.
 matplotlib.use("Agg", force=True)

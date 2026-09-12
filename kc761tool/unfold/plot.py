@@ -10,16 +10,17 @@ Plotting is per-package on purpose (D-153).
 """
 
 from __future__ import annotations
-from kc761tool.unfold.types import UnfoldResult
-from kc761tool.schema.products import UNFOLD_MODE_CALIB_ONLY
-from kc761tool.errors import UsageError
-from matplotlib.backend_bases import FigureCanvasBase
-from matplotlib import pyplot as plt
-import numpy as np
 
 from pathlib import Path
 
 import matplotlib
+import numpy as np
+from matplotlib import pyplot as plt
+from matplotlib.backend_bases import FigureCanvasBase
+
+from kc761tool.errors import UsageError
+from kc761tool.schema.products import UNFOLD_MODE_CALIB_ONLY
+from kc761tool.unfold.types import UnfoldResult
 
 # Must run before pyplot is imported; 3.11+ ignores a use() after it.
 matplotlib.use("Agg", force=True)
