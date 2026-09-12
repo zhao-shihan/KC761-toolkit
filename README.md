@@ -38,7 +38,7 @@ where $\mu$ is the primary (incident) energy spectrum. $\mu$ is recovered by
 (F-UNC-1..3). The full data flow is
 
 ```
-raw CSV --csv2root--> spectrum --subbkg--> data
+raw CSV --csv2root--> spectrum --specsub--> data
                                              |
              Geant4 source mode --> mc_spectrum
                                              |
@@ -967,16 +967,30 @@ python -m kc761tool --help
 | Subcommand | Mathematical role |
 |------------|-------------------|
 | `csv2root` | parse a raw spectrometer CSV into a `spectrum` product |
-| `subbkg` | scale by DAQ time and subtract a background spectrum |
+| `specadd` | add two spectra (values and DAQ times add) |
+| `specsub` | scale by DAQ time and subtract a background spectrum |
 | `sim` | Geant4 source mode (`mc_spectrum`) or matrix mode (`G`) |
 | `calib` | joint fit of $`(c_0 \dots c_3, b_0 \dots b_2)`$ and the per-dataset Bezier scales |
 | `compose` | compose $R = C\ G\mathrm{diag}(1/N)$ for inspection |
 | `unfold` | solve the non-negative Tikhonov problem (full, or `--calib-only`) |
 
-The chain is `csv2root -> subbkg -> sim` (source) `-> calib -> sim` (matrix)
+The chain is `csv2root -> specsub -> sim` (source) `-> calib -> sim` (matrix)
 `-> compose -> unfold`: the calibration consumes measured and source-mode
 simulated spectra, and the matrix simulation and unfolding consume the
 calibration product that supplies their energy axes.
+
+`specadd` and `specsub` take their two operands positionally and share the
+F-SPEC-1/F-SPEC-2 formulas ([docs/formats.md](docs/formats.md) §7.4/§7.5):
+
+```bash
+python kc761tool.py specadd run1.root run2.root      # -> run1-add-run2.root
+python kc761tool.py specsub am241.root bkg.root      # -> am241-sub-bkg.root
+```
+
+The second operand of `specsub` is the background, scaled by `r = t_A / t_B`;
+`specadd` adds the DAQ times, so two runs become one longer acquisition. Both
+require identical channel axes, floor every input bin error at one count and
+write the product next to their first operand unless `-o/--output` is given.
 
 `--alpha` is required for a full unfold (D-45); it has no default. The SNIP
 peak mask is on by default and can be disabled with `--no-snip` or tuned with
@@ -1022,9 +1036,10 @@ virtual environment and run from the repository root.
 
 * Raw measurements live in `work/data/<campaign>/` (for example
   `work/data/2609a/`); `work/` is not committed.
-* Default products are written under `work/<subcommand>/`; `csv2root` and
-  `subbkg` default next to their input file (D-165) and `compose` next to its
-  `--sim` input (D-166).
+* Default products are written under `work/<subcommand>/`; `csv2root` defaults
+  next to its CSV, `specadd`/`specsub` next to their first operand as
+  `<a-stem>-add-<b-stem>.root` / `<a-stem>-sub-<b-stem>.root` (D-165/D-185) and
+  `compose` next to its `--sim` input (D-166).
 * Writes are atomic and self-validating (F-IO-1): the product goes to
   `<target>.part`, is closed, reopened and validated against the product
   contract, and only then moved onto `<target>` with `os.replace`. An existing
@@ -1038,7 +1053,7 @@ virtual environment and run from the repository root.
 
 ```bash
 ruff check .
-pytest -q -m "not g4 and not root"        # 356 passed, 1 bench case skipped
+pytest -q -m "not g4 and not root"        # 386 passed, 1 bench case skipped
 pytest -q tests/test_sim_g4.py            # needs geant4-pybind
 python tools/check_single_source.py       # the single-source gate
 python tools/generate_kernels.py          # regenerate kc761tool/core/_gen (committed)
@@ -1080,6 +1095,7 @@ for c in calib compose sim unfold; do python kc761tool.py "$c" -c "examples/$c.t
 | `kc761tool/schema/` | product contracts, axes, uproot IO and certificates (F-IO-1) |
 | `kc761tool/calib/` | calibration fit, Bezier scale, covariance, product export (F-CAL-1..5) |
 | `kc761tool/unfold/` | selection, compose, solve, orchestration (F-UNF-1..6) |
+| `kc761tool/spectra/` | spectrum addition and DAQ-time scaled subtraction (F-SPEC-1..2) |
 | `kc761tool/sim/` | Geant4 detector, sources, sampling, certificates (F-SIM-1..7) |
 | `kc761tool/*/plot.py` | self-contained figures (D-153) |
 | `kc761tool/cli/` | CLI, config-file mode and per-command wiring |

@@ -298,22 +298,36 @@ def test_csv2root_validates_output_before_reading(tmp_path: Path) -> None:
     assert run_cli(["csv2root", str(SMALL_CSV), "-o", str(target)]) == 2
 
 
-def test_subbkg_validates_output_before_reading(tmp_path: Path) -> None:
+def test_specsub_validates_output_before_reading(tmp_path: Path) -> None:
     target = _existing(tmp_path, "n.root")
     assert (
-        run_cli(
-            [
-                "subbkg",
-                "--signal",
-                "missing-s.root",
-                "--background",
-                "missing-b.root",
-                "-o",
-                str(target),
-            ]
-        )
-        == 2
+        run_cli(["specsub", "missing-a.root", "missing-b.root", "-o", str(target)]) == 2
     )
+
+
+def test_specadd_validates_output_before_reading(tmp_path: Path) -> None:
+    target = _existing(tmp_path, "s.root")
+    assert (
+        run_cli(["specadd", "missing-a.root", "missing-b.root", "-o", str(target)]) == 2
+    )
+
+
+def test_specsub_requires_two_positional_operands() -> None:
+    assert run_cli(["specsub", "a.root"]) == 2
+
+
+def test_specadd_requires_two_positional_operands() -> None:
+    assert run_cli(["specadd", "a.root"]) == 2
+
+
+def test_specsub_rejects_the_removed_operand_options() -> None:
+    """D-185: the operands are positional; --signal/--background are gone."""
+    assert run_cli(["specsub", "--signal", "a.root", "--background", "b.root"]) == 2
+
+
+def test_subbkg_is_no_longer_a_subcommand() -> None:
+    """D-185 renames subbkg to specsub; the old name is a usage error."""
+    assert run_cli(["subbkg", "a.root", "b.root"]) == 2
 
 
 def test_unfold_validates_output_before_reading_inputs(tmp_path: Path) -> None:

@@ -7,7 +7,8 @@ aliases for the options that had them. Window options use ``--energy-low/--elo``
 
 This module also owns the cross-command plumbing that must not be duplicated:
 the repository-root output convention (D-19), full-argv provenance pairs
-(D-18) and the config/run-option mutual-exclusion check (D-130).
+(D-18), the config/run-option mutual-exclusion check (D-130) and the combined
+default output name of the two-operand spectrum commands (D-185).
 """
 
 from __future__ import annotations
@@ -52,7 +53,8 @@ def add_output_options(
     ``--no-plot`` is the frozen plot surface of D-142: plots are produced by
     default and suppressed with this single switch. ``default_hint`` overrides
     the help text for commands whose default output is not ``work/<command>/``
-    (D-165: csv2root and subbkg write next to their input).
+    (D-165/D-185: ``csv2root`` writes next to its CSV, ``specadd``/``specsub``
+    next to their first spectrum operand).
     """
     hint = default_hint or "work/<command>/ under the repository root"
     parser.add_argument(
@@ -107,11 +109,58 @@ def default_output_beside(source: str | Path, filename: str) -> Path:
     """Return ``<source directory>/<filename>`` (D-165).
 
     Used by the commands whose default product lives next to the input file
-    (``csv2root`` next to the CSV, ``subbkg`` next to the signal spectrum).
+    (``csv2root`` next to the CSV, ``specadd``/``specsub`` next to the first
+    spectrum product).
     """
     if not filename or Path(filename).name != filename:
         raise UsageError(f"invalid default output name {filename!r}")
     return Path(source).expanduser().parent / filename
+
+
+def combined_output_name(first: str | Path, second: str | Path, *, token: str) -> str:
+    """Return ``<first-stem>-<token>-<second-stem>.root`` (D-185).
+
+    The token is the operation name (``add``/``sub``) shared with
+    :mod:`kc761tool.spectra`, so the connector of the combined product name and
+    the operation name have a single definition.
+    """
+    first_stem = Path(first).stem
+    second_stem = Path(second).stem
+    if not first_stem or not second_stem:
+        raise UsageError(f"invalid operand names {str(first)!r} and {str(second)!r}")
+    return f"{first_stem}-{token}-{second_stem}.root"
+
+
+def resolve_combination_paths(
+    args: argparse.Namespace,
+    *,
+    token: str,
+) -> tuple[Path, Path, Path]:
+    """Resolve the two positional operands and the default product path (D-185).
+
+    The default output lives next to the first operand and is named
+    ``<first-stem>-<token>-<second-stem>.root``; the two-operand spectrum
+    commands share this resolution.
+    """
+    first = Path(args.first).expanduser()
+    second = Path(args.second).expanduser()
+    output = (
+        Path(args.output).expanduser()
+        if args.output is not None
+        else default_output_beside(first, combined_output_name(first, second, token=token))
+    )
+    return first, second, output
+
+
+def add_spectrum_operands(
+    parser: argparse.ArgumentParser,
+    *,
+    first_help: str,
+    second_help: str,
+) -> None:
+    """Add the two positional spectrum operands of ``specadd``/``specsub`` (D-185)."""
+    parser.add_argument("first", metavar="SPECTRUM_A", type=str, help=first_help)
+    parser.add_argument("second", metavar="SPECTRUM_B", type=str, help=second_help)
 
 
 def argv_arguments(argv: Sequence[str]) -> tuple[tuple[str, str], ...]:

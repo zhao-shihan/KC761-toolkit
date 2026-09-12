@@ -58,6 +58,8 @@ derivations may gain detail but must never contradict `docs/plan.md`.
 | F-UNF-5 | refolded `R . mu` restricted to the reported channel window `[chlo, chhi]` (D-117) | `unfold/unfold.py` | implemented |
 | F-UNF-6 | calib-only channel-to-energy relabeling on `C.y = E(i +- 1/2)` (D-113) | `unfold/unfold.py` | implemented |
 | F-IO-1 | atomic write, reopen validation and provenance protocol | `schema/io.py` | implemented |
+| F-SPEC-1 | spectrum sum: `values = v_a + v_b`, `variances = max(e_a, 1)**2 + max(e_b, 1)**2`, `daq_time_s = t_a + t_b` (D-185/D-186) | `spectra/combine.py` | implemented |
+| F-SPEC-2 | DAQ-time scaled subtraction: `r = t_a / t_b`, `values = v_a - r v_b`, `variances = max(e_a, 1)**2 + r**2 max(e_b, 1)**2`, `daq_time_s = t_a` (D-185/D-186) | `spectra/combine.py` | implemented |
 
 ## 2. Sympy generation convention
 
@@ -994,3 +996,63 @@ the operation is exactly invertible by the axis alone.
 
 **Limits.** The data channel axis must equal `C.x` bitwise (D-114); otherwise
 the relabeling would attach the wrong energies to the counts.
+
+
+### F-SPEC-1 - spectrum addition
+
+**Derivation.** Two measured spectra `a` and `b` of the same source over the
+same channel axis are two independent counting experiments, so their bin
+contents and their Poisson variances add:
+
+    values_i = a_i + b_i,
+    e_a,i = max(sqrt(fSumw2_a,i), 1),   e_b,i = max(sqrt(fSumw2_b,i), 1),
+    variances_i = e_a,i**2 + e_b,i**2,
+    daq_time_s = t_a + t_b.
+
+The one-count error floor follows the convention of F-SPEC-2 and of the fit
+weights (F-CAL-1/F-UNF-2): a bin with zero recorded variance still carries a
+one-count uncertainty, so a sum never claims zero uncertainty. For a Poisson
+product (`csv2root`) `fSumw2 = counts`, so the floor is a no-op on every
+non-empty bin and only lifts the exactly-zero variance of an empty bin, which
+it must: two empty bins must not sum to a bin with zero uncertainty.
+
+**Preconditions (always on).** Both operands are `spectrum` products, their
+channel axes are equal bitwise (unit and edges) and both `daq_time_s` values
+are finite and positive; a violation is a `SchemaError`/`ValidationError` in
+both modes. The output is a `spectrum` product on the shared axis whose
+`daq_time_s` is the sum and whose audit `source_file` is `<a> + <b>` (D-185).
+
+**Limits.** The addition is exact in the stored representation: no rebinning,
+no interpolation and no clamping. `fSumw2` is taken to be the per-bin variance
+already. Values, variances and the DAQ time are commutative; only the audit
+`source_file` string keeps the positional order.
+
+### F-SPEC-2 - DAQ-time scaled spectrum subtraction
+
+**Derivation.** A background spectrum `b` recorded for `t_b` differs from the
+background accumulated during a measurement `a` of duration `t_a` by the
+DAQ-time ratio `r = t_a / t_b`. Subtracting the scaled background bin by bin
+gives
+
+    r = t_a / t_b,
+    values_i = a_i - r b_i,
+    e_a,i = max(sqrt(fSumw2_a,i), 1),   e_b,i = max(sqrt(fSumw2_b,i), 1),
+    variances_i = e_a,i**2 + r**2 e_b,i**2,
+    daq_time_s = t_a.
+
+The two measurements are independent, so their errors add in quadrature with
+the scale factor applied to the background only; the net spectrum represents
+the source measured for `t_a`, which the output therefore inherits.
+
+**Preconditions (always on).** Identical to F-SPEC-1: both operands are
+`spectrum` products, their channel axes are equal bitwise and both DAQ times
+are finite and positive, so `r` is finite and positive. The output is a
+`spectrum` product on the shared axis with the audit `source_file` `<a> - <b>`
+(D-185).
+
+**Limits.** Negative net bins are physical outcomes of the subtraction and are
+stored unchanged; the fail-loud rule of plan section 5 forbids clamping them.
+The one-count error floor prevents a zero-variance bin from contributing zero
+uncertainty. `r` is a ratio of recorded DAQ times: dead time, rate-dependent
+effects and any change of background composition between the two runs are not
+modeled.

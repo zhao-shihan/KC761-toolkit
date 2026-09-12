@@ -59,6 +59,7 @@ wins and this file must be fixed in the same change.
 | `kc761tool/schema/_uproot.py` | schema | verified spike helpers; keep the head comment in sync with `docs/formats.md` |
 | `kc761tool/calib/` | calib | F-CAL |
 | `kc761tool/unfold/` | unfold | uses F-SOLVE/F-UNC |
+| `kc761tool/spectra/` | spectra | F-SPEC-1/F-SPEC-2; the shared backend of `specadd`/`specsub` |
 | `kc761tool/sim/` | sim | F-SIM |
 | `kc761tool/cli/`, `kc761tool.py`, `kc761tool/__main__.py` | cli | CLI surface only; no numerics |
 | `kc761tool/errors.py`, `kc761tool/runtime.py` | infrastructure | change requires a plan update |

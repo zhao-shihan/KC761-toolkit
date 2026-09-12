@@ -13,10 +13,12 @@ Content:
   binomial variances satisfy the F-SIM-2 relation;
 * ``synthetic_spectrum`` - a small channel spectrum with variances;
 * product builders for calib, sim, compose, unfold (full and calib-only) and
-  spectrum.
+  spectrum, plus ``make_spectrum`` for explicit spectrum operands.
 """
 
 from __future__ import annotations
+
+from collections.abc import Sequence
 
 import numpy as np
 from numpy.typing import NDArray
@@ -270,6 +272,33 @@ def make_spectrum_product() -> SpectrumProduct:
         spectrum=synthetic_spectrum(seed=SEED + 3),
         daq_time_s=123.0,
         source_file="synthetic.csv",
+        provenance=synthetic_provenance("synthetic-spectrum"),
+    )
+
+
+def make_spectrum(
+    values: Sequence[float] | NDArray[np.float64],
+    variances: Sequence[float] | NDArray[np.float64],
+    *,
+    daq_time_s: float,
+    axis: Axis | None = None,
+    source_file: str = "fixture.csv",
+) -> SpectrumProduct:
+    """Build a spectrum product over ``axis`` (default: channel axis of ``values``).
+
+    Used by the F-SPEC-1/F-SPEC-2 spectrum-arithmetic tests, which need explicit
+    values, variances and DAQ times rather than the fixed synthetic spectrum.
+    """
+    array_values = np.asarray(values, dtype=np.float64)
+    return SpectrumProduct(
+        format_version=SCHEMA_VERSION,
+        spectrum=Histogram1D(
+            axis=channel_axis(array_values.size) if axis is None else axis,
+            values=array_values,
+            variances=np.asarray(variances, dtype=np.float64),
+        ),
+        daq_time_s=daq_time_s,
+        source_file=source_file,
         provenance=synthetic_provenance("synthetic-spectrum"),
     )
 

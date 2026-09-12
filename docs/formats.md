@@ -120,7 +120,11 @@ no missing and no extra field (`SchemaError` otherwise). The complete list:
   never rescaled). When the SNIP mask is enabled the reported bands are
   conditional on the realized mask (D-159) and the baseline/mask hashes pin the
   exact solve.
-* spectrum: `daq_time_s` (float), `source_file` (str).
+* spectrum: `daq_time_s` (float), `source_file` (str). The field is an audit
+  record only (D-152): `csv2root` stores the CSV path, while `specadd`/`specsub`
+  store the operator string `<first> + <second>` / `<first> - <second>` in
+  positional order (D-185); the real input paths and their digests are always in
+  `inputs_json`.
 * mc_spectrum: `source_key` (str), `mode_name` (str), `geometry_name` (str),
   `geometry_param_mm` (float), `n_events` (int), `seed` (int), `workers` (int)
   (D-120).
@@ -186,21 +190,24 @@ data uses separate histogram objects; the atomic-write protocol reopens with
 uproot before renaming; the object set on disk must equal `OBJECT_NAMES` for
 the product kind exactly; duplicate on-disk object versions are rejected.
 
-## 7. CLI outputs, CSV import and background subtraction
+## 7. CLI outputs, CSV import and spectrum arithmetic
 
 ### 7.1 Command surface and exit codes
 
-`kc761tool` has six subcommands (`calib`, `unfold`, `sim`, `compose`, `csv2root`,
-`subbkg`; D-66). Exit codes are 0 success, 1 runtime failure, 2 usage error
+`kc761tool` has seven subcommands (`calib`, `unfold`, `sim`, `compose`,
+`csv2root`, `specadd`, `specsub`; D-66/D-185). Exit codes are 0 success, 1
+runtime failure, 2 usage error
 (D-68); every failure is logged as `[kc761tool.<command>] error: ...` (D-67).
 `sim`, `calib`, `compose` and `unfold` additionally accept `-c/--config FILE`
-and `--dry-run`; `csv2root` and `subbkg` take no config file (D-129).
+and `--dry-run`; `csv2root`, `specadd` and `specsub` take no config file
+(D-129). `specadd` and `specsub` take their two operands as positional
+arguments and no longer accept `--signal`/`--background` (D-185).
 
 ### 7.2 Default outputs (D-19/D-138)
 
 When `-o/--output` is omitted the product is written under `work/<command>`
-(except `csv2root`/`subbkg`, D-165, and `compose`, D-166, which default next
-to their input):
+(except `csv2root` and the two-operand spectrum commands, D-165/D-185, and
+`compose`, D-166, which default next to their input):
 
 | Command | Default file name |
 |---------|-------------------|
@@ -211,9 +218,11 @@ to their input):
 | `unfold` | `unfold-<data-stem>-<sim-stem>-a<alpha>.root` |
 | `unfold --calib-only` | `unfold-<data-stem>-calibonly.root` |
 | `csv2root` | `<input-stem>.root` |
-| `subbkg` | `<signal-stem>-subbkg.root` |
+| `specadd` | `<a-stem>-add-<b-stem>.root` |
+| `specsub` | `<a-stem>-sub-<b-stem>.root` |
 
-An existing target is refused unless `--force` is given (D-17).
+The two combined names live next to the first operand (`SPECTRUM_A`). An
+existing target is refused unless `--force` is given (D-17).
 
 ### 7.3 `csv2root` strict grammar
 
@@ -238,12 +247,25 @@ The output is a `spectrum` product: a uniform `channel` axis (`-0.5 ..
 n - 0.5`), `values = counts`, `fSumw2 = counts` (Poisson), `daq_time_s` from
 the header and `source_file` set to the input path.
 
-### 7.4 `subbkg` semantics
+### 7.4 `specsub` semantics
 
-The net spectrum is `S - r B` with `r = t_sig / t_bkg` (both `daq_time_s`
-must be positive). Each input bin error is floored at one count before the
-combination, and the net `fSumw2` is `sig_err**2 + r**2 * bkg_err**2`. The
-signal and background channel axes must match bitwise (unit and edges). The
-output is a `spectrum` product that inherits the signal `daq_time_s` and names
-the signal as `source_file`; provenance lists both inputs.
+`kc761tool specsub SPECTRUM_A SPECTRUM_B` subtracts the second operand, the
+background spectrum, from the first. The net spectrum is `A - r B` with
+`r = t_A / t_B` (both `daq_time_s` values must be finite and positive). Each
+input bin error is floored at one count before the combination, and the net
+`fSumw2` is `err_A**2 + r**2 * err_B**2` (F-SPEC-2). The two channel axes must
+match bitwise (unit and edges). The output is a `spectrum` product that inherits
+the first `daq_time_s` and records the audit string `<A> - <B>` as
+`source_file`; provenance lists both inputs (D-185).
+
+### 7.5 `specadd` semantics
+
+`kc761tool specadd SPECTRUM_A SPECTRUM_B` sums two experimental spectra, for
+example two runs of the same source. Values and variances add,
+`values = A + B` and `fSumw2 = err_A**2 + err_B**2` with each input bin error
+floored at one count, and the DAQ times add, `daq_time_s = t_A + t_B`, so the
+sum is equivalent to one longer acquisition (F-SPEC-1). The two channel axes
+must match bitwise (unit and edges) and both DAQ times must be finite and
+positive. The output is a `spectrum` product whose audit `source_file` is the
+string `<A> + <B>`; provenance lists both inputs (D-185).
 

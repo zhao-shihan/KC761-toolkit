@@ -48,33 +48,33 @@ if str(REPO_ROOT) not in sys.path:
 WORK = REPO_ROOT / "work"
 CALIB_PRODUCT = WORK / "calib" / "calib-2609a.root"
 SIM_PRODUCT = WORK / "sim" / "calib-2609a-plane-front-gamma-n100000000-s908136382.root"
-DATA_PRODUCT = WORK / "data" / "2609a" / "th232-260908-subbkg.root"
+DATA_PRODUCT = WORK / "data" / "2609a" / "th232-260908-sub-bkg-260909.root"
 
 CALIB_DATASETS: tuple[tuple[str, str, str, int, int], ...] = (
     (
         "Am241",
-        "work/data/2609a/am241-260910-subbkg.root",
+        "work/data/2609a/am241-260910-sub-bkg-260909.root",
         "work/sim/am241-n3000000-s908136382.root",
         140,
         165,
     ),
     (
         "Lu176",
-        "work/data/2609a/lu176-260910-subbkg.root",
+        "work/data/2609a/lu176-260910-sub-bkg-260909.root",
         "work/sim/lu176-n20000000-s908136382.root",
         140,
         450,
     ),
     (
         "Th232",
-        "work/data/2609a/th232-260908-subbkg.root",
+        "work/data/2609a/th232-260908-sub-bkg-260909.root",
         "work/sim/th232-n200000000-s908136382.root",
         140,
         1400,
     ),
     (
         "Ra226",
-        "work/data/2609a/ra226-260908-subbkg.root",
+        "work/data/2609a/ra226-260908-sub-bkg-260909.root",
         "work/sim/ra226-n100000000-s908136382.root",
         140,
         1400,

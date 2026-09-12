@@ -1,7 +1,8 @@
 """``kc761tool`` command-line entry point.
 
-Six frozen subcommands (docs/plan.md D-66) in pipeline order: ``csv2root``,
-``subbkg``, ``sim``, ``calib``, ``compose``, ``unfold``. Logging, strict mode
+Seven frozen subcommands (docs/plan.md D-66/D-185) in pipeline order:
+``csv2root``, ``specadd``, ``specsub``, ``sim``, ``calib``, ``compose``,
+``unfold``. Logging, strict mode
 and the exit-code
 policy (0 success / 1 runtime failure / 2 usage error) live here; the
 subcommand modules only declare arguments and dispatch to their implementation.
@@ -18,7 +19,8 @@ from kc761tool.runtime import configure_logging, strict_enabled
 
 SUBCOMMANDS: tuple[str, ...] = (
     "csv2root",
-    "subbkg",
+    "specadd",
+    "specsub",
     "sim",
     "calib",
     "compose",
@@ -28,7 +30,7 @@ SUBCOMMANDS: tuple[str, ...] = (
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the full argument parser (shared by both entry points)."""
-    from kc761tool.cli import calib, compose, csv2root, sim, subbkg, unfold
+    from kc761tool.cli import calib, compose, csv2root, sim, specadd, specsub, unfold
 
     parser = argparse.ArgumentParser(
         prog="kc761tool",
@@ -44,7 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
         "compose": compose,
         "csv2root": csv2root,
         "sim": sim,
-        "subbkg": subbkg,
+        "specadd": specadd,
+        "specsub": specsub,
         "unfold": unfold,
     }
     for name in SUBCOMMANDS:

@@ -6,9 +6,9 @@ document explains the layering rules that the code keeps.
 ## Layering
 
 ```
-cli  ->  calib / unfold / sim
-           |        |        |
-           v        v        v
+cli  ->  calib / unfold / sim / spectra
+           |        |       |      |
+           v        v       v      v
         schema  (products, axes, uproot IO)
            |
            v
@@ -22,11 +22,14 @@ Rules:
    `uproot`, `matplotlib`, Geant4, or any other `kc761tool` subpackage.
 2. `kc761tool/schema` owns all file IO (`uproot`) and the product contracts. It
    may import `core` for elementary types but never `calib`, `unfold`, `sim`,
-   `cli`.
+   `spectra`, `cli`.
 3. `kc761tool/calib`, `kc761tool/unfold` and `kc761tool/sim` contain orchestration and
    physics/fit logic. They import `core` and `schema`.
-4. `kc761tool/cli` is a leaf.
-5. `kc761tool/sim` is the only place allowed to import Geant4, and only lazily
+4. `kc761tool/spectra` owns the spectrum arithmetic of `specadd`/`specsub`
+   (F-SPEC-1/F-SPEC-2). It imports `schema` for the product contract and IO and
+   never `cli`, `calib`, `unfold` or `sim`.
+5. `kc761tool/cli` is a leaf.
+6. `kc761tool/sim` is the only place allowed to import Geant4, and only lazily
    inside functions, so that the contract layer imports in a no-G4
    environment.
 
@@ -64,6 +67,7 @@ Rules:
 | `unfold/unfold.py` | `run_unfold`: full and `calib_only` orchestration, product assembly | F-UNF-5/F-UNF-6 |
 | `unfold/types.py` | unfolding dataclasses (`UnfoldSettings`, `UnfoldResult`, selection/band containers) shared by solve/orchestration/CLI | F-UNF-1..6 |
 | `unfold/report.py`, `unfold/plot.py` | text report and figure | D-70/D-153 |
+| `spectra/combine.py` | `run_specadd`/`run_specsub`: operand loading, shared axis and DAQ-time validation, spectrum combination, product write | F-SPEC-1/F-SPEC-2 |
 | `sim/config.py` | run defaults: base seed, event-block size, raw histogram names, memory budget | F-SIM-7/D-123/D-124 |
 | `sim/geometry.py` | frozen detector geometry dataclass with per-field provenance | D-34 |
 | `sim/materials.py` | material compositions/densities and the lazy Geant4 builder | D-32/D-34 |
@@ -74,15 +78,16 @@ Rules:
 | `sim/actions.py` | run/event/stepping actions for both scoring paths, pulse merging | F-SIM-5 |
 | `sim/certificates.py` | physical-layer certificates: accounting, variance, efficiency, boundary | F-SIM-1/F-SIM-2/F-SIM-3/F-SIM-6 |
 | `sim/runner.py` | memory-budgeted workers, uproot merge, product output, interactive entry | F-SIM-7/D-120/D-121/D-124/D-125 |
-| `cli/` | one command with six subcommand modules, output/provenance plumbing and the `sim` batch driver | D-66/D-67/D-68/D-134 |
+| `cli/` | one command with seven subcommand modules, output/provenance plumbing and the `sim` batch driver | D-66/D-67/D-68/D-134/D-185 |
 | `cli/config.py` | strict TOML parsing (stdlib `tomllib` only; no Geant4, no numerics) for `sim`/`calib`/`compose`/`unfold` | D-129..D-144 |
 
 ## CLI orchestration
 
 * `kc761tool/cli/_common.py` owns the cross-command plumbing: the `work/<command>/`
-  default-name convention (D-19), full-argv provenance pairs (D-18), the
-  config/run-option mutual-exclusion check (D-130) and the shared option
-  groups. Handlers import their entry point lazily, so `--help`
+  default-name convention (D-19), the combined `<a-stem>-<token>-<b-stem>.root`
+  name of the two-operand spectrum commands (D-185), full-argv provenance pairs
+  (D-18), the config/run-option mutual-exclusion check (D-130) and the shared
+  option groups. Handlers import their entry point lazily, so `--help`
   does not import Geant4 or the numerics stack.
 * The library entry points (`run_fit`, `run_compose`, `run_unfold`,
   `run_source`, `run_matrix`) take an optional `extra_inputs` sequence that is
@@ -100,6 +105,9 @@ Rules:
 * `run_fit`/`run_compose`/`run_unfold` are called in-process by `calib`,
   `compose` and `unfold`; the CLI only builds products (`DatasetSpec`,
   `SpectrumProduct`), resolves names, and prints the library report.
+* `specadd` and `specsub` call `kc761tool.spectra.run_specadd`/`run_specsub`
+  in-process with two positional operands (D-185); they take no config file and
+  keep no numerics of their own.
 
 ## Contract surfaces
 

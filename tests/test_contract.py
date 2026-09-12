@@ -118,7 +118,7 @@ def test_synthetic_fixtures_are_consistent() -> None:
 def test_cli_help_via_launcher() -> None:
     result = _run_cli("kc761tool.py", "--help")
     assert result.returncode == 0, result.stderr
-    for command in ("calib", "unfold", "sim", "compose", "csv2root", "subbkg"):
+    for command in ("calib", "unfold", "sim", "compose", "csv2root", "specadd", "specsub"):
         assert command in result.stdout
     assert __version__ in _run_cli("kc761tool.py", "--version").stdout
 
@@ -164,7 +164,7 @@ def test_cli_unfold_alpha_is_mandatory() -> None:
 def test_cli_strict_env_and_flag_are_accepted() -> None:
     env = {**os.environ, "PYTHONPATH": str(ROOT), runtime.STRICT_ENV_VAR: "1"}
     result = subprocess.run(
-        [sys.executable, "kc761tool.py", "subbkg", "--sig", "a.root", "--bkg", "b.root"],
+        [sys.executable, "kc761tool.py", "specsub", "a.root", "b.root"],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -172,4 +172,4 @@ def test_cli_strict_env_and_flag_are_accepted() -> None:
         check=False,
     )
     assert result.returncode == 1
-    assert "[kc761tool.subbkg] error:" in result.stderr
+    assert "[kc761tool.specsub] error:" in result.stderr
