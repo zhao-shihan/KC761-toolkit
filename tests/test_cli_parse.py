@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from kc761tool.cli import main
 from kc761tool.cli._common import REPO_ROOT, default_output
 
@@ -94,7 +96,8 @@ def test_calib_optimizer_flags_map_to_fit_settings() -> None:
     assert (custom.ftol, custom.xtol, custom.gtol) == (1e-4, 1e-4, 1e-4)
 
 
-def test_unfold_full_without_alpha_is_usage_error() -> None:
+def test_unfold_full_without_alpha_uses_the_default(capsys: Any) -> None:
+    """D-191: omitting --alpha resolves to the default and prints the default name."""
     assert (
         run_cli(
             [
@@ -109,10 +112,16 @@ def test_unfold_full_without_alpha_is_usage_error() -> None:
                 "30",
                 "--energy-high",
                 "1500",
+                "--dry-run",
             ]
         )
-        == 2
+        == 0
     )
+    out = capsys.readouterr().out
+    assert "alpha=1.0" in out
+    # D-192: the default name carries no alpha token.
+    assert "unfold-d-s.root" in out
+    assert "-a1" not in out
 
 
 def test_unfold_calib_only_dry_run(capsys: Any) -> None:
@@ -131,6 +140,70 @@ def test_unfold_calib_only_dry_run(capsys: Any) -> None:
     out = capsys.readouterr().out
     assert "calib_only" in out
     assert "d.root" in out
+    # D-191: the default does not leak into a mode that solves no QP.
+    assert "alpha=None" in out
+    # D-192: the calib-only name is unaffected by the alpha token removal.
+    assert "unfold-d-calibonly.root" in out
+
+
+def test_unfold_explicit_alpha_overrides_without_changing_the_name(capsys: Any) -> None:
+    """D-191/D-192: an explicit alpha wins, and the default name stays token-free."""
+    code = run_cli(
+        [
+            "unfold",
+            "--data",
+            "d.root",
+            "--calib",
+            "c.root",
+            "--sim",
+            "s.root",
+            "--energy-low",
+            "30",
+            "--energy-high",
+            "1500",
+            "--alpha",
+            "2",
+            "--dry-run",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "alpha=2.0" in out
+    assert "unfold-d-s.root" in out
+    assert "-a2" not in out
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf"])
+def test_unfold_rejects_an_invalid_alpha_on_the_command_line(value: str) -> None:
+    """The bound is enforced through argparse/resolution, not only in the library."""
+    assert (
+        run_cli(
+            [
+                "unfold",
+                "--data",
+                "d.root",
+                "--calib",
+                "c.root",
+                "--sim",
+                "s.root",
+                "--energy-low",
+                "30",
+                "--energy-high",
+                "1500",
+                "--alpha",
+                value,
+                "--dry-run",
+            ]
+        )
+        == 2
+    )
+
+
+def test_unfold_calib_only_rejects_alpha_by_presence() -> None:
+    """D-190/D-191: the default value is still an explicitly supplied alpha."""
+    common = ["unfold", "--data", "d.root", "--calib", "c.root", "--calib-only"]
+    assert run_cli([*common, "--alpha", "1.0", "--dry-run"]) == 2
+    assert run_cli([*common, "--dry-run"]) == 0
 
 
 def test_sim_source_dry_run_prints_default_output(capsys: Any) -> None:

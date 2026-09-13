@@ -18,6 +18,7 @@ from numpy.typing import NDArray
 
 from kc761tool.core.response import ComposedResponse, ResponseMatrix
 from kc761tool.core.solver import (
+    DEFAULT_ALPHA,
     DEFAULT_DIFFERENCE_ORDER,
     DEFAULT_SNIP_FLOOR,
     DEFAULT_SNIP_MAX_ITERATIONS,
@@ -42,13 +43,14 @@ class UnfoldSettings:
 
     ``alpha`` and ``difference_order`` build the F-SOLVE-1
     :class:`kc761tool.core.solver.RegularizationSpec`; the remaining fields are the
-    frozen window and weight configuration. ``alpha`` is ``None`` only for the
-    ``calib_only`` path, which does not solve a QP.
+    frozen window and weight configuration. ``alpha`` defaults to
+    ``DEFAULT_ALPHA`` (D-191) and is ``None`` only for the ``calib_only`` path,
+    which does not solve a QP.
     """
 
     energy_low_kev: float
     energy_high_kev: float
-    alpha: float | None
+    alpha: float | None = DEFAULT_ALPHA
     difference_order: int = DEFAULT_DIFFERENCE_ORDER
     syst_frac: float = DEFAULT_SYST_FRAC
     snip_enabled: bool = True
@@ -86,7 +88,11 @@ class UnfoldSettings:
         )
 
     def regularization(self) -> RegularizationSpec:
-        """Build the F-SOLVE-1 regularization spec (alpha is required)."""
+        """Build the F-SOLVE-1 regularization spec.
+
+        ``alpha`` carries its D-191 default; only the ``calib_only`` ``None``
+        marker (which solves no QP) has no spec to build.
+        """
         if self.alpha is None:
             raise ValidationError("calib_only settings carry no alpha to regularize with")
         return RegularizationSpec(alpha=self.alpha, difference_order=self.difference_order)

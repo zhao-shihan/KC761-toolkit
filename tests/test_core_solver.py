@@ -109,6 +109,12 @@ def test_invalid_inputs_raise() -> None:
         solver.RegularizationSpec(alpha=1.0, difference_order=3)
 
 
+def test_regularization_defaults_are_the_d191_constant() -> None:
+    """D-191: the core spec default is the named constant, not an inline literal."""
+    assert solver.RegularizationSpec().alpha == solver.DEFAULT_ALPHA
+    assert solver.RegularizationSpec().difference_order == solver.DEFAULT_DIFFERENCE_ORDER
+
+
 def test_difference_operator_shapes() -> None:
     first = solver.difference_operator(5, 1)
     second = solver.difference_operator(5, 2)

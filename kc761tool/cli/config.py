@@ -149,6 +149,7 @@ class UnfoldConfig:
     snip_max_iterations: int
     output: Path | None
     no_plot: bool
+    log_plot: bool
     force: bool
     dry_run: bool
 
@@ -172,6 +173,7 @@ class UnfoldConfig:
             "snip_max_iterations": self.snip_max_iterations,
             "output": self.output,
             "no_plot": self.no_plot,
+            "log_plot": self.log_plot,
             "force": self.force,
             "dry_run": self.dry_run,
         }
@@ -539,7 +541,9 @@ def load_unfold_config(path: str | Path) -> UnfoldConfig:
         calib_only=bool(values["calib_only"]),
         energy_low_kev=values["energy_low"],
         energy_high_kev=values["energy_high"],
-        alpha=values["alpha"],
+        # calib_only solves no QP: an explicit alpha is rejected above, and the
+        # declared default (D-191) must not leak into the calib-only config.
+        alpha=None if values["calib_only"] else values["alpha"],
         difference_order=int(values["difference_order"]),
         syst_frac=float(values["syst_frac"]),
         snip_enabled=bool(values["snip_enabled"]),
@@ -550,6 +554,7 @@ def load_unfold_config(path: str | Path) -> UnfoldConfig:
         snip_max_iterations=int(values["snip_max_iterations"]),
         output=values["output"],
         no_plot=bool(values["no_plot"]),
+        log_plot=bool(values["log_plot"]),
         force=bool(values["force"]),
         dry_run=bool(values["dry_run"]),
     )

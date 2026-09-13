@@ -3,7 +3,8 @@
 Formula IDs (docs/derivations.md): F-SOLVE-1 .. F-SOLVE-6.
 
 * F-SOLVE-1: Tikhonov objective ``chi2 + alpha * ||D_tilde mu||**2`` with
-  ``mu >= 0``. ``alpha`` is mandatory at the CLI (D-45) and dimensionless
+  ``mu >= 0``. ``alpha`` is optional and defaults to ``DEFAULT_ALPHA = 1.0``
+  (D-191, superseding the mandatory clause of D-45) and is dimensionless
   (D-80): the difference operator is scaled on the right,
   ``D_tilde = D . diag(sqrt(diag(R^T W R)))``.
 * F-SOLVE-2: self-implemented Cholesky active-set solver (banded when the
@@ -42,6 +43,9 @@ from kc761tool.core._linalg import (
 from kc761tool.errors import CertificateError, SolverError, ValidationError
 
 DEFAULT_DIFFERENCE_ORDER = 2
+DEFAULT_ALPHA = 1.0
+"""Default dimensionless Tikhonov strength (D-191, revises D-45)."""
+
 KKT_TOL = 1e-6
 """F-SOLVE-3 relative tolerance for the reduced gradient and complementarity."""
 
@@ -53,7 +57,7 @@ MAX_ITERATIONS_FACTOR = 10
 class RegularizationSpec:
     """Dimensionless Tikhonov configuration (F-SOLVE-1)."""
 
-    alpha: float
+    alpha: float = DEFAULT_ALPHA
     difference_order: int = DEFAULT_DIFFERENCE_ORDER
 
     def __post_init__(self) -> None:
@@ -96,8 +100,8 @@ def _positive_int(name: str, value: object) -> int:
 
 DEFAULT_SNIP_THRESHOLD_SIGMA = 5.0
 DEFAULT_SNIP_PROTECT_BINS = 3
-DEFAULT_SNIP_FLOOR = 0.1
-DEFAULT_SNIP_MAX_ITERATIONS = 8
+DEFAULT_SNIP_FLOOR = 0.01
+DEFAULT_SNIP_MAX_ITERATIONS = 32
 SNIP_FILTER_SIGMA = 3.0
 """Matched-filter support in resolution widths (F-SOLVE-5)."""
 
@@ -110,8 +114,8 @@ class SnipSettings:
     measured in **primary bins**, not in resolution widths: the protected set
     must stay a local property of the peak core, while the detector resolution
     belongs to the detection step (the matched filter of F-SOLVE-5). The default
-    is the order-2 stencil width. The defaults are provisional and recorded per
-    product (D-160).
+    is the order-2 stencil width. The defaults are recorded per product
+    (D-160/D-191).
     """
 
     enabled: bool = True

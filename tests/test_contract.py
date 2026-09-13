@@ -142,7 +142,8 @@ def test_cli_compose_missing_inputs_is_a_prefixed_runtime_failure() -> None:
     assert "[kc761tool.compose] error:" in result.stderr
 
 
-def test_cli_unfold_alpha_is_mandatory() -> None:
+def test_cli_unfold_alpha_defaults_to_one() -> None:
+    """D-191: --alpha is optional and resolves to the default 1.0."""
     result = _run_cli(
         "kc761tool.py",
         "unfold",
@@ -156,9 +157,10 @@ def test_cli_unfold_alpha_is_mandatory() -> None:
         "100",
         "--energy-high",
         "1500",
+        "--dry-run",
     )
-    assert result.returncode == 2
-    assert "--alpha" in result.stderr
+    assert result.returncode == 0
+    assert "alpha=1.0" in result.stdout
 
 
 def test_cli_strict_env_and_flag_are_accepted() -> None:

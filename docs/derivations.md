@@ -42,9 +42,9 @@ derivations may gain detail but must never contradict `docs/plan.md`.
 | F-SOLVE-1 | Tikhonov objective `chi2 + alpha * ||D_tilde mu||^2`, `D_tilde = D . diag(sqrt(diag(R^T W R)))`, dimensionless `alpha` (D-80); with the SNIP peak mask `D' = diag(rho**0.5) D` (F-SOLVE-6/D-154, supersedes D-74) | `core/solver.py` | implemented |
 | F-SOLVE-2 | self-implemented banded Cholesky active-set non-negative QP | `core/solver.py` | implemented |
 | F-SOLVE-3 | KKT certificate in units of the data-gradient scale (D-84) | `core/solver.py` | implemented |
-| F-SOLVE-4 | SNIP LLS baseline on the measured spectrum: transform, resolution-derived iteration count at the caller's reference bin, `max(y, 0)` handling, edge-preserving ends (D-155/D-157/D-188) | `core/solver.py` | implemented |
-| F-SOLVE-5 | resolution-matched peak significance and the fixed diagonal peak mask `W` with a `protect_bins` width (D-156/D-188) | `core/solver.py` | implemented |
-| F-SOLVE-6 | masked penalty operator `D_tilde' = diag(rho**0.5) D . diag(sqrt(diag(A)))` with `rho_r = min_j w_{r+j}`; the mask-equality certificate is implemented, the operator's symmetry/half-bandwidth hold by construction and the meta hashes are provenance only (D-158/D-161/D-188); the D-161 acceptance metrics are still pending | `core/solver.py` | implemented (acceptance metrics pending) |
+| F-SOLVE-4 | SNIP LLS baseline on the measured spectrum: transform, resolution-derived iteration count at the caller's reference bin, `max(y, 0)` handling, edge-preserving ends (D-155/D-157/D-188; the iteration cap and the mask floor default to 32 and 0.01, D-191) | `core/solver.py` | implemented |
+| F-SOLVE-5 | resolution-matched peak significance and the fixed diagonal peak mask `W` with a `protect_bins` width (D-156/D-188/D-191) | `core/solver.py` | implemented |
+| F-SOLVE-6 | masked penalty operator `D_tilde' = diag(rho**0.5) D . diag(sqrt(diag(A)))` with `rho_r = min_j w_{r+j}`; the mask-equality certificate is implemented, the operator's symmetry/half-bandwidth hold by construction and the meta hashes are provenance only (D-158/D-161/D-188; `alpha` defaults to 1.0, D-191); the D-161 acceptance metrics are still pending | `core/solver.py` | implemented (acceptance metrics pending) |
 | F-COV-1 | Fisher information from the analytic Jacobian | `core/covariance.py` | implemented |
 | F-COV-2 | `s**2 = chi2/dof` scaling (PDG convention); PD required, no pseudo-inverse fallback (D-84) | `core/covariance.py` | implemented |
 | F-COV-3 | optional profile-covariance diagnostic | `core/covariance.py` | implemented |
@@ -650,14 +650,25 @@ window midpoint in the shipped pipeline); `None` keeps the middle bin of the
 array handed to the mask, which is what the unit tests use. An explicit override
 (`snip_iterations`) is allowed and recorded.
 
-**Limits of the derived `m`.** `m_max = 8` (D-162) saturates the rule whenever
-`FWHM_bins > 2 m_max`, i.e. above roughly 300 keV for this detector: SNIP then
-removes only structures narrower than `2m+1 = 17` bins while the peak itself is
-18-47 bins wide between 300 keV and 1.8 MeV, so the baseline sits *inside* the peak (measured: 59% of the
-609 keV peak top on the validation dataset). The mask is therefore a
-peak-*locator*, not a background estimate; the significance map is a broad
-pedestal rather than a sharp peak indicator, which is acceptable because the
-protection width is fixed in bins (F-SOLVE-5).
+**Limits of the derived `m`.** `m_max = 32` (D-191; it was 8 under D-162)
+saturates the rule only when `round(FWHM_bins / 2) > m_max`, i.e. when
+`sigma_bins > (m_max + 0.5) / sqrt(2 ln 2)` = 27.6 bins at the reference bin
+(the strict inequality follows from `int(round(...))` with round-half-to-even:
+at the exact tie the even-valued cap does not bind),
+which is above roughly 3.5 MeV on the production 2048-bin axis with the shipped
+resolution model. The derived count is therefore used un-clipped throughout a
+30-3000 keV window: `m` is 3 at 30 keV, 6 at 150 keV, 13 at the 609 keV line,
+17 at 1 MeV and 21 at that window's midpoint (the realized value recorded by the
+shipped Th-232 run), and the clipping window `2m+1` then matches the peak's own
+`FWHM_bins` instead of stopping inside it, which is the intended "remove the
+detector peak before estimating the continuum" behavior. Under the former
+`m_max = 8` the rule saturated above roughly 260 keV: SNIP removed only
+structures narrower than `2m+1 = 17` bins while the peak itself is 18-47 bins
+wide between 300 keV and 1.8 MeV, so the baseline sat *inside* the peak
+(measured: 59% of the 609 keV peak top on the validation dataset). Either way
+the mask is a peak-*locator*, not a background estimate; the significance map is
+a broad pedestal rather than a sharp peak indicator, which is acceptable because
+the protection width is fixed in bins (F-SOLVE-5).
 
 **Limits.** SNIP removes structures narrower than about `2m+1` bins; tying `m`
 to the resolution width removes the detector peak before estimating the
@@ -688,7 +699,7 @@ neighbors** (the filter window is not used for the local-maximum test).
 `protect_bins` **primary bins** (default `3`, the order-2 stencil width) are
 marked as peaks; overlapping intervals merge into one cluster, so the protected
 count is bounded by `(2 protect_bins + 1) * n_candidates`. The fixed diagonal
-mask is `W = diag(w)` with `w_i = floor` (default `0.1`) on marked bins and
+mask is `W = diag(w)` with `w_i = floor` (default `0.01`, D-191) on marked bins and
 `w_i = 1` elsewhere. A zero-variance or non-positive-width bin is a hard
 `ValidationError` rather than an unmarked bin, so the only bins that keep
 `w_i = 1` are those no candidate marks.
@@ -753,8 +764,9 @@ exactly as in F-SOLVE-1.
 `min_{mu >= 0} ||(R mu - y)/sigma||^2 + alpha * ||D_tilde' mu||^2`,
 `H = A + alpha * D_tilde'^T D_tilde'`, `b = R^T W_data y`. The Lawson-Hanson
 active-set solve and the F-SOLVE-3 KKT certificate are unchanged because
-`D_tilde'` is fixed before solving. `alpha` remains mandatory (D-45); the mask
-only enlarges the useful `alpha` range, it does not choose `alpha`.
+`D_tilde'` is fixed before solving. `alpha` is optional and defaults to
+`DEFAULT_ALPHA = 1.0` (D-191); the mask only enlarges the useful `alpha` range,
+it does not choose `alpha`.
 
 **Uncertainty.** F-UNC-1/F-UNC-2 use the same `H`, so the bands include the
 mask effect automatically. The mask is data-derived (plug-in): the reported
@@ -810,7 +822,9 @@ These are *sensitivity* observations on real data, not truth-based tuning:
 the synthetic closure study of D-161 (injected peaks with known amplitudes,
 pull coverage) remains the gate that may revise the defaults. The realized
 values are always recorded in the product meta (D-160), so a re-tuned default
-never invalidates an existing product.
+never invalidates an existing product. (D-191 later re-tuned the shipped
+defaults to `alpha = 1.0`, `snip_floor = 0.01` and `m_max = 32`; the grid above
+documents how the D-162 defaults were reached.)
 
 ### F-COV-1 - Fisher information
 

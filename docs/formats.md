@@ -102,14 +102,16 @@ no missing and no extra field (`SchemaError` otherwise). The complete list:
   calibration input is recorded in `inputs_json`.
 * compose: only the common fields. The calibration and simulation inputs and
   their sha256 digests live in `inputs_json`.
-* unfold: `mode` (str, `unfold` or `calib_only`), `alpha` (float),
+* unfold: `mode` (str, `unfold` or `calib_only`), `alpha` (float, the realized
+  value; the D-191 default is 1.0),
   `difference_order` (int), `energy_low_kev`, `energy_high_kev` (float),
   `channel_low`, `channel_high` (int), `syst_frac`
   (float), then the SNIP mask settings `snip_enabled` (int 0/1, default 1,
   D-154), `snip_threshold_sigma` (float, default 5.0), `snip_protect_bins`
-  (int, default 3, D-188), `snip_floor` (float, default 0.1), `snip_iterations`
+  (int, default 3, D-188), `snip_floor` (float, default 0.01, D-191),
+  `snip_iterations`
   (int, resolution-derived per run at the reported-window midpoint, D-157),
-  `snip_max_iterations` (int, default 8), `snip_clipped_bins` (int; written as
+  `snip_max_iterations` (int, default 32, D-191), `snip_clipped_bins` (int; written as
   `0` together with `snip_iterations = 0` when the mask is disabled),
   `snip_clipped_index_range` (str), `snip_candidates` (int, full measured
   axis), `snip_protected_bins` (int, full measured axis -- like the mask hash
@@ -226,7 +228,7 @@ When `-o/--output` is omitted the product is written under `work/<command>`
 | `sim` matrix | `<calib-stem>-<mode>-n<N>-s<SEED>.root` (`mode` is `plane-front-gamma` or `sphere-gamma`) |
 | `calib` | `calib-<label>[-<label>...].root` |
 | `compose` | `compose-<calib-stem>-<sim-stem>.root` |
-| `unfold` | `unfold-<data-stem>-<sim-stem>-a<alpha>.root` |
+| `unfold` | `unfold-<data-stem>-<sim-stem>.root` (D-192: no `alpha` token) |
 | `unfold --calib-only` | `unfold-<data-stem>-calibonly.root` |
 | `csv2root` | `<input-stem>.root` |
 | `specadd` | `<a-stem>-add-<b-stem>.root` |

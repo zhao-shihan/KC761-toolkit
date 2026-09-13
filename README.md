@@ -355,9 +355,10 @@ values and errors cannot drift apart (D-150). Zero-curvature columns
 ($`A_{jj} = 0`$) are dropped from the penalty exactly (they carry no data
 information) and the solver fixes them at zero.
 
-$\alpha$ is **mandatory** (D-45): there is no default and no automatic
-selection, because the choice of regularization strength is a physics
-statement, not a numerical detail.
+$\alpha$ is **optional and defaults to 1** (D-191; it was mandatory with no
+default under D-45): the choice of regularization strength is still a physics
+statement, not a numerical detail, so an explicit `--alpha` remains the way to
+declare a different one.
 
 ### 5.2 Lawson-Hanson active set on the normal equations (F-SOLVE-2)
 
@@ -460,7 +461,7 @@ axis. The iteration count $m$ is **resolution-derived, not a free knob**
 $$
 \mathrm{FWHM}_{\text{bins}} = \frac{2\sqrt{2\ln 2}\ \sigma_E(E_{\text{mid}})}{\Delta_E},
 \qquad
-m = \mathrm{clip}\left(\mathrm{round}\left(\tfrac12 \mathrm{FWHM}_{\text{bins}}\right),\  1,\  m_{\max} = 8\right).
+m = \mathrm{clip}\left(\mathrm{round}\left(\tfrac12 \mathrm{FWHM}_{\text{bins}}\right),\  1,\  m_{\max} = 32\right).
 $$
 
 $`E_{\text{mid}}`$ is the **reported-window midpoint** (D-157/D-188): the unfold
@@ -469,10 +470,19 @@ as `iteration_reference_index`, and $`\Delta_E`$ is the local bin width there, s
 $`\mathrm{FWHM}_{\text{bins}}`$ is the detector peak width measured in bins.
 Tying $m$ to the detector width is what removes the detector peak before
 estimating the continuum — the intended behavior. An explicit override is
-allowed and recorded. The cap $`m_{\max} = 8`$ usually clips the derived value:
-for this detector the peak is 18–47 bins wide between 300 keV and 1.8 MeV while the
-clipping window is `2m+1 = 17` bins, so the baseline ends up *inside* the peak (59% of the
-609 keV peak top on the validation dataset). SNIP is therefore a peak locator
+allowed and recorded. The cap $`m_{\max} = 32`$ (D-191; it was 8 under D-162)
+binds only when $`\mathrm{round}(\mathrm{FWHM}_{\text{bins}}/2) > m_{\max}`$,
+i.e. when $`\sigma_E/\Delta_E > 27.6`$ bins at the reference (the inequality is
+strict: at the exact tie the even-valued cap does not bind under round-half-to-even)
+— above roughly 3.5 MeV on the production 2048-bin axis with the shipped
+resolution model — so the derived count is used un-clipped throughout a
+30-3000 keV window ($`m = 3`$
+at 30 keV, 6 at 150 keV, 13 at the 609 keV line, 17 at 1 MeV and 21 at that
+window's midpoint), and the clipping window `2m+1` then matches the peak's own
+width. With the former cap of 8 the rule saturated above roughly 260 keV while
+the peak is 18-47 bins wide between 300 keV and 1.8 MeV, so the `2m+1 = 17`-bin
+clipping window stayed *inside* the peak and the baseline sat inside it (59% of
+the 609 keV peak top on the validation dataset). SNIP remains a peak locator
 here, not a background estimate, which is why the protection width is fixed in
 bins (§6.2) rather than tied to the residual's shape.
 
@@ -498,7 +508,7 @@ $`n_{\text{protect}}`$ **primary bins** (default $3$) of a candidate are marked,
 
 $$
 w_i = \begin{cases}
-w_{\text{floor}} \ (\text{default } 0.1) & \text{on marked bins},\\
+w_{\text{floor}} \ (\text{default } 0.01) & \text{on marked bins},\\
 1 & \text{elsewhere}.
 \end{cases}
 $$
@@ -1025,10 +1035,14 @@ The second operand of `specsub` is the background, scaled by `r = t_A / t_B`;
 require identical channel axes, floor every input bin error at one count and
 write the product next to their first operand unless `-o/--output` is given.
 
-`--alpha` is required for a full unfold (D-45); it has no default. The SNIP
-peak mask is on by default and can be disabled with `--no-snip` or tuned with
-the `--snip-*` flags (§6). Calibration prints a pre-fit summary and a progress
-line about once per second (`--no-progress` silences them,
+A full unfold defaults to `alpha = 1` (D-191) and writes
+`work/unfold/unfold-<data-stem>-<sim-stem>.root` (D-192); `--alpha` overrides
+the strength and `-o/--output` the target. The SNIP peak mask is on by default
+with `snip_floor = 0.01` and `snip_max_iterations = 32` (D-191); it can be
+disabled with `--no-snip` or tuned with the `--snip-*` flags (§6). The unfold
+figure carries the linear spectrum and the relative residuals; `--log-plot`
+adds the logarithmic-y panel (D-193). Calibration prints a pre-fit summary and a
+progress line about once per second (`--no-progress` silences them,
 `--progress-every SECONDS` retunes). Every product-writing command validates
 its output and figure targets before starting work, so an existing file is
 refused up front rather than after a long run (D-171).

@@ -129,11 +129,39 @@ def test_calib_only_rejects_mismatched_channel_axis(tmp_path: Path) -> None:
         )
 
 
-def test_full_unfold_requires_alpha_and_sim(tmp_path: Path) -> None:
+def test_full_unfold_defaults_alpha_and_requires_sim(tmp_path: Path) -> None:
+    """D-191: the library defaults are the named constants; ``--sim`` stays mandatory."""
+    from kc761tool.core.solver import (
+        DEFAULT_ALPHA,
+        DEFAULT_SNIP_FLOOR,
+        DEFAULT_SNIP_MAX_ITERATIONS,
+    )
+    from kc761tool.unfold.types import UnfoldSettings
+
     calib, sim, data = _fixture(tmp_path)
     calib_path = write(tmp_path / "calib.root", calib)
     sim_path = write(tmp_path / "sim.root", sim)
     data_path = write(tmp_path / "data.root", data)
+    result = run_unfold(
+        data_path,
+        calib_path,
+        sim_path,
+        snip_enabled=False,
+        energy_low_kev=WINDOW[0],
+        energy_high_kev=WINDOW[1],
+        plot=False,
+    )
+    assert result.settings is not None
+    assert result.settings.alpha == DEFAULT_ALPHA
+    assert result.settings.regularization().alpha == DEFAULT_ALPHA
+    assert result.settings.snip_floor == DEFAULT_SNIP_FLOOR
+    assert result.settings.snip_max_iterations == DEFAULT_SNIP_MAX_ITERATIONS
+    # The settings container carries the same defaults as ``run_unfold``.
+    settings = UnfoldSettings(energy_low_kev=WINDOW[0], energy_high_kev=WINDOW[1])
+    assert settings.alpha == DEFAULT_ALPHA
+    assert settings.snip_floor == DEFAULT_SNIP_FLOOR
+    assert settings.snip_max_iterations == DEFAULT_SNIP_MAX_ITERATIONS
+    # An explicit None is still rejected: no silent substitution.
     with pytest.raises(ValidationError, match="alpha"):
         run_unfold(
             data_path,
@@ -142,6 +170,7 @@ def test_full_unfold_requires_alpha_and_sim(tmp_path: Path) -> None:
             snip_enabled=False,
             energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
+            alpha=None,
             plot=False,
         )
     with pytest.raises(ValidationError, match="sim is required"):
@@ -261,9 +290,30 @@ def test_unfold_validates_figure_target_before_inputs(tmp_path: Path) -> None:
         )
 
 
-def test_unfold_figure_x_axis_is_linear(tmp_path: Any) -> None:
-    """D-189: the energy x-axis is linear; only the middle panel's y is log."""
+def _figure_summary(plot_module: Any, tmp_path: Any, result: Any, **kwargs: Any) -> dict[str, Any]:
+    """Render ``result`` and report panel titles, scales and figure size (D-193)."""
+    captured: dict[str, Any] = {}
+    original = plot_module._save_fig
 
+    def spy(fig, out_plot, force):
+        captured.update(
+            titles=[ax.get_title() for ax in fig.axes],
+            x=[ax.get_xscale() for ax in fig.axes],
+            y=[ax.get_yscale() for ax in fig.axes],
+            size=tuple(float(value) for value in fig.get_size_inches()),
+        )
+        return original(fig, out_plot, force)
+
+    plot_module._save_fig = spy
+    try:
+        plot_module.plot_unfold(result, path=tmp_path / "u.pdf", force=True, **kwargs)
+    finally:
+        plot_module._save_fig = original
+    return captured
+
+
+def test_unfold_figure_panels_without_and_with_the_log_panel(tmp_path: Any) -> None:
+    """D-189/D-193: linear x-axis, no log panel by default, exact opt-in geometry."""
     import kc761tool.unfold.plot as plot_module
 
     calib = make_calib_product()
@@ -280,18 +330,68 @@ def test_unfold_figure_x_axis_is_linear(tmp_path: Any) -> None:
         strict=True,
         plot=False,
     )
-    recorded: list[tuple[str, str]] = []
-    original = plot_module._save_fig
+    default = _figure_summary(plot_module, tmp_path, result)
+    with_log = _figure_summary(plot_module, tmp_path, result, log_panel=True)
+    assert default["titles"] == ["Spectrum", "Relative residuals"]
+    assert default["y"] == ["linear", "linear"]
+    assert default["size"] == pytest.approx((9.5, 6.3))  # 4.2 in spectrum + 2.1 in residuals
+    assert with_log["titles"] == [
+        "Spectrum",
+        "Spectrum (log y-axis)",
+        "Relative residuals",
+    ]
+    assert with_log["y"] == ["linear", "log", "linear"]
+    # D-193: the opt-in figure reproduces the pre-D-193 three-panel geometry.
+    assert with_log["size"] == pytest.approx((9.5, 10.5))  # 4.2 + 4.2 + 2.1 in
+    assert all(x == "linear" for x in default["x"] + with_log["x"])
 
-    def spy(fig, out_plot, force):
-        recorded.extend((ax.get_xscale(), ax.get_yscale()) for ax in fig.axes)
-        return original(fig, out_plot, force)
 
-    plot_module._save_fig = spy
-    try:
-        plot_module.plot_unfold(result, path=tmp_path / "u.pdf", force=True)
-    finally:
-        plot_module._save_fig = original
-    assert len(recorded) == 3  # linear-y spectrum, log-y spectrum, residuals
-    assert all(x == "linear" for x, _ in recorded)
-    assert [y for _, y in recorded] == ["linear", "log", "linear"]
+def test_run_unfold_default_figure_is_the_two_panel_one(tmp_path: Path, monkeypatch: Any) -> None:
+    """D-193: the library default writes the log-free figure, like the CLI default."""
+    from kc761tool.unfold import unfold as unfold_module
+
+    calib, sim, data = _fixture(tmp_path)
+    output = tmp_path / "u.root"
+    calls: list[bool] = []
+    original = unfold_module.plot_unfold
+
+    def spy(result, *, path, force=False, log_panel=False):
+        calls.append(log_panel)
+        return original(result, path=path, force=force, log_panel=log_panel)
+
+    monkeypatch.setattr(unfold_module, "plot_unfold", spy)
+    run_unfold(
+        data,
+        calib,
+        sim,
+        snip_enabled=False,
+        energy_low_kev=WINDOW[0],
+        energy_high_kev=WINDOW[1],
+        alpha=ALPHA,
+        output=output,
+    )
+    assert calls == [False]
+    assert output.with_suffix(".pdf").is_file()
+
+
+def test_calib_only_figure_has_one_panel_by_default(tmp_path: Any) -> None:
+    """D-193: ``calib_only`` carries the linear spectrum alone unless opted in."""
+    import kc761tool.unfold.plot as plot_module
+
+    calib, _, data = _fixture(tmp_path)
+    result = run_unfold(
+        data,
+        calib,
+        calib_only=True,
+        energy_low_kev=WINDOW[0],
+        energy_high_kev=WINDOW[1],
+        plot=False,
+    )
+    default = _figure_summary(plot_module, tmp_path, result)
+    with_log = _figure_summary(plot_module, tmp_path, result, log_panel=True)
+    assert default["titles"] == ["Spectrum"]
+    assert default["y"] == ["linear"]
+    assert default["size"] == pytest.approx((9.5, 4.2))
+    assert with_log["titles"] == ["Spectrum", "Spectrum (log y-axis)"]
+    assert with_log["y"] == ["linear", "log"]
+    assert with_log["size"] == pytest.approx((9.5, 8.4))

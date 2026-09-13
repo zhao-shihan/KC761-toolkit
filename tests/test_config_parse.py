@@ -253,13 +253,25 @@ def test_compose_parses_optional_output(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------
 # [unfold]
 # --------------------------------------------------------------------------
-def test_unfold_full_requires_window_and_alpha(tmp_path: Path) -> None:
+def test_unfold_full_requires_the_window_and_defaults_alpha(tmp_path: Path) -> None:
+    """The window stays required; alpha falls back to the D-191 default."""
     path = _write(
         tmp_path,
         'config_version = 1\n[unfold]\ndata = "d.root"\ncalib = "c.root"\nsim = "s.root"\n',
     )
     with pytest.raises(UsageError, match=r"required option\(s\) missing"):
         load_unfold_config(path)
+    path = _write(
+        tmp_path,
+        "config_version = 1\n[unfold]\n"
+        'data = "d.root"\ncalib = "c.root"\nsim = "s.root"\n'
+        "energy_low = 30.0\nenergy_high = 1500.0\n",
+    )
+    config = load_unfold_config(path)
+    assert config.alpha == 1.0
+    assert config.snip_floor == 0.01
+    assert config.snip_max_iterations == 32
+    assert config.log_plot is False
 
 
 def test_unfold_full_parses(tmp_path: Path) -> None:
@@ -267,7 +279,7 @@ def test_unfold_full_parses(tmp_path: Path) -> None:
         tmp_path,
         "config_version = 1\n[unfold]\n"
         'data = "d.root"\ncalib = "c.root"\nsim = "s.root"\n'
-        "energy_low = 30.0\nenergy_high = 1500.0\nalpha = 0.5\n",
+        "energy_low = 30.0\nenergy_high = 1500.0\nalpha = 0.5\nlog_plot = true\n",
     )
     config = load_unfold_config(path)
     assert config.calib_only is False
@@ -275,6 +287,7 @@ def test_unfold_full_parses(tmp_path: Path) -> None:
     assert config.energy_high_kev == 1500.0
     assert config.alpha == 0.5
     assert config.difference_order == 2
+    assert config.log_plot is True
     assert config.sim == Path.cwd() / "s.root"
 
 

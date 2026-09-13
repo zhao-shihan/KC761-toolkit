@@ -1,12 +1,15 @@
-"""Unfold figure (D-153/D-189).
+"""Unfold figure (D-153/D-189/D-193).
 
-This module reproduces the unfolding figure: three stacked
-panels with height ratio 2:2:1 (linear-y spectrum, log-y spectrum, relative
-residuals), or the two spectrum panels alone in ``calib_only`` mode. The energy
-x-axis is linear; only the y-axis of the middle panel is logarithmic. Bins at or
-below zero energy are truncated at the first bin ending above zero. Spectrum
-layers are histograms (stairs) with two nested uncertainty bands (outer total,
-inner systematic). Plotting is per-package on purpose (D-153).
+This module reproduces the unfolding figure: a linear-y spectrum panel plus the
+relative-residual panel below it (height ratio 2:1), or the spectrum panel alone
+in ``calib_only`` mode. The logarithmic-y spectrum panel is **opt-in** through
+``log_panel`` (``--log-plot``) and is inserted between the two when requested.
+Every spectrum panel carries the same nominal height, so the opt-in
+``calib_only`` pair is shorter than the pre-D-193 two-panel geometry.
+The energy x-axis is linear throughout. Bins at or below zero energy are
+truncated at the first bin ending above zero. Spectrum layers are histograms
+(stairs) with two nested uncertainty bands (outer total, inner systematic).
+Plotting is per-package on purpose (D-153).
 """
 
 from __future__ import annotations
@@ -22,7 +25,8 @@ from kc761tool.errors import UsageError
 from kc761tool.schema.products import UNFOLD_MODE_CALIB_ONLY
 from kc761tool.unfold.types import UnfoldResult
 
-# Must run before pyplot is imported; 3.11+ ignores a use() after it.
+# ``force=True`` switches the backend even though pyplot is already imported, so
+# a headless run can never keep an interactive backend.
 matplotlib.use("Agg", force=True)
 
 
@@ -37,6 +41,12 @@ _COLOR_RESIDUAL_LEVEL = "red"  # residual +/- level guides
 _BAND_ALPHA_TOTAL = 0.15  # outer band: the total uncertainty
 _BAND_ALPHA_SYST = 0.30  # inner band: the systematic part
 _RESIDUAL_MAX = 0.6
+_FIGURE_WIDTH_IN = 9.5
+# Nominal figure-height contributions. Subplot margins and ``hspace`` are carved
+# out of the same total, so a panel is realized shorter than its share; the two
+# constants also fix the drawn height ratio (4.2 : 2.1 = 2 : 1).
+_SPECTRUM_PANEL_IN = 4.2
+_RESIDUAL_PANEL_IN = 2.1
 
 
 def _save_fig(fig, out_plot: str | Path, force: bool) -> Path:
@@ -212,23 +222,41 @@ def _residual_panel(ax, result: UnfoldResult, title: str) -> None:
     ax.grid(alpha=0.3)
 
 
-def plot_unfold(result: UnfoldResult, *, path: str | Path, force: bool = False) -> Path:
-    """Render the result into ``path`` (D-153)."""
+def plot_unfold(
+    result: UnfoldResult,
+    *,
+    path: str | Path,
+    force: bool = False,
+    log_panel: bool = False,
+) -> Path:
+    """Render the result into ``path`` (D-153/D-193).
+
+    The default figure is the linear-y spectrum plus the relative-residual panel
+    in full mode and the linear-y spectrum alone in ``calib_only`` mode;
+    ``log_panel`` inserts the logarithmic-y spectrum panel (``--log-plot``).
+    """
     if result.unfolded is None:
         raise UsageError("nothing to plot: the unfold result carries no spectrum")
     calib_only = result.mode == UNFOLD_MODE_CALIB_ONLY
-    n_panels = 2 if calib_only else 3
-    fig = plt.figure(figsize=(9.5, 10.5))
-    gs = fig.add_gridspec(
-        n_panels,
-        1,
-        height_ratios=[2.0, 2.0, 1.0] if n_panels == 3 else [1.0, 1.0],
-        hspace=0.5,
-    )
-    _spectrum_panel(fig.add_subplot(gs[0]), result, "Spectrum", log=False)
-    _spectrum_panel(fig.add_subplot(gs[1]), result, "Spectrum (log y-axis)", log=True)
-    if n_panels == 3:
-        _residual_panel(fig.add_subplot(gs[2]), result, "Relative residuals")
+    # (title, log_y): log_y is a bool for a spectrum panel, None for residuals.
+    panels: list[tuple[str, bool | None]] = [("Spectrum", False)]
+    if log_panel:
+        panels.append(("Spectrum (log y-axis)", True))
+    if not calib_only:
+        panels.append(("Relative residuals", None))
+    # One source for the drawn ratio and the figure height: a residual panel
+    # contributes half a spectrum panel.
+    heights = [
+        _RESIDUAL_PANEL_IN if log_y is None else _SPECTRUM_PANEL_IN for _, log_y in panels
+    ]
+    fig = plt.figure(figsize=(_FIGURE_WIDTH_IN, sum(heights)))
+    gs = fig.add_gridspec(len(panels), 1, height_ratios=heights, hspace=0.5)
+    for index, (title, log_y) in enumerate(panels):
+        ax = fig.add_subplot(gs[index])
+        if log_y is None:
+            _residual_panel(ax, result, title)
+        else:
+            _spectrum_panel(ax, result, title, log=log_y)
     return _save_fig(fig, path, force)
 
 

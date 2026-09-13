@@ -231,6 +231,15 @@ def test_protect_bins_default_and_validation() -> None:
         SnipSettings(protect_bins=2.5)
 
 
+def test_library_snip_defaults_are_the_d191_constants() -> None:
+    """D-191: the core defaults are the named constants, not inline literals."""
+    from kc761tool.core.solver import DEFAULT_SNIP_FLOOR, DEFAULT_SNIP_MAX_ITERATIONS
+
+    defaults = SnipSettings()
+    assert defaults.floor == DEFAULT_SNIP_FLOOR
+    assert defaults.max_iterations == DEFAULT_SNIP_MAX_ITERATIONS
+
+
 def test_input_validation_rejects_unusable_arguments() -> None:
     """Malformed SNIP inputs fail as ValidationError, never as IndexError."""
     values, sigma, resolution_kev, widths = _realistic_spectrum()

@@ -198,6 +198,14 @@ def make_compose_product() -> ComposeProduct:
 
 
 def _unfold_settings() -> tuple[tuple[str, str], ...]:
+    """Recorded settings of the synthetic unfold product.
+
+    The SNIP values (``snip_floor = 0.1``, ``snip_max_iterations = 8``) and
+    ``alpha = 0.01`` are deliberately the realized D-162 values, not the current
+    D-191 defaults: a product is read through its own ``meta`` (D-160), so this
+    fixture is the only unfold product in the suite that carries the legacy set.
+    Do not "modernize" them without keeping that coverage.
+    """
     return (
         ("alpha", "0.01"),
         ("difference_order", "2"),

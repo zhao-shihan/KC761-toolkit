@@ -18,6 +18,8 @@ import numpy as np
 
 from kc761tool.core.binning import ChannelGrid
 from kc761tool.core.solver import (
+    DEFAULT_ALPHA,
+    DEFAULT_DIFFERENCE_ORDER,
     DEFAULT_SNIP_FLOOR,
     DEFAULT_SNIP_MAX_ITERATIONS,
     DEFAULT_SNIP_PROTECT_BINS,
@@ -162,6 +164,7 @@ def _run_calib_only(
     plot: bool,
     plot_path: str | Path | None,
     plot_force: bool,
+    log_plot: bool,
     extra_inputs: Sequence[str | Path] = (),
 ) -> UnfoldResult:
     """Relabel the channel axis to ``C.y = E(i +- 1/2)`` without unfolding."""
@@ -228,7 +231,10 @@ def _run_calib_only(
         if target is None and output is not None:
             target = Path(output).with_suffix(".pdf")
         if target is not None:
-            result = replace(result, plot_path=plot_unfold(result, path=target, force=plot_force))
+            result = replace(
+                result,
+                plot_path=plot_unfold(result, path=target, force=plot_force, log_panel=log_plot),
+            )
     return result
 
 
@@ -240,8 +246,8 @@ def run_unfold(
     calib_only: bool = False,
     energy_low_kev: float,
     energy_high_kev: float,
-    alpha: float | None = None,
-    difference_order: int = 2,
+    alpha: float | None = DEFAULT_ALPHA,
+    difference_order: int = DEFAULT_DIFFERENCE_ORDER,
     syst_frac: float = DEFAULT_SYST_FRAC,
     snip_enabled: bool = True,
     snip_threshold_sigma: float = DEFAULT_SNIP_THRESHOLD_SIGMA,
@@ -258,13 +264,16 @@ def run_unfold(
     plot: bool = True,
     plot_path: str | Path | None = None,
     plot_force: bool = False,
+    log_plot: bool = False,
     extra_inputs: Sequence[str | Path] = (),
 ) -> UnfoldResult:
     """Unfold a measured channel spectrum (F-SOLVE/F-UNC/F-UNF).
 
-    ``output`` (and, when ``plot`` is set, the figure target) is validated
-    before any product is read or composed, so an unusable target fails fast
-    (D-171) instead of after the solve.
+    ``alpha`` defaults to ``DEFAULT_ALPHA`` (D-191); only the ``calib_only``
+    path, which solves no QP, carries ``None``. ``output`` (and, when ``plot``
+    is set, the figure target) is validated before any product is read or
+    composed, so an unusable target fails fast (D-171) instead of after the
+    solve.
     """
     if output is not None:
         validate_output_path(output, force=force)
@@ -293,13 +302,17 @@ def run_unfold(
             plot=plot,
             plot_path=plot_path,
             plot_force=plot_force,
+            log_plot=log_plot,
             extra_inputs=extra_inputs,
         )
 
     if sim is None:
         raise ValidationError("--sim is required unless --calib-only is given")
     if alpha is None:
-        raise ValidationError("--alpha is required for the full unfold")
+        raise ValidationError(
+            "the full unfold needs a positive alpha; pass one or omit it for the "
+            f"default {DEFAULT_ALPHA:g}"
+        )
     settings = UnfoldSettings(
         alpha=alpha,
         energy_low_kev=energy_low_kev,
@@ -449,7 +462,10 @@ def run_unfold(
         if target is None and output is not None:
             target = Path(output).with_suffix(".pdf")
         if target is not None:
-            result = replace(result, plot_path=plot_unfold(result, path=target, force=plot_force))
+            result = replace(
+                result,
+                plot_path=plot_unfold(result, path=target, force=plot_force, log_panel=log_plot),
+            )
     return result
 
 

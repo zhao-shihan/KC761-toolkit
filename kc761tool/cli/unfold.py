@@ -2,9 +2,10 @@
 
 Full mode composes the response from a calibration product and a matrix-mode
 simulation product, solves the non-negative Tikhonov problem and exports the
-unfolded spectrum with strictly split uncertainty bands. ``--calib-only``
-relabels the channel axis to energy and needs neither ``--sim``, ``--alpha``
-nor the energy window (D-139). Config mode runs one unfold (D-139).
+unfolded spectrum with strictly split uncertainty bands. ``alpha`` defaults to
+``DEFAULT_ALPHA`` (D-191). ``--calib-only`` relabels the channel axis to energy
+and needs neither ``--sim``, ``--alpha`` nor the energy window (D-139). Config
+mode runs one unfold (D-139).
 
 The option surface is declared once in :data:`UNFOLD_POLICY` (D-190): the
 command line and the ``[unfold]`` table share the flags, the TOML keys, the
@@ -35,6 +36,8 @@ from kc761tool.cli._registry import (
 )
 from kc761tool.cli.config import load_unfold_config
 from kc761tool.core.solver import (
+    DEFAULT_ALPHA,
+    DEFAULT_DIFFERENCE_ORDER,
     DEFAULT_SNIP_FLOOR,
     DEFAULT_SNIP_MAX_ITERATIONS,
     DEFAULT_SNIP_PROTECT_BINS,
@@ -94,7 +97,11 @@ def _validate_unfold(
 
 
 def _window_required(values: Mapping[str, object]) -> bool:
-    """``--sim``/``--alpha``/the window are required unless ``--calib-only``."""
+    """``--sim`` and the energy window are required unless ``--calib-only``.
+
+    ``--alpha`` is not in this list: it has a default (D-191) and is *rejected*
+    rather than ignored when ``--calib-only`` is given.
+    """
     return not bool(values["calib_only"])
 
 
@@ -165,20 +172,25 @@ UNFOLD_POLICY = RunPolicy(
                 dest="alpha",
                 flags=("--alpha",),
                 kind=Kind.FLOAT,
+                default=DEFAULT_ALPHA,
                 metavar="ALPHA",
                 config_key="alpha",
-                requirement=Requirement.ALWAYS,
-                required_if=_window_required,
-                help="dimensionless Tikhonov strength (required unless --calib-only)",
+                help=(
+                    f"dimensionless Tikhonov strength (default {DEFAULT_ALPHA:g}; "
+                    "rejected with --calib-only)"
+                ),
             ),
             RunOption(
                 dest="difference_order",
                 flags=("--difference-order", "--k"),
                 kind=Kind.INT,
-                default=2,
+                default=DEFAULT_DIFFERENCE_ORDER,
                 metavar="K",
                 config_key="difference_order",
-                help="difference order of the density penalty (default 2)",
+                help=(
+                    "difference order of the density penalty "
+                    f"(default {DEFAULT_DIFFERENCE_ORDER})"
+                ),
             ),
             RunOption(
                 dest="syst_frac",
@@ -226,7 +238,10 @@ UNFOLD_POLICY = RunPolicy(
                 default=DEFAULT_SNIP_FLOOR,
                 metavar="W",
                 config_key="snip_floor",
-                help="penalty weight floor on protected peak bins (default 0.1)",
+                help=(
+                    "penalty weight floor on protected peak bins "
+                    f"(default {DEFAULT_SNIP_FLOOR:g})"
+                ),
             ),
             RunOption(
                 dest="snip_iterations",
@@ -243,7 +258,10 @@ UNFOLD_POLICY = RunPolicy(
                 default=DEFAULT_SNIP_MAX_ITERATIONS,
                 metavar="M",
                 config_key="snip_max_iterations",
-                help="cap for the resolution-derived SNIP iteration count (default 8)",
+                help=(
+                    "cap for the resolution-derived SNIP iteration count "
+                    f"(default {DEFAULT_SNIP_MAX_ITERATIONS})"
+                ),
             ),
             # The retired D-156 spelling would otherwise be accepted by argparse
             # prefix matching and silently read as --snip-protect-bins with a
@@ -258,6 +276,14 @@ UNFOLD_POLICY = RunPolicy(
                     "(resolution sigmas) was replaced by --snip-protect-bins "
                     "(primary bins, default 3) in D-188; the half-width unit changed"
                 ),
+            ),
+            RunOption(
+                dest="log_plot",
+                flags=("--log-plot",),
+                kind=Kind.BOOL,
+                default=False,
+                config_key="log_plot",
+                help="add the logarithmic-y spectrum panel to the figure (D-193)",
             ),
         ],
         output_options(with_plot=True),
@@ -292,7 +318,7 @@ def _run(args: argparse.Namespace, *, strict: bool) -> int:
     data = Path(str(values["data"])).expanduser()
     sim = None if values["sim"] is None else Path(str(values["sim"])).expanduser()
     energy_low, energy_high = _bounds(values)
-    output = _output(values["output"], data, sim, values["alpha"], bool(values["calib_only"]))
+    output = _output(values["output"], data, sim, bool(values["calib_only"]))
     if values["dry_run"]:
         _print_dry_run(values, data, sim, output)
         return 0
@@ -319,19 +345,23 @@ def _bounds(values: Mapping[str, object]) -> tuple[float, float]:
     return float(values["energy_low"]), float(values["energy_high"])
 
 
-def _output(
-    explicit: object,
-    data: Path,
-    sim: Path | None,
-    alpha: float | None,
-    calib_only: bool,
-) -> Path:
+def _alpha(values: Mapping[str, object]) -> float | None:
+    """The alpha a run actually uses (D-191).
+
+    ``calib_only`` solves no QP, so the declared default must not leak into it:
+    this is the command-line counterpart of the ``[unfold]`` loader, which maps
+    the same mode to ``None``.
+    """
+    return None if values["calib_only"] else values["alpha"]
+
+
+def _output(explicit: object, data: Path, sim: Path | None, calib_only: bool) -> Path:
     if explicit is not None:
         return Path(str(explicit)).expanduser()
     if calib_only:
         return default_output("unfold", f"unfold-{data.stem}-calibonly.root")
-    assert sim is not None and alpha is not None
-    return default_output("unfold", f"unfold-{data.stem}-{sim.stem}-a{alpha:g}.root")
+    assert sim is not None
+    return default_output("unfold", f"unfold-{data.stem}-{sim.stem}.root")
 
 
 def _print_dry_run(
@@ -343,10 +373,15 @@ def _print_dry_run(
     print(f"  calib={values['calib']}")
     print(f"  sim={sim}")
     print(
-        f"  alpha={values['alpha']} difference_order={values['difference_order']} "
+        f"  alpha={_alpha(values)} difference_order={values['difference_order']} "
         f"syst_frac={values['syst_frac']}"
     )
     print(f"  output={output}")
+    # ``log_plot`` is inert without a figure, so the preview reports it only when
+    # a figure is actually written (D-193).
+    plot = not values["no_plot"]
+    panel_suffix = f" log_plot={values['log_plot']}" if plot else ""
+    print(f"  plot={plot}{panel_suffix}")
 
 
 def _validate_outputs(output: Path, force: bool, *, plot: bool) -> None:
@@ -378,7 +413,7 @@ def _execute(
         sim,
         energy_low_kev=energy_low,
         energy_high_kev=energy_high,
-        alpha=values["alpha"],
+        alpha=_alpha(values),
         difference_order=int(values["difference_order"]),
         syst_frac=float(values["syst_frac"]),
         snip_enabled=bool(values["snip_enabled"]),
@@ -395,6 +430,7 @@ def _execute(
         arguments=arguments,
         plot=not values["no_plot"],
         plot_force=force,
+        log_plot=bool(values["log_plot"]),
         extra_inputs=config_inputs,
     )
     if result.report:

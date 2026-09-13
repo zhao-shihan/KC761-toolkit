@@ -62,10 +62,14 @@ def test_compose_example_parses() -> None:
 
 
 def test_unfold_example_parses() -> None:
+    """The shipped example relies on the D-191/D-193 defaults."""
     config = load_unfold_config(EXAMPLES / "unfold.toml")
-    assert config.alpha == 0.1
-    assert config.energy_low_kev == 40.0
-    assert config.energy_high_kev == 2800.0
+    assert config.alpha == 1.0
+    assert config.energy_low_kev == 30.0
+    assert config.energy_high_kev == 3000.0
     assert config.syst_frac == 0.05
     assert config.snip_enabled is True
+    assert config.snip_floor == 0.01
+    assert config.snip_max_iterations == 32
+    assert config.log_plot is False
     assert config.calib_only is False

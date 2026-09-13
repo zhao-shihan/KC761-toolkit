@@ -9,6 +9,7 @@ individual messages.
 from __future__ import annotations
 
 import argparse
+from typing import Any
 
 import pytest
 
@@ -24,6 +25,12 @@ from kc761tool.cli._registry import (
     options_by_dest,
     provided_options,
     validate_policy,
+)
+from kc761tool.core.solver import (
+    DEFAULT_ALPHA,
+    DEFAULT_DIFFERENCE_ORDER,
+    DEFAULT_SNIP_FLOOR,
+    DEFAULT_SNIP_MAX_ITERATIONS,
 )
 from kc761tool.errors import UsageError
 
@@ -125,6 +132,7 @@ def test_config_keys_are_exactly_the_loader_schema() -> None:
         "energy_high",
         "energy_low",
         "force",
+        "log_plot",
         "no_plot",
         "output",
         "sim",
@@ -185,16 +193,21 @@ def test_config_mapping_covers_every_declared_key() -> None:
     (
         # D-190: these used to be silently ignored together with --config,
         # because the mirror table either missed them entirely (the whole SNIP
-        # family) or compared them against their own default value.
+        # family) or compared them against their own default value. The rows are
+        # built from the D-191 constants so a retune cannot silently turn them
+        # into non-default values.
         ("unfold", ["--syst-frac", "0.05"]),
-        ("unfold", ["--difference-order", "2"]),
-        ("unfold", ["--snip-floor", "0.1"]),
+        ("unfold", ["--difference-order", str(DEFAULT_DIFFERENCE_ORDER)]),
+        ("unfold", ["--alpha", f"{DEFAULT_ALPHA:g}"]),
+        ("unfold", ["--snip-floor", f"{DEFAULT_SNIP_FLOOR:g}"]),
         ("unfold", ["--snip"]),
-        ("unfold", ["--snip-max-iterations", "8"]),
+        ("unfold", ["--snip-max-iterations", str(DEFAULT_SNIP_MAX_ITERATIONS)]),
         ("sim", ["--seed", "908136382"]),
         ("sim", ["--verbose"]),
         ("calib", ["--max-iter", "5"]),
-        ("calib", ["--progress-every", "1"]),
+        # ``calib --progress-every`` is deliberately absent: it is GLOBAL
+        # (kc761tool/cli/calib.py) and must be *accepted* with --config, which is
+        # what test_global_options_may_still_accompany_config pins.
     ),
 )
 def test_default_valued_run_options_are_rejected_with_config(name: str, flag: list[str]) -> None:
@@ -208,6 +221,23 @@ def test_default_valued_run_options_are_rejected_with_config(name: str, flag: li
     assert code == 2
 
 
+def test_log_plot_is_a_run_option_not_a_config_companion(caplog: Any) -> None:
+    """D-190/D-193: ``--log-plot`` is run-scoped, so ``--config`` rejects it.
+
+    The message matters: a bare exit code 2 cannot distinguish this declared
+    conflict from an undeclared flag, which argparse would also reject. The CLI
+    reports the conflict through the ``kc761tool.unfold`` logger (D-67).
+    """
+    from kc761tool.cli import main
+    from kc761tool.cli._common import REPO_ROOT
+
+    code = main(
+        ["unfold", "-c", str(REPO_ROOT / "examples" / "unfold.toml"), "--log-plot", "--dry-run"]
+    )
+    assert code == 2
+    assert any("mutually exclusive" in record.getMessage() for record in caplog.records)
+
+
 def test_global_options_may_still_accompany_config() -> None:
     """D-130: the runtime options stay allowed with ``--config`` (dry run)."""
     from kc761tool.cli import main
@@ -219,10 +249,26 @@ def test_global_options_may_still_accompany_config() -> None:
             "-c",
             str(REPO_ROOT / "examples" / "unfold.toml"),
             "--dry-run",
-            "--no-progress" if False else "--strict",
+            "--strict",
         ]
     )
     assert code == 0
+    # The calibration progress controls are GLOBAL too, and the dry run must not
+    # turn them into a config conflict (D-130/D-190).
+    assert (
+        main(
+            [
+                "calib",
+                "-c",
+                str(REPO_ROOT / "examples" / "calib.toml"),
+                "--dry-run",
+                "--progress-every",
+                "5",
+                "--no-progress",
+            ]
+        )
+        == 0
+    )
 
 
 def test_dry_run_and_a_real_run_share_validation() -> None:

@@ -66,7 +66,7 @@ Rules:
 | `unfold/solve.py` | SNIP mask settings plumbing, reported-window solve space (D-187), exact-zero pruning, non-negative solve, strict uncertainty bands, diagnostics | F-UNF-3/F-UNF-4 |
 | `unfold/unfold.py` | `run_unfold`: full and `calib_only` orchestration, product assembly | F-UNF-5/F-UNF-6 |
 | `unfold/types.py` | unfolding dataclasses (`UnfoldSettings`, `UnfoldResult`, selection/band containers) shared by solve/orchestration/CLI | F-UNF-1..6 |
-| `unfold/report.py`, `unfold/plot.py` | text report and figure | D-70/D-153 |
+| `unfold/report.py`, `unfold/plot.py` | text report and figure | D-70/D-153/D-193 |
 | `spectra/combine.py` | `run_specadd`/`run_specsub`: operand loading, shared axis and DAQ-time validation, spectrum combination, product write | F-SPEC-1/F-SPEC-2 |
 | `sim/config.py` | run defaults: base seed, event-block size, raw histogram names, memory budget | F-SIM-7/D-123/D-124 |
 | `sim/geometry.py` | frozen detector geometry dataclass with per-field provenance | D-34 |
@@ -159,7 +159,8 @@ Rules:
 ## Resolved contract points
 
 All contract points are resolved; the full record is `docs/plan.md`
-Appendix A. In brief: the plot CLI surface is the `--no-plot` switch (D-142);
+Appendix A. In brief: the plot CLI surface is the `--no-plot` switch (D-142,
+extended for `unfold` by the opt-in `--log-plot` of D-193);
 the `csv2root` grammar is frozen in `docs/formats.md` section 7.3 (D-72); the
 optimizer controls are `calib --max-iter/--tolerance` mapping onto
 `FitSettings` (D-145, defaults from D-107); calibration consumes `--mc` (D-144);
