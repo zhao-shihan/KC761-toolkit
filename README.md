@@ -1,20 +1,164 @@
 # KC761 toolkit
 
-Simulation, calibration and unfolding toolkit for the MEASALL KC761x/KC761
-gamma spectrometer. Pure Python plus `geant4-pybind`: Geant4 source and matrix
-simulations, an energy/resolution calibration with a statistical response
-matrix, and non-negative regularized spectrum unfolding with propagated
-uncertainties.
+The toolkit covers the full chain from a measured pulse-height histogram of a
+MEASALL KC761x/KC761 spectrometer to a primary gamma spectrum. `calib` fits the
+energy calibration and the resolution model to measured and simulated spectra of
+known sources, `compose` combines that calibration with the
+primary-to-deposition matrix from a Geant4 matrix simulation into the
+primary-to-channel response matrix, and `unfold` solves the resulting
+non-negative inverse problem and reports statistical and systematic
+uncertainties. Everything is Python on the scientific stack, and ROOT files are
+read and written through `uproot`, so no ROOT installation is required. Each
+stage is one subcommand, writes one product with full provenance, and is
+described by a formula registry ID (`F-...`) whose derivation is in
+[docs/derivations.md](docs/derivations.md). Fits and propagation use analytic
+Jacobians; no finite differences enter production.
 
-This README is organized around the **mathematics and algorithms**. Every
-formula carries a registry ID (`F-...`) whose full derivation, approximations
-and guarding certificate live in [docs/derivations.md](docs/derivations.md);
-the frozen decisions referenced as `D-nnn` are in
-[docs/plan.md](docs/plan.md).
+The stages:
+
+* `csv2root` converts a raw MCA CSV export into a spectrum
+  product; `specsub` (and `specadd`) combine spectra, scaling the background by
+  the acquisition-time ratio $r = t_A / t_B$.
+* `sim` runs Geant4 in source mode, producing a Monte-Carlo
+  spectrum per calibration source (`mc_spectrum`), or in matrix mode, producing
+  the primary-to-deposition matrix $G$ from a calibration product.
+* `calib` fits the energy calibration $E(\mathrm{ch})$ and the
+  resolution model $\sigma(E)$ jointly over all measured and simulated spectrum
+  pairs, and reports the parameter covariance; `compose` forms the response
+  matrix $R = C\ G\ \mathrm{diag}(1/N)$ for inspection.
+* `unfold` solves the regularized problem
+  $\min_{\mu \ge 0} \lVert (R\mu - y)/\sigma \rVert^2 + \alpha \lVert \tilde{D}'\mu \rVert^2$
+  and reports the unfolded spectrum, the refolded spectrum and the two
+  uncertainty bands, with the relative residuals as the fit diagnostic.
+
+![Data flow through the toolkit](examples/plots/workflow.svg)
+
+*Data flow and the products exchanged between the stages; §2 states the problem,
+and the figure captions of [§1.1](#11-what-the-output-looks-like) show the
+corresponding reports.*
+
+**Jump to:** [Quick start](#1-quick-start) ·
+[What the output looks like](#11-what-the-output-looks-like) ·
+[The detector model](#2-detector-model-energy-calibration-and-resolution) ·
+[Calibration](#5-calibration-a-joint-fit-over-datasets) ·
+[Unfolding](#6-unfolding-i-the-regularized-non-negative-problem) ·
+[Uncertainties](#8-uncertainty-propagation-with-a-strict-statsyst-split) ·
+[Simulation](#9-simulation-sampling-exact-variances-and-seeding) ·
+[Certificates](#11-runtime-certificates) ·
+[Running](#12-running) · [Configuration](#13-configuration-files) ·
+[Development](#16-development-checks) ·
+[Repository layout](#17-repository-layout) ·
+[Documentation](#18-documentation)
 
 ---
 
-## 1. The problem this solves
+## 1. Quick start
+
+Everything runs from the repository root; `work/` holds data and products and is
+not committed.
+
+```bash
+python -m venv .venv && . .venv/bin/activate    # Python >= 3.12
+pip install -r requirements.txt                 # numpy, scipy, numba, uproot, sympy, matplotlib
+                                                # add geant4-pybind to re-run the simulation stages
+python kc761tool.py --help                      # the seven subcommands
+```
+
+The production chain, spelled out stage by stage (paths as used for the
+reference campaign in `work/data/2609a/`; substitute your own campaign). Each
+command prints its resolved inputs and writes its product atomically, and the
+four `-c/--config` commands (`sim`, `calib`, `compose`, `unfold`) accept
+`--dry-run` to show the resolved run without side effects:
+
+```bash
+# 1. raw MCA CSV export -> spectrum product (counts, fSumw2, DAQ time)
+python kc761tool.py csv2root work/data/2609a/th232-260908.csv
+
+# 2. background subtraction, scaled by the acquisition-time ratio
+python kc761tool.py specsub work/data/2609a/th232-260908.root work/data/2609a/bkg-260909.root
+
+# --- calibrate the detector once, from sources of known radionuclides ---
+# 3. Geant4 source mode, once per calibration source
+python kc761tool.py sim --th232 -n 200000000 -s 908136382
+
+# 4. joint fit of the energy calibration and the resolution model
+python kc761tool.py calib -c work/calib-2609a.toml
+
+# 5. Geant4 matrix mode, once, after calib: primary-to-deposition matrix G
+python kc761tool.py sim --plane-front-gamma work/calib/calib-2609a.root \
+    -n 1000000000 -f
+
+# 6. compose R = C G diag(1/N) for inspection (unfold composes it internally)
+python kc761tool.py compose --calib work/calib/calib-2609a.root \
+    --sim work/sim/calib-2609a-plane-front-gamma-n1000000000-s908136382.root
+
+# --- then unfold the spectrum of interest, reusing that calibration ---
+# 7. non-negative Tikhonov unfold with stat/syst bands and the diagnostic figure
+python kc761tool.py unfold \
+    --data work/data/2609a/th232-260908-subbkg.root \
+    --calib work/calib/calib-2609a.root \
+    --sim   work/sim/calib-2609a-plane-front-gamma-n1000000000-s908136382.root \
+    --energy-low 30 --energy-high 3000
+```
+
+Steps 3-6 are the one-time preparation: they consume measurements of *known*
+sources and produce the calibration and the response matrix. Step 7 then applies
+those two products to the spectrum under study. This walkthrough unfolds one of
+the sources used to calibrate, which is the shipped test case; in production the
+`--data` product comes from the measurement being analyzed.
+
+On the shipped reference products the unfold itself takes about 11 s
+(the response kernel being JIT-compiled on first use dominates the wall clock;
+it is thread-parallel and results are thread-count independent). `sim` is the
+only stage that needs Geant4; `calib`, `compose` and `unfold` run on the
+recorded products alone.
+
+`calib`, `compose`, `sim` and `unfold` also take a TOML file
+(`-c/--config examples/<command>.toml`), and every product-writing command
+refuses to overwrite an existing file unless you pass `-f/--force`.
+
+### 1.1 What the output looks like
+
+Figures are produced by the two commands that fit something, in the order the
+workflow runs them. `calib` is run **once, on calibration sources**: measured
+spectra of known radionuclides paired with their Geant4 simulations fix the
+energy calibration, the resolution model and the detector response. `unfold` then applies
+that calibration to the spectrum under study, which is normally not one of the
+calibration runs. The figures below use the calibration-source data because that
+is the shipped test case. The report is wide enough that it is shown at a fixed
+width; open the full-size image to read its panel labels.
+
+<a href="examples/plots/calib-example.jpg"><img src="examples/plots/calib-example.jpg" width="580" alt="KC761 calibration report: one data/MC row per dataset, then the global energy calibration and resolution"></a>
+
+*The `calib` report: one data/MC row per dataset (fit window, $\chi^2$ and bin
+count, fitted model over the raw and fitted data, residuals, the per-dataset
+quadratic Bezier scale), then the global energy calibration
+$E(\mathrm{ch}) = c_0 + c_1\mathrm{ch} + c_2\mathrm{ch}^2 + c_3\mathrm{ch}^3$, the
+global resolution $\mathrm{FWHM}(E)$, and the fitted coefficients with their
+uncertainties.*
+
+The three figures below are the shipped `unfold` products for Th-232, Lu-176 and
+Ra-226 (linear-y spectrum panel; `--log-plot` inserts the logarithmic-y panel,
+D-193). Each panel overlays the measured spectrum, the unfolded primary spectrum
+and the refolded spectrum, draws the total uncertainty band with the systematic
+part nested inside it, and puts the relative residuals of the refold below.
+
+| Th-232 (30-3000 keV) | Lu-176 (15-400 keV) | Ra-226 (15-2500 keV) |
+|---|---|---|
+| ![Th-232 unfolded spectrum](examples/plots/unfold-th232-example.jpg) | ![Lu-176 unfolded spectrum](examples/plots/unfold-lu176-example.jpg) | ![Ra-226 unfolded spectrum](examples/plots/unfold-ra226-example.jpg) |
+| $\chi^2/\mathrm{dof} = 628.3/713 = 0.88$; SNIP candidates $14$, protected bins $96$ | $\chi^2/\mathrm{dof} = 93.3/121 = 0.77$; SNIP candidates $5$, protected bins $35$ | $\chi^2/\mathrm{dof} = 316.0/533 = 0.59$; SNIP candidates $16$, protected bins $112$ |
+
+The residual baseline is flat and centered on zero over the whole window, and
+dips only where the refolded spectrum leans on a sharp line. Near the window
+edges the residuals grow; this is the boundary layer documented in §3.3, so
+widen the window and quote the interior for quantitative bins close to an edge.
+
+Both reports are written by default (`--no-plot` disables them) as a PDF next to
+the product they describe; `compose` and `sim` produce no figures (D-142).
+
+---
+
+## 2. Detector model: energy calibration and resolution
 
 A scintillation detector does not measure gamma energies; it measures a
 smeared, efficiency-limited, background-contaminated channel histogram. The
@@ -23,44 +167,31 @@ inverse problem:
 
 | Object | Symbol | Meaning | Built by |
 |--------|--------|---------|----------|
-| Energy map | $E(\mathrm{ch})$ | channel $\to$ keV, cubic, strictly increasing | `calib` (F-MODEL-1) |
-| Resolution | $\sigma(E)$ | detector width in keV ($\mathrm{FWHM} = 2.355\ \sigma$) | `calib` (F-MODEL-4) |
+| Energy calibration | $E(\mathrm{ch})$ | channel $\to$ keV, cubic, strictly increasing | `calib` (F-MODEL-1) |
+| Energy resolution | $\sigma(E)$ | detector width in keV ($\mathrm{FWHM} = 2.355\ \sigma$) | `calib` (F-MODEL-4) |
 | Response | $R$ | primary energy $\to$ expected channel counts per primary | `compose` (F-RESP-2) |
 
 The measured spectrum $y$ is then modeled as
 
 $$
-y \ \approx\  R\ \mu + \text{noise}, \qquad \mu \ge 0,
+y \ \approx\ R\ \mu + \text{noise}, \qquad \mu \ge 0,
 $$
 
 where $\mu$ is the primary (incident) energy spectrum. $\mu$ is recovered by
 `unfold` (F-SOLVE-1..6) and reported with strictly split uncertainty bands
-(F-UNC-1..3). The full data flow is
-
-```
-raw CSV --csv2root--> spectrum --specsub--> data
-                                             |
-             Geant4 source mode --> mc_spectrum
-                                             |
-                                    calib <--+        (fits E, sigma, scales)
-                                             |
-             Geant4 matrix mode --> G  --compose--> R
-                                             |
-                              unfold <-------+-------> mu, stat/syst bands
-```
+(F-UNC-1..3). The data flow between these objects, and the commands and products
+that carry them, are drawn in the figure at the top of this README.
 
 Every stage is a matrix or a low-dimensional optimization; no stage compares
 against stored reference output. Correctness is defined by the derivations and
-the runtime certificates of section 11.
+the runtime certificates of section 16.
 
 ---
-
-## 2. Detector model: energy scale and resolution
 
 ### 2.1 Dual-basis cubic energy calibration (F-MODEL-1/F-MODEL-2)
 
 $E(\mathrm{ch})$ is cubic on the acquisition range
-$`[0, \mathrm{ch}_{\max}]`$. The fit does **not** use the plain coefficients: it
+$[0, \mathrm{ch}_{\max}]$. The fit does **not** use the plain coefficients: it
 uses the value at the origin and the slopes at three nodes,
 
 $$
@@ -74,7 +205,7 @@ $$
 E(\mathrm{ch}) = c_0 + k_1\ \mathrm{ch} + \frac{4k_2 - 3k_1 - k_3}{2\ \mathrm{ch}_{\max}}\ \mathrm{ch}^2 + \frac{2\ (k_1 - 2k_2 + k_3)}{3\ \mathrm{ch}_{\max}^2}\ \mathrm{ch}^3.
 $$
 
-Products store the plain cubic $`(c_0, c_1, c_2, c_3)`$. The two bases are related
+Products store the plain cubic $(c_0, c_1, c_2, c_3)$. The two bases are related
 by an **affine** map, so its Jacobian is constant in the parameters
 (`internal_jacobian`), and covariance transforms between bases by
 $T \mathrm{cov} T^{\mathsf{T}}$. Round-tripping is exact to round-off.
@@ -84,33 +215,33 @@ magnitude.
 
 ### 2.2 Resolution as a quadratic Bernstein form (F-MODEL-4)
 
-With $`t = \max(E, 0) / E_{\mathrm{REF}}`$ and $`E_{\mathrm{REF}} = 2000`$ keV, the
+With $t = \max(E, 0) / E_{\mathrm{REF}}$ and $E_{\mathrm{REF}} = 2000$ keV, the
 variance is the degree-2 Bernstein polynomial with control values
-$`(b_0^2, b_1^2, b_2^2) \ge 0`$:
+$(b_0^2, b_1^2, b_2^2) \ge 0$:
 
 $$
 \sigma^2(t) = (1-t)^2 b_0^2 + 2(1-t)\ t\ b_1^2 + t^2 b_2^2.
 $$
 
 For $t \in [0, 1]$ this is a **convex combination** of non-negative controls,
-so positivity is structural rather than checked. Only $`b_k^2`$ enters, so the
-sign of $`b_k`$ is irrelevant. Exact derivatives
-$`\partial\sigma / \partial b_k`$ come from the same symbolic expression (§10).
-For $`E > E_{\mathrm{REF}}`$ the form is extrapolated and the cross term can
+so positivity is structural rather than checked. Only $b_k^2$ enters, so the
+sign of $b_k$ is irrelevant. Exact derivatives
+$\partial\sigma / \partial b_k$ come from the same symbolic expression (§15).
+For $E > E_{\mathrm{REF}}$ the form is extrapolated and the cross term can
 drive $\sigma^2$ negative — that is a physical statement about the model class,
 and it is guarded by a certificate rather than hidden (§2.3).
 
 ### 2.3 Certificates rather than assumptions
 
 * **Monotonicity (F-MODEL-3).** $E^{\prime}$ is quadratic, so its minimum on
-  $`[0, \mathrm{ch}_{\max}]`$ lies at an endpoint or at the exact vertex. The
+  $[0, \mathrm{ch}_{\max}]$ lies at an endpoint or at the exact vertex. The
   certificate reconstructs the quadratic coefficients by finite differences and
   evaluates the vertex — a sampling grid could hide a narrow dip, an exact
   check cannot. A zero slope is rejected: a plateau makes the channel-energy
   map non-invertible.
 * **Positivity (F-MODEL-5).** Strict mode raises when
   $\sigma^2 < -10^{-9}\ \mathrm{keV}^2$. Outside strict mode a non-positive
-  variance is clamped to $`\sigma_{\text{floor}} = 10^{-3}`$ keV; a strictly
+  variance is clamped to $\sigma_{\text{floor}} = 10^{-3}$ keV; a strictly
   negative variance emits a `RuntimeWarning`, and the affected energies are
   recorded in the product `meta` as `resol_clamp_count`,
   `resol_clamp_energy_low_kev` and `resol_clamp_energy_high_kev`. The clamp is
@@ -119,15 +250,15 @@ and it is guarded by a certificate rather than hidden (§2.3).
 ### 2.4 The solve space is the reported window (D-187)
 
 The fit rows are the reported channel rows
-$`[\mathrm{ch}_{\mathrm{lo}}, \mathrm{ch}_{\mathrm{hi}}]`$ and the fit primary
+$[\mathrm{ch}_{\mathrm{lo}}, \mathrm{ch}_{\mathrm{hi}}]$ and the fit primary
 columns are the reported primary bins, i.e. exactly what the product reports.
 The earlier F-BIN-3 padding
-($`[\mathrm{ch}_{\mathrm{lo}} - \mathrm{pad},\ \mathrm{ch}_{\mathrm{hi}} + \mathrm{pad}]`$
+($[\mathrm{ch}_{\mathrm{lo}} - \mathrm{pad},\ \mathrm{ch}_{\mathrm{hi}} + \mathrm{pad}]$
 with `pad` in local resolution widths) is **retired**: it silently fitted a
 region the requested window excludes, and on measured data the region just
 outside the window is frequently the one where the composed response is least
 trustworthy. When that happens the padded rows dominate the weighted
-$`\chi^2`$ and the fit gives up genuine lines inside the window.
+$\chi^2$ and the fit gives up genuine lines inside the window.
 
 **Consequence — the window edge.** A line inside the window whose response
 leaks outside it loses the rows that constrain the leaked part, and near the
@@ -150,8 +281,8 @@ unfolding convention the padding used to implement.
 
 ### 3.1 Exact bin probability, no midpoint approximation (F-KERN-1)
 
-For a source at energy $`c_j`$ with width $`\sigma_j`$, the probability that the
-smeared energy lands in channel bin $i$ with edges $`[e_i, e_{i+1}]`$ is the
+For a source at energy $c_j$ with width $\sigma_j$, the probability that the
+smeared energy lands in channel bin $i$ with edges $[e_i, e_{i+1}]$ is the
 Gaussian integral over the bin,
 
 $$
@@ -166,37 +297,37 @@ midpoint approximation and no truncation to a tabulated kernel.
 
 A Gaussian has infinite support; the kernel is truncated with a compactly
 supported $C^1$ taper. With $x$ the **bin-center** offset from the source
-(D-83), $`s = \mathrm{clip}\big((n_\sigma \sigma - \lvert x \rvert)/\sigma,\  0,\  1\big)`$ and
+(D-83), $s = \mathrm{clip}\big((n_\sigma \sigma - \lvert x \rvert)/\sigma,\ 0,\ 1\big)$ and
 
 $$
 w(x) = 3s^2 - 2s^3.
 $$
 
-$w = 1$ on the plateau $`\lvert x \rvert \le (n_\sigma - 1)\sigma`$, decays
-smoothly to $0$ at $`\lvert x \rvert = n_\sigma \sigma`$, and is exactly $0$
+$w = 1$ on the plateau $\lvert x \rvert \le (n_\sigma - 1)\sigma$, decays
+smoothly to $0$ at $\lvert x \rvert = n_\sigma \sigma$, and is exactly $0$
 beyond. Its first derivative $(6s - 6s^2)\ \mathrm{d}s/\mathrm{d}x$ vanishes at
 both clip boundaries, so the taper is $C^1$ and adds **no kink** to the fit
 objective. The tapered column is then renormalized exactly:
 
 $$
-n_{ij} = P(i \mid j)\  w_{ij}, \qquad
+n_{ij} = P(i \mid j)\ w_{ij}, \qquad
 D_j = \sum_i n_{ij}, \qquad
 p_{ij} = \frac{n_{ij}}{D_j}.
 $$
 
-Every non-empty column therefore sums to exactly $1$; a column with $`D_j = 0`$
+Every non-empty column therefore sums to exactly $1$; a column with $D_j = 0$
 is exactly zero. Renormalization is what makes the taper an approximation of
 the *shape* rather than a silent loss of probability.
 
 ### 3.3 Sparse assembly with exact-zero pruning (F-KERN-3)
 
 Only bin centers strictly inside
-$`(c_j - n_\sigma \sigma_j,\  c_j + n_\sigma \sigma_j)`$ are evaluated
+$(c_j - n_\sigma \sigma_j,\ c_j + n_\sigma \sigma_j)$ are evaluated
 (`searchsorted`). Everywhere else the taper is *exactly* zero and all its first
 derivatives vanish, so the pruned sum is identical to the full sum for
-**every** parameter value. The pattern has $`O(\sum_j \mathrm{reach}_j)`$ entries
-with $`\mathrm{reach}_j \sim 2 n_\sigma \sigma_j / w`$; no dense
-$`n_{\text{channels}} \times n_{\text{deposition}}`$ intermediate is ever created,
+**every** parameter value. The pattern has $O(\sum_j \mathrm{reach}_j)$ entries
+with $\mathrm{reach}_j \sim 2 n_\sigma \sigma_j / w$; no dense
+$n_{\text{channels}} \times n_{\text{deposition}}$ intermediate is ever created,
 and the assembled matrix is CSR.
 
 This is the mechanism behind D-79: the response geometry is
@@ -206,12 +337,12 @@ parameters *by construction* while remaining sparse.
 
 ### 3.4 Kernel derivatives and center folding (F-KERN-4)
 
-The generated module provides $`\partial n/\partial e_{\mathrm{lo}}`$,
-$`\partial n/\partial e_{\mathrm{hi}}`$, $\partial n/\partial c$,
-$\partial n/\partial \sigma$ and $`\partial n/\partial c_{\text{ctr}}`$. Because
-the bin center is $`(e_{\mathrm{lo}} + e_{\mathrm{hi}})/2`$, moving either edge
+The generated module provides $\partial n/\partial e_{\mathrm{lo}}$,
+$\partial n/\partial e_{\mathrm{hi}}$, $\partial n/\partial c$,
+$\partial n/\partial \sigma$ and $\partial n/\partial c_{\text{ctr}}$. Because
+the bin center is $(e_{\mathrm{lo}} + e_{\mathrm{hi}})/2$, moving either edge
 displaces the taper argument by half the displacement, so the kernel adds
-$`\tfrac12\ \partial n/\partial c_{\text{ctr}}`$ to each edge derivative. The
+$\tfrac12\ \partial n/\partial c_{\text{ctr}}$ to each edge derivative. The
 clipped smoothstep is differentiated by the chain rule with the clipping
 prefactor, which vanishes outside the transition band — the $C^1$ extension is
 exact.
@@ -224,8 +355,8 @@ exact.
 
 $C[i,j]$ is the probability that a gamma depositing energy in deposition bin
 $j$ lands in channel bin $i$; the channel edges are $E(i - \tfrac12)$ from
-F-MODEL-1. With $G$ the matrix-mode deposition-by-primary count matrix, $`S_j`$
-its column sums and $`N_j`$ the per-column generated-event totals,
+F-MODEL-1. With $G$ the matrix-mode deposition-by-primary count matrix, $S_j$
+its column sums and $N_j$ the per-column generated-event totals,
 
 $$
 \tilde{p} = \frac{G}{S_j}, \qquad \eta_j = \frac{S_j}{N_j}, \qquad
@@ -234,14 +365,14 @@ $$
 
 The two forms are algebraically identical because
 $\tilde{p}\ \eta = G/N$. The implementation uses the second: it has no
-intermediate $0/0$ and one fewer normalization step. $`\eta_j`$ is the
+intermediate $0/0$ and one fewer normalization step. $\eta_j$ is the
 **detection efficiency** (F-SIM-3) and is validated to lie in $[0, 1]$; it
-follows the identity $`\eta_j = 1 - \mathrm{zero}_j / N_j`$.
+follows the identity $\eta_j = 1 - \mathrm{zero}_j / N_j$.
 
-Read that identity precisely: $`\mathrm{zero}_j`$ counts every generated primary
+Read that identity precisely: $\mathrm{zero}_j$ counts every generated primary
 of column $j$ that did **not** land in an in-range deposition bin, which
 includes both events that deposited nothing in the crystal and events whose
-total deposit fell outside the deposition axis. $`\eta_j`$ is therefore the
+total deposit fell outside the deposition axis. $\eta_j$ is therefore the
 fraction of primaries with an in-range deposit — the containment the matrix can
 represent, not a claim about the crystal's physical detection threshold.
 
@@ -256,7 +387,7 @@ mass and that sliced row sums never exceed full column sums.
 
 ### 4.3 Response Jacobian by chaining (F-RESP-4)
 
-For $`q = (c_0, c_1, c_2, c_3, b_0, b_1, b_2)`$ in the reported basis, a channel
+For $q = (c_0, c_1, c_2, c_3, b_0, b_1, b_2)$ in the reported basis, a channel
 edge contributes through its energy and a deposition column through its width:
 
 $$
@@ -266,7 +397,7 @@ u_{ij} &= \frac{\partial n}{\partial \sigma_j}\ \frac{\partial \sigma_j}{\partia
 \end{aligned}
 $$
 
-with $`\partial e_l / \partial q_k = \mathrm{ch}_l^{\ k}`$ for the reported basis
+with $\partial e_l / \partial q_k = \mathrm{ch}_l^{k}$ for the reported basis
 (F-MODEL-2). The **quotient rule couples every entry of a column** through the
 renormalization denominator:
 
@@ -276,9 +407,9 @@ $$
 
 Every column of $\partial C/\partial q$ therefore sums to zero — a conservation
 identity the tests check — and the composed Jacobian is
-$`\partial R/\partial q_k = (\partial C/\partial q_k)\ P`$ with
+$\partial R/\partial q_k = (\partial C/\partial q_k)\ P$ with
 $P = G\mathrm{diag}(1/N)$. All seven matrices are returned as sparse CSR;
-no dense $`n_{\text{channels}} \times n_{\text{deposition}} \times 7`$ tensor is
+no dense $n_{\text{channels}} \times n_{\text{deposition}} \times 7$ tensor is
 materialized.
 
 ### 4.4 Overlap projection between binnings (F-PROJ-1/F-PROJ-2)
@@ -295,16 +426,162 @@ limitation).
 
 ---
 
-## 5. Unfolding I: the regularized non-negative problem
+## 5. Calibration: a joint fit over datasets
 
-### 5.1 Tikhonov objective with a normalization-invariant `alpha` (F-SOLVE-1)
+### 5.1 The forward model (F-CAL-1)
+
+For each dataset $d$, with the shared internal core
+$q = (c_0, k_1, k_2, k_3, b_0, b_1, b_2)$ and a per-dataset scale
+$s_d(\mathrm{ch})$:
+
+$$
+\text{prediction}_d = s_d \odot \big(C_{\mathrm{fit}}(q)\ \mathrm{mc}_d\big),
+\qquad
+\text{data}_d \approx \text{prediction}_d + \text{noise}.
+$$
+
+$C_{\mathrm{fit}}$ is evaluated on the **fixed** uniform deposition axis
+$0..4096$ keV / 4096 bins (F-BIN-4) so its geometry does not depend on the
+fitted parameters (D-79/D-101). The fit only contracts
+$C_{\mathrm{fit}}$ with the MC spectrum and its variance, so the implementation
+builds it on the contiguous hull of the non-zero MC bins — exactly the
+corresponding sub-matrix of the fixed axis, because each column's kernel and
+renormalization depend on that column alone. The export matrix is rebuilt
+separately on the channel-derived axis $E(i \pm \tfrac12)$ (D-101).
+
+Weights follow the frozen convention (D-48):
+
+$$
+\mathrm{var}_d = \max(\mathrm{stat}_d, 1) + \big(\mathrm{systFrac}_d \cdot \mathrm{data}_d\big)^2 + \mathrm{MC}_d,
+\qquad
+\mathrm{MC}_d = \left(s_d\sqrt{(C_{\mathrm{fit}}^2)\ \mathrm{varMC}_d}\right)^2.
+$$
+
+Here $\mathrm{stat}_d$ is the data variance `fSumw2`, $\mathrm{systFrac}_d$ the
+per-dataset fractional systematic (`syst_frac`), $\mathrm{varMC}_d$ the MC
+spectrum variance (`var_mc`), and $\mathrm{MC}_d$ the folded prediction's MC
+variance.
+
+The $\max(\mathrm{stat}, 1)$ floor is a **documented approximation**: for
+Poisson data with $\text{pred} < 1$ the realized
+$(\text{data} - \text{pred})^2 / \max(\text{data}, 1)$ has expectation below
+$\text{pred}$, so $\chi^2/\mathrm{dof}$ can sit below one on low-count spectra.
+The covariance is defined for the weights actually used.
+
+### 5.2 Per-dataset quadratic Bezier scale (F-CAL-2)
+
+The scale corrects the simulated/real normalization difference across a
+dataset's fit window $[x_{\mathrm{lo}}, x_{\mathrm{hi}}]$. It is the quadratic
+Bezier curve with control abscissae $(x_{\mathrm{lo}}, s_0, x_{\mathrm{hi}})$
+and ordinates $(s_1, s_2, s_3)$:
+
+$$
+\begin{aligned}
+x(t) &= x_{\mathrm{lo}} + 2(s_0 - x_{\mathrm{lo}})\ t + (x_{\mathrm{lo}} - 2s_0 + x_{\mathrm{hi}})\ t^2, \\
+s(t) &= (1-t)^2 s_1 + 2(1-t)\ t\ s_2 + t^2 s_3, \\
+t(x) &= \frac{d}{a + \sqrt{a^2 + cd}}, \qquad
+a = s_0 - x_{\mathrm{lo}},\quad c = x_{\mathrm{lo}} - 2s_0 + x_{\mathrm{hi}},\quad d = x - x_{\mathrm{lo}}.
+\end{aligned}
+$$
+
+$x(t)$ is strictly increasing for $s_0$ strictly inside the window, so $t$ is
+the unique in-interval root; the rationalized form is exact at both endpoints
+and free of catastrophic cancellation. The middle control **abscissa $s_0$ is a
+free parameter** (D-103). For a constant scale ($s_1 = s_2 = s_3$) the
+derivative with respect to $s_0$ vanishes identically, and at
+$s_0 = (x_{\mathrm{lo}} + x_{\mathrm{hi}})/2$ the parametrization becomes
+linear, collapsing the four-parameter family onto the three-parameter quadratic
+(degree-2 Bernstein) subfamily — the $s_0$ direction is then an exact **gauge**.
+So $s_0$ is kept free, the model is seeded with a non-constant scale to avoid
+starting on the gauge plateau, and the scale block is marginalized stably
+(§5.4). Derivatives:
+
+$$
+\frac{\partial s}{\partial s_0} = \frac{\mathrm{d}s}{\mathrm{d}t}\cdot\frac{-2t(1-t)}{\mathrm{d}x/\mathrm{d}t},
+\qquad
+\frac{\partial s}{\partial s_1} = (1-t)^2, \qquad
+\frac{\partial s}{\partial s_2} = 2(1-t)t, \qquad
+\frac{\partial s}{\partial s_3} = t^2.
+$$
+
+### 5.3 Analytic Jacobian and the exact chi-square gradient (F-CAL-4)
+
+Differentiating the forward model, with
+$C_k = \partial C/\partial q_k$ from F-RESP-4 chained into the internal basis
+through the F-MODEL-2 Jacobian:
+
+$$
+\frac{\partial\ \text{prediction}_d}{\partial q_k} = s_d \odot \big(C_k[\text{window}]\ \mathrm{mc}_d\big),
+\qquad
+\frac{\partial\ \text{prediction}_d}{\partial s_p} = \frac{\partial s_d}{\partial s_p} \odot \big(C_{\mathrm{fit}}[\text{window}]\ \mathrm{mc}_d\big).
+$$
+
+The variance depends on the parameters, so the **exact** gradient carries an
+extra term:
+
+$$
+\frac{\mathrm{d}\chi^2}{\mathrm{d}\theta} = -2 J^{\mathsf{T}} \frac{\text{data} - p}{v} - \left(\frac{\mathrm{d}v}{\mathrm{d}\theta}\right)^{\mathsf{T}} \frac{(\text{data} - p)^2}{v^2},
+$$
+
+$$
+\frac{\partial v}{\partial q_k} = s_d^2\Big[2\ (C_{\mathrm{fit}} \cdot C_k)[\text{window}]\ \mathrm{varMC}_d\Big],
+\qquad
+\frac{\partial v}{\partial s_p} = 2 s_d \frac{\partial s_d}{\partial s_p}\Big[(C_{\mathrm{fit}}^2)[\text{window}]\ \mathrm{varMC}_d\Big].
+$$
+
+The optimizer then sees the residual
+$r = (\text{data} - p)/\sigma$ and its Jacobian
+$\mathrm{d}r/\mathrm{d}\theta = -J/\sigma - r\ (\mathrm{d}v/\mathrm{d}\theta)/(2v)$,
+so its gradient is the exact gradient of the objective it minimizes. **No
+finite differences enter production.** The fit itself is a single bounded
+trust-region (reflective) least-squares stage via
+`scipy.optimize.least_squares` with `x_scale="jac"`, started from the frozen
+bounds and seeds of F-CAL-3.
+
+### 5.4 Covariance with the scale marginalized (F-CAL-5)
+
+With $J$ the full-parameter Jacobian, $W = \mathrm{diag}(1/v)$ (F-CAL-1)
+and $F = J^{\mathsf{T}} W J$, split the parameters into the reported core $c$
+and the scale $s$:
+
+$$
+\mathrm{cov}_{\text{core}}
+  = \frac{\chi^2}{\mathrm{dof}}\ \Big(F_{cc} - F_{cs} F_{ss}^{+} F_{sc}\Big)^{-1},
+\qquad
+\mathrm{cov}_{\text{reported}} = T \mathrm{cov}_{\text{core}} T^{\mathsf{T}},
+$$
+
+with $T = \mathrm{diag}\big(\texttt{internal\_jacobian}(\mathrm{ch}_{\max}), I_3\big)$.
+
+The Schur complement $F_{cc} - F_{cs}F_{ss}^{+}F_{sc}$ is the $(c,c)$ block of
+$F^{-1}$, i.e. the scale **marginalized** rather than fixed; $F_{ss}^{+}$ is the
+Moore-Penrose inverse, which projects out the $s_0$ gauge when the fitted scale
+is (nearly) polynomial. Jacobi (diagonal) preconditioning is applied before the
+factorization. $\chi^2/\mathrm{dof}$ is the single global scale (PDG convention,
+F-COV-2): $\mathrm{cov} = s^2 F^{-1}$ with $s^2 = \chi^2/\mathrm{dof}$; a
+singular or non-positive-definite Fisher matrix is a **hard failure** — there is
+no pseudo-inverse fallback for the core. For invertible $F_{ss}$ this is
+algebraically identical to taking the core block of the full inverse, which the
+tests verify on a well-conditioned Fisher. The estimator string recorded with
+the product is `fisher-x2dof-marginalized-reported`.
+
+An optional **profile-covariance diagnostic** (F-COV-3) profiles each parameter
+at $p_i \pm 4\sqrt{2/H_{ii}}$, re-optimizes the rest, solves the
+$\Delta\chi^2 = 1$ crossing with `brentq`, and takes correlations from the
+numerical Hessian. It never replaces the analytic estimate.
+
+---
+
+## 6. Unfolding I: the regularized non-negative problem
+
+### 6.1 Tikhonov objective with a normalization-invariant `alpha` (F-SOLVE-1)
 
 Unfolding is ill-posed: neighboring primary bins map to nearly the same
 channel distribution, so the unregularized least-squares solution oscillates
 violently. The toolkit minimizes
 
 $$
-\min_{\mu \ge 0}\ \  \chi^2(\mu) + \alpha\ \lVert \tilde{D}\mu \rVert^2,
+\min_{\mu \ge 0}\ \ \chi^2(\mu) + \alpha\ \lVert \tilde{D}\mu \rVert^2,
 \qquad
 \chi^2(\mu) = \left\lVert \frac{R\mu - y}{\sigma} \right\rVert^2,
 $$
@@ -352,7 +629,7 @@ $$
 
 $H$ is built once and shared by the solver and the uncertainty propagation, so
 values and errors cannot drift apart (D-150). Zero-curvature columns
-($`A_{jj} = 0`$) are dropped from the penalty exactly (they carry no data
+($A_{jj} = 0$) are dropped from the penalty exactly (they carry no data
 information) and the solver fixes them at zero.
 
 $\alpha$ is **optional and defaults to 1** (D-191; it was mandatory with no
@@ -360,14 +637,14 @@ default under D-45): the choice of regularization strength is still a physics
 statement, not a numerical detail, so an explicit `--alpha` remains the way to
 declare a different one.
 
-### 5.2 Lawson-Hanson active set on the normal equations (F-SOLVE-2)
+### 6.2 Lawson-Hanson active set on the normal equations (F-SOLVE-2)
 
 The QP $\min \tfrac12 \mu^{\mathsf{T}} H \mu - b^{\mathsf{T}}\mu$ subject to
 $\mu \ge 0$ is solved with a self-implemented **Lawson-Hanson active set**
 method:
 
 1. start at $\mu = 0$;
-2. solve the reduced system $`H_{FF}\ \mu_F = b_F`$ on the free set $F$;
+2. solve the reduced system $H_{FF}\ \mu_F = b_F$ on the free set $F$;
 3. if the proposal is positive, accept it; otherwise step from the current
    feasible $\mu$ toward it until a variable hits the boundary, move exactly
    the blocking variables into the active set, and repeat;
@@ -381,12 +658,12 @@ Cholesky when the half-bandwidth is below $n/4$, and sparse LU otherwise
 (`core/_linalg.py`, one shared policy). The iteration budget is $10n + 100$ and
 exhaustion raises in every mode — it never returns a half-converged answer.
 
-### 5.3 KKT certificate in data-gradient units (F-SOLVE-3)
+### 6.3 KKT certificate in data-gradient units (F-SOLVE-3)
 
 For $r = H\mu - b$, the reported metrics are
 
 $$
-\frac{\max\left(0,\  -\min_{i \in \text{active}} r_i\right)}{\max\left(1, \lVert b \rVert_\infty\right)} \le 10^{-6},
+\frac{\max\left(0,\ -\min_{i \in \text{active}} r_i\right)}{\max\left(1, \lVert b \rVert_\infty\right)} \le 10^{-6},
 \qquad
 \frac{\max_i \lvert \mu_i r_i \rvert}
      {\max\left(1, \lVert b \rVert_\infty\right)\ \max\left(1, \lVert \mu \rVert_\infty\right)} \le 10^{-6}.
@@ -398,7 +675,7 @@ the spectrum is stored in counts or in counts per second. This is the
 complementarity-and-dual-feasibility pair of the QP KKT system. Strict mode
 raises `CertificateError("F-SOLVE-3")` on failure.
 
-### 5.4 Pruning and diagnostics (F-UNF-3/F-UNF-4)
+### 6.4 Pruning and diagnostics (F-UNF-3/F-UNF-4)
 
 $R = C\ G\mathrm{diag}(1/N)$ is non-negative, so a column is exactly zero
 **iff** its sum is exactly zero (compared with `== 0.0`, never a tolerance).
@@ -414,7 +691,7 @@ n_{\text{active}} = \lbrace k : \mu_k > 0 \rbrace,
 \mathrm{dof} = \lvert F \rvert - n_{\text{active}},
 $$
 
-with $`\texttt{covariance\_scale} = 1`$.
+with $\texttt{covariance\_scale} = 1$.
 
 `covariance_scale` is fixed at one because the unfold reports the analytic
 first-order propagation and never rescales it by a reduced chi-square. `dof`
@@ -423,7 +700,7 @@ computed and $\chi^2/\mathrm{dof}$ is then not used.
 
 ---
 
-## 6. Unfolding II: SNIP peak protection
+## 7. Unfolding II: SNIP peak protection
 
 Regularization suppresses noise-driven oscillations, but a global $\alpha$
 large enough to do that also erodes genuine peaks. The toolkit resolves this
@@ -432,7 +709,7 @@ roughness penalty at resolved peaks. Because the mask depends only on the
 measured spectrum, the problem stays convex and the KKT certificate is
 unchanged (D-155).
 
-### 6.1 SNIP LLS baseline (F-SOLVE-4)
+### 7.1 SNIP LLS baseline (F-SOLVE-4)
 
 SNIP (Statistics-sensitive Non-linear Iterative Peak-clipping) is used **only
 to locate genuine peaks**, never as a background measurement. Background
@@ -450,10 +727,10 @@ $$
 and the iteration is, for $p = 1 \dots m$,
 
 $$
-v_i \ \leftarrow\  \min\left(v_i,\  \frac{v_{i-p} + v_{i+p}}{2}\right),
+v_i \ \leftarrow\ \min\left(v_i,\ \frac{v_{i-p} + v_{i+p}}{2}\right),
 $$
 
-applied to interior bins only: a bin whose $`i - p`$ or $`i + p`$ neighbor does not
+applied to interior bins only: a bin whose $i - p$ or $i + p$ neighbor does not
 exist keeps its value, so the baseline is not pulled down at the ends of the
 axis. The iteration count $m$ is **resolution-derived, not a free knob**
 (D-157):
@@ -461,22 +738,22 @@ axis. The iteration count $m$ is **resolution-derived, not a free knob**
 $$
 \mathrm{FWHM}_{\text{bins}} = \frac{2\sqrt{2\ln 2}\ \sigma_E(E_{\text{mid}})}{\Delta_E},
 \qquad
-m = \mathrm{clip}\left(\mathrm{round}\left(\tfrac12 \mathrm{FWHM}_{\text{bins}}\right),\  1,\  m_{\max} = 32\right).
+m = \mathrm{clip}\left(\mathrm{round}\left(\tfrac12 \mathrm{FWHM}_{\text{bins}}\right),\ 1,\ m_{\max} = 32\right).
 $$
 
-$`E_{\text{mid}}`$ is the **reported-window midpoint** (D-157/D-188): the unfold
-layer passes the bin whose center is nearest $`(e_{\text{lo}} + e_{\text{hi}})/2`$
-as `iteration_reference_index`, and $`\Delta_E`$ is the local bin width there, so
-$`\mathrm{FWHM}_{\text{bins}}`$ is the detector peak width measured in bins.
+$E_{\text{mid}}$ is the **reported-window midpoint** (D-157/D-188): the unfold
+layer passes the bin whose center is nearest $(e_{\text{lo}} + e_{\text{hi}})/2$
+as `iteration_reference_index`, and $\Delta_E$ is the local bin width there, so
+$\mathrm{FWHM}_{\text{bins}}$ is the detector peak width measured in bins.
 Tying $m$ to the detector width is what removes the detector peak before
 estimating the continuum — the intended behavior. An explicit override is
-allowed and recorded. The cap $`m_{\max} = 32`$ (D-191; it was 8 under D-162)
-binds only when $`\mathrm{round}(\mathrm{FWHM}_{\text{bins}}/2) > m_{\max}`$,
-i.e. when $`\sigma_E/\Delta_E > 27.6`$ bins at the reference (the inequality is
+allowed and recorded. The cap $m_{\max} = 32$ (D-191; it was 8 under D-162)
+binds only when $\mathrm{round}(\mathrm{FWHM}_{\text{bins}}/2) > m_{\max}$,
+i.e. when $\sigma_E/\Delta_E > 27.6$ bins at the reference (the inequality is
 strict: at the exact tie the even-valued cap does not bind under round-half-to-even)
 — above roughly 3.5 MeV on the production 2048-bin axis with the shipped
 resolution model — so the derived count is used un-clipped throughout a
-30-3000 keV window ($`m = 3`$
+30-3000 keV window ($m = 3$
 at 30 keV, 6 at 150 keV, 13 at the 609 keV line, 17 at 1 MeV and 21 at that
 window's midpoint), and the clipping window `2m+1` then matches the peak's own
 width. With the former cap of 8 the rule saturated above roughly 260 keV while
@@ -484,27 +761,27 @@ the peak is 18-47 bins wide between 300 keV and 1.8 MeV, so the `2m+1 = 17`-bin
 clipping window stayed *inside* the peak and the baseline sat inside it (59% of
 the 609 keV peak top on the validation dataset). SNIP remains a peak locator
 here, not a background estimate, which is why the protection width is fixed in
-bins (§6.2) rather than tied to the residual's shape.
+bins (§7.2) rather than tied to the residual's shape.
 
-### 6.2 Resolution-matched significance and the peak mask (F-SOLVE-5)
+### 7.2 Resolution-matched significance and the peak mask (F-SOLVE-5)
 
-The residual is $`r_i = y_i^{+} - b_i`$. Since the detector width is known,
+The residual is $r_i = y_i^{+} - b_i$. Since the detector width is known,
 significance is computed with a **matched filter** rather than a per-bin
-threshold: with $`s_i = \sigma_E(E_i)/\Delta_i`$ and a normalized Gaussian kernel
-$g$ of width $`s_i`$, truncated at three resolution widths
-($`|k| \le \lceil 3 s_i \rceil`$, renormalized over that support),
+threshold: with $s_i = \sigma_E(E_i)/\Delta_i$ and a normalized Gaussian kernel
+$g$ of width $s_i$, truncated at three resolution widths
+($|k| \le \lceil 3 s_i \rceil$, renormalized over that support),
 
 $$
-M_i = \sum_k g_k\  r_{i+k}, \qquad
+M_i = \sum_k g_k\ r_{i+k}, \qquad
 V_i = \sum_k g_k^2\ \sigma_{y,i+k}^2, \qquad
 z_i = \frac{M_i}{\sqrt{V_i}}.
 $$
 
 The matched filter suppresses single-bin noise spikes — the dominant
 spurious-peak seed — which a per-bin threshold would misclassify. A bin is a
-candidate when $`z_i \ge k`$ (default $k = 5$, D-156) **and** $`z_i`$ is a local
+candidate when $z_i \ge k$ (default $k = 5$, D-156) **and** $z_i$ is a local
 maximum, tested against its two immediate neighbors. All bins within
-$`n_{\text{protect}}`$ **primary bins** (default $3$) of a candidate are marked, and
+$n_{\text{protect}}$ **primary bins** (default $3$) of a candidate are marked, and
 
 $$
 w_i = \begin{cases}
@@ -513,9 +790,9 @@ w_{\text{floor}} \ (\text{default } 0.01) & \text{on marked bins},\\
 \end{cases}
 $$
 
-Bins that no candidate marks keep $`w_i = 1`$, i.e. they are smoothed normally.
+Bins that no candidate marks keep $w_i = 1$, i.e. they are smoothed normally.
 
-### 6.3 Masked operator, still symmetric and banded (F-SOLVE-6)
+### 7.3 Masked operator, still symmetric and banded (F-SOLVE-6)
 
 The masked difference operator scales each **row** by the square root of the
 **minimum** of the mask weights over its stencil (D-188):
@@ -528,7 +805,7 @@ $$
 A protected peak bin therefore relaxes every difference row that touches it, and
 each touched row carries exactly the configured floor — which is what
 `--snip-floor` says. The former *product* rule reached
-$`\rho = w_{\text{floor}}^{\ \text{order}+1} = 10^{-3}`$ for rows inside a peak,
+$\rho = w_{\text{floor}}^{\ \text{order}+1} = 10^{-3}$ for rows inside a peak,
 i.e. a relaxation 100x stronger than its own help text. That made the masked
 normal matrix locally singular and the active set returned an arbitrary vertex
 of a nearly degenerate solution set: on the Ra-226 validation dataset the
@@ -540,12 +817,12 @@ and a three-bin protection the protected set is 6.2% of the axis, no line
 splits, and the peak-height inflation is 1.2x. Crucially,
 
 $$
-D'^{\mathsf{T}} D' = D^{\mathsf{T}} \mathrm{diag}(\rho)\  D
+D'^{\mathsf{T}} D' = D^{\mathsf{T}} \mathrm{diag}(\rho)\ D
 $$
 
 stays symmetric positive semidefinite and banded with the same half-bandwidth
 as $D$. (The rectangular $W^{1/2} D W^{1/2}$ form does not even typecheck for
-$`n_{\text{rows}} = n - \text{order}`$; the row form is the correct symmetric
+$n_{\text{rows}} = n - \text{order}$; the row form is the correct symmetric
 weighting.) The penalty operator is then
 $\tilde{D}' = D'\mathrm{diag}\big(\sqrt{\mathrm{diag}(A)}\big)$ —
 the same diagonal scaling as F-SOLVE-1, so $\alpha$ keeps the same meaning —
@@ -553,13 +830,13 @@ and
 
 $$
 H = A + \alpha\ \tilde{D}'^{\mathsf{T}}\tilde{D}', \qquad
-b = R^{\mathsf{T}} W_{\text{data}}\  y.
+b = R^{\mathsf{T}} W_{\text{data}}\ y.
 $$
 
 **Strict-mode certificate.** `verify_snip_mask` recomputes the mask from the
 recorded spectrum and settings — including the `iteration_reference_index` the
 caller used (D-157/D-188) — and requires the stored weights to match it
-exactly; the $`w_i \in [0, 1]`$ bound is always-on. The baseline and mask sha256,
+exactly; the $w_i \in [0, 1]$ bound is always-on. The baseline and mask sha256,
 the candidate count and the protected-bin count are written into the product
 `meta`, so a re-tuned default never invalidates an existing product and the
 realized mask coverage is auditable. Of the further checks
@@ -583,14 +860,14 @@ uncertainty is not propagated (D-159).
 
 ---
 
-## 7. Uncertainty propagation with a strict stat/syst split
+## 8. Uncertainty propagation with a strict stat/syst split
 
-### 7.1 Statistical band on the free set (F-UNC-1)
+### 8.1 Statistical band on the free set (F-UNC-1)
 
-At a fixed active set, the free variables satisfy $`H_{FF}\mu_F = b_F`$ and the
+At a fixed active set, the free variables satisfy $H_{FF}\mu_F = b_F$ and the
 active ones stay at zero, so
-$`\mathrm{d}\mu_F = H_{FF}^{-1}(R^{\mathsf{T}}W)_F\ \mathrm{d}y`$ and
-$`\mathrm{d}\mu_A = 0`$:
+$\mathrm{d}\mu_F = H_{FF}^{-1}(R^{\mathsf{T}}W)_F\ \mathrm{d}y$ and
+$\mathrm{d}\mu_A = 0$:
 
 $$
 \mathrm{Cov}(\mu) = H_{FF}^{-1}\ (R^{\mathsf{T}}W)_F\ \Sigma_{\text{stat}}\ (WR)_F\ H_{FF}^{-1},
@@ -604,33 +881,33 @@ a constraint is active**, so the implementation always solves the reduced
 system on the free set. $H$ is the same half-Hessian that solved the problem,
 so values and errors cannot drift apart.
 
-### 7.2 Systematic contributions (F-UNC-2)
+### 8.2 Systematic contributions (F-UNC-2)
 
 Three contributions, all first-order at fixed active set.
 
 **Data-side `syst_frac`** (default 0.05, D-169) is the same linearization as
 F-UNC-1 with
-$`\Sigma = \mathrm{diag}\big((\texttt{syst\_frac}\cdot y)^2\big)`$.
+$\Sigma = \mathrm{diag}\big((\texttt{syst\_frac}\cdot y)^2\big)$.
 
-**Calibration.** With $`Q_k = \partial R/\partial q_k`$ from F-RESP-4, the
+**Calibration.** With $Q_k = \partial R/\partial q_k$ from F-RESP-4, the
 half-gradient derivative is the **full** expression
 
 $$g_k = Q_k^{\mathsf{T}} W r + R^{\mathsf{T}} W Q_k \mu,$$
 
-with sensitivity columns $`V_k = -H_{FF}^{-1}(g_k)_F`$ (zero on the active set)
-and $`\mathrm{Cov}_{\text{calib}} = V\Sigma_q V^{\mathsf{T}}`$. Both terms
+with sensitivity columns $V_k = -H_{FF}^{-1}(g_k)_F$ (zero on the active set)
+and $\mathrm{Cov}_{\text{calib}} = V\Sigma_q V^{\mathsf{T}}$. Both terms
 are kept: the first is the direct response perturbation at the data residual,
 the second the response perturbation acting on the current solution.
 
-**Simulation MC.** $`N_j`$ is fixed by the sampling design (F-SIM-1), so the
+**Simulation MC.** $N_j$ is fixed by the sampling design (F-SIM-1), so the
 deposition counts are multinomial with
-$`\mathrm{Cov}(G_s) = N_s\big(\mathrm{diag}(p_s) - p_s p_s^{\mathsf{T}}\big)`$.
+$\mathrm{Cov}(G_s) = N_s\big(\mathrm{diag}(p_s) - p_s p_s^{\mathsf{T}}\big)$.
 Differentiating the half-gradient gives the full vector
 
 $$\frac{\partial g_a}{\partial G_{js}} = \frac{\delta_{a,s}\ \big(C_j^{\mathsf{T}} W r\big) + \big(R^{\mathsf{T}} W C_j\big)_a \mu_s}{N_s},$$
 
-and with $`U = H_{FF}^{-1}`$ and
-$`v_{js} = \big(C_j^{\mathsf{T}} W r\big)e_s + \big(R^{\mathsf{T}} W C_j\big)\mu_s`$,
+and with $U = H_{FF}^{-1}$ and
+$v_{js} = \big(C_j^{\mathsf{T}} W r\big)e_s + \big(R^{\mathsf{T}} W C_j\big)\mu_s$,
 
 $$
 \mathrm{Cov}(\mu) = \sum_s \frac{1}{N_s}\ U A_s U^{\mathsf{T}},
@@ -638,16 +915,16 @@ $$
 A_s = \sum_j p_{js} v_{js} v_{js}^{\mathsf{T}} - \Big(\sum_j p_{js} v_{js}\Big)\Big(\sum_k p_{ks} v_{ks}\Big)^{\mathsf{T}}.
 $$
 
-A rank-one $`d_{js} e_s^{\mathsf{T}}`$ form drops the second term, which finite
-differences show contributes at the same order as the first (\ 50%), so it must
+A rank-one $d_{js} e_s^{\mathsf{T}}$ form drops the second term, which finite
+differences show contributes at the same order as the first (50\%), so it must
 be kept (D-119). The unrecorded zero-deposition category has $v = 0$ and cancels
-from the *centered* form $`A_s`$, which is why the sums run over recorded
+from the *centered* form $A_s$, which is why the sums run over recorded
 deposition bins only.
 
-### 7.3 Streaming evaluation, no $n \times n$ inverse (D-173)
+### 8.3 Streaming evaluation, no $n \times n$ inverse (D-173)
 
-Expanding $`X_{js,i} = a_j U[i,s] + \mu_s m_{i,j}`$ with
-$`a_j = C_j^{\mathsf{T}} W r`$ and $m = U(R^{\mathsf{T}} W C)$ gives the three-term
+Expanding $X_{js,i} = a_j U[i,s] + \mu_s m_{i,j}$ with
+$a_j = C_j^{\mathsf{T}} W r$ and $m = U(R^{\mathsf{T}} W C)$ gives the three-term
 form actually evaluated,
 
 $$
@@ -670,170 +947,24 @@ u_i &= U e_i, &
 \end{aligned}
 $$
 
-Only the free-set columns $`u_i`$ are solved, in blocks of
+Only the free-set columns $u_i$ are solved, in blocks of
 `MC_BLOCK_COLUMNS = 128`, and the contractions are formed per block. Neither
-$`H_{FF}^{-1}`$ nor $U(R^{\mathsf{T}} W C)$ is ever materialized; the only dense
+$H_{FF}^{-1}$ nor $U(R^{\mathsf{T}} W C)$ is ever materialized; the only dense
 $O(n^2)$ object is the data-side `mixed`, which carries no inverse. The result
 equals the direct linearization at $\mathrm{rtol} = 10^{-9}$, active bins
 included.
 
-### 7.4 The certificate that makes the split auditable (F-UNC-3)
+### 8.4 The certificate that makes the split auditable (F-UNC-3)
 
 $$
 \sigma_{\text{total}} = \mathrm{hypot}\big(\sigma_{\text{stat}}, \sigma_{\text{syst}}\big),
 $$
 
 verified as
-$`\sigma_{\text{total}}^2 = \sigma_{\text{stat}}^2 + \sigma_{\text{syst}}^2`$ to a
+$\sigma_{\text{total}}^2 = \sigma_{\text{stat}}^2 + \sigma_{\text{syst}}^2$ to a
 relative $10^{-9}$ in strict mode. Each `BandComponent` records its name, kind
 (`stat`/`syst`) and formula ID, so a product can be audited without
 re-deriving the split.
-
----
-
-## 8. Calibration: a joint fit over datasets
-
-### 8.1 The forward model (F-CAL-1)
-
-For each dataset $d$, with the shared internal core
-$`q = (c_0, k_1, k_2, k_3, b_0, b_1, b_2)`$ and a per-dataset scale
-$`s_d(\mathrm{ch})`$:
-
-$$
-\text{prediction}_d = s_d \odot \big(C_{\mathrm{fit}}(q)\ \mathrm{mc}_d\big),
-\qquad
-\text{data}_d \approx \text{prediction}_d + \text{noise}.
-$$
-
-$`C_{\mathrm{fit}}`$ is evaluated on the **fixed** uniform deposition axis
-$0..4096$ keV / 4096 bins (F-BIN-4) so its geometry does not depend on the
-fitted parameters (D-79/D-101). The fit only contracts
-$`C_{\mathrm{fit}}`$ with the MC spectrum and its variance, so the implementation
-builds it on the contiguous hull of the non-zero MC bins — exactly the
-corresponding sub-matrix of the fixed axis, because each column's kernel and
-renormalization depend on that column alone. The export matrix is rebuilt
-separately on the channel-derived axis $E(i \pm \tfrac12)$ (D-101).
-
-Weights follow the frozen convention (D-48):
-
-$$
-\mathrm{var}_d = \max(\mathrm{stat}_d, 1) + \big(\mathrm{systFrac}_d \cdot \mathrm{data}_d\big)^2 + \mathrm{MC}_d,
-\qquad
-\mathrm{MC}_d = \left(s_d\sqrt{(C_{\mathrm{fit}}^2)\ \mathrm{varMC}_d}\right)^2.
-$$
-
-Here $`\mathrm{stat}_d`$ is the data variance `fSumw2`, $`\mathrm{systFrac}_d`$ the
-per-dataset fractional systematic (`syst_frac`), $`\mathrm{varMC}_d`$ the MC
-spectrum variance (`var_mc`), and $`\mathrm{MC}_d`$ the folded prediction's MC
-variance.
-
-The $\max(\mathrm{stat}, 1)$ floor is a **documented approximation**: for
-Poisson data with $\text{pred} < 1$ the realized
-$(\text{data} - \text{pred})^2 / \max(\text{data}, 1)$ has expectation below
-$\text{pred}$, so $\chi^2/\mathrm{dof}$ can sit below one on low-count spectra.
-The covariance is defined for the weights actually used.
-
-### 8.2 Per-dataset quadratic Bezier scale (F-CAL-2)
-
-The scale corrects the simulated/real normalization difference across a
-dataset's fit window $`[x_{\mathrm{lo}}, x_{\mathrm{hi}}]`$. It is the quadratic
-Bezier curve with control abscissae $`(x_{\mathrm{lo}}, s_0, x_{\mathrm{hi}})`$
-and ordinates $`(s_1, s_2, s_3)`$:
-
-$$
-\begin{aligned}
-x(t) &= x_{\mathrm{lo}} + 2(s_0 - x_{\mathrm{lo}})\ t + (x_{\mathrm{lo}} - 2s_0 + x_{\mathrm{hi}})\ t^2, \\
-s(t) &= (1-t)^2 s_1 + 2(1-t)\ t\ s_2 + t^2 s_3, \\
-t(x) &= \frac{d}{a + \sqrt{a^2 + cd}}, \qquad
-a = s_0 - x_{\mathrm{lo}},\quad c = x_{\mathrm{lo}} - 2s_0 + x_{\mathrm{hi}},\quad d = x - x_{\mathrm{lo}}.
-\end{aligned}
-$$
-
-$x(t)$ is strictly increasing for $`s_0`$ strictly inside the window, so $t$ is
-the unique in-interval root; the rationalized form is exact at both endpoints
-and free of catastrophic cancellation. The middle control **abscissa $`s_0`$ is a
-free parameter** (D-103). For a constant scale ($`s_1 = s_2 = s_3`$) the
-derivative with respect to $`s_0`$ vanishes identically, and at
-$`s_0 = (x_{\mathrm{lo}} + x_{\mathrm{hi}})/2`$ the parametrization becomes
-linear, collapsing the four-parameter family onto the three-parameter quadratic
-(degree-2 Bernstein) subfamily — the $`s_0`$ direction is then an exact **gauge**.
-So $`s_0`$ is kept free, the model is seeded with a non-constant scale to avoid
-starting on the gauge plateau, and the scale block is marginalized stably
-(§8.4). Derivatives:
-
-$$
-\frac{\partial s}{\partial s_0} = \frac{\mathrm{d}s}{\mathrm{d}t}\cdot\frac{-2t(1-t)}{\mathrm{d}x/\mathrm{d}t},
-\qquad
-\frac{\partial s}{\partial s_1} = (1-t)^2, \qquad
-\frac{\partial s}{\partial s_2} = 2(1-t)t, \qquad
-\frac{\partial s}{\partial s_3} = t^2.
-$$
-
-### 8.3 Analytic Jacobian and the exact chi-square gradient (F-CAL-4)
-
-Differentiating the forward model, with
-$`C_k = \partial C/\partial q_k`$ from F-RESP-4 chained into the internal basis
-through the F-MODEL-2 Jacobian:
-
-$$
-\frac{\partial\ \text{prediction}_d}{\partial q_k} = s_d \odot \big(C_k[\text{window}]\ \mathrm{mc}_d\big),
-\qquad
-\frac{\partial\ \text{prediction}_d}{\partial s_p} = \frac{\partial s_d}{\partial s_p} \odot \big(C_{\mathrm{fit}}[\text{window}]\ \mathrm{mc}_d\big).
-$$
-
-The variance depends on the parameters, so the **exact** gradient carries an
-extra term:
-
-$$
-\frac{\mathrm{d}\chi^2}{\mathrm{d}\theta} = -2 J^{\mathsf{T}} \frac{\text{data} - p}{v} - \left(\frac{\mathrm{d}v}{\mathrm{d}\theta}\right)^{\mathsf{T}} \frac{(\text{data} - p)^2}{v^2},
-$$
-
-$$
-\frac{\partial v}{\partial q_k} = s_d^2\Big[2\ (C_{\mathrm{fit}} \cdot C_k)[\text{window}]\ \mathrm{varMC}_d\Big],
-\qquad
-\frac{\partial v}{\partial s_p} = 2 s_d \frac{\partial s_d}{\partial s_p}\Big[(C_{\mathrm{fit}}^2)[\text{window}]\ \mathrm{varMC}_d\Big].
-$$
-
-The optimizer then sees the residual
-$r = (\text{data} - p)/\sigma$ and its Jacobian
-$\mathrm{d}r/\mathrm{d}\theta = -J/\sigma - r\ (\mathrm{d}v/\mathrm{d}\theta)/(2v)$,
-so its gradient is the exact gradient of the objective it minimizes. **No
-finite differences enter production.** The fit itself is a single bounded
-trust-region (reflective) least-squares stage via
-`scipy.optimize.least_squares` with `x_scale="jac"`, started from the frozen
-bounds and seeds of F-CAL-3.
-
-### 8.4 Covariance with the scale marginalized (F-CAL-5)
-
-With $J$ the full-parameter Jacobian, $W = \mathrm{diag}(1/v)$ (F-CAL-1)
-and $F = J^{\mathsf{T}} W J$, split the parameters into the reported core $c$
-and the scale $s$:
-
-$$
-\mathrm{cov}_{\text{core}}
-  = \frac{\chi^2}{\mathrm{dof}}\ \Big(F_{cc} - F_{cs} F_{ss}^{+} F_{sc}\Big)^{-1},
-\qquad
-\mathrm{cov}_{\text{reported}} = T \mathrm{cov}_{\text{core}} T^{\mathsf{T}},
-$$
-
-with $`T = \mathrm{diag}\big(\texttt{internal\_jacobian}(\mathrm{ch}_{\max}), I_3\big)`$.
-
-The Schur complement $`F_{cc} - F_{cs}F_{ss}^{+}F_{sc}`$ is the $(c,c)$ block of
-$F^{-1}$, i.e. the scale **marginalized** rather than fixed; $`F_{ss}^{+}`$ is the
-Moore-Penrose inverse, which projects out the $`s_0`$ gauge when the fitted scale
-is (nearly) polynomial. Jacobi (diagonal) preconditioning is applied before the
-factorization. $\chi^2/\mathrm{dof}$ is the single global scale (PDG convention,
-F-COV-2): $\mathrm{cov} = s^2 F^{-1}$ with $s^2 = \chi^2/\mathrm{dof}$; a
-singular or non-positive-definite Fisher matrix is a **hard failure** — there is
-no pseudo-inverse fallback for the core. For invertible $`F_{ss}`$ this is
-algebraically identical to taking the core block of the full inverse, which the
-tests verify on a well-conditioned Fisher. The estimator string recorded with
-the product is `fisher-x2dof-marginalized-reported`.
-
-An optional **profile-covariance diagnostic** (F-COV-3) profiles each parameter
-at $`p_i \pm 4\sqrt{2/H_{ii}}`$, re-optimizes the rest, solves the
-$\Delta\chi^2 = 1$ crossing with `brentq`, and takes correlations from the
-numerical Hessian. It never replaces the analytic estimate.
 
 ---
 
@@ -841,12 +972,12 @@ numerical Hessian. It never replaces the analytic estimate.
 
 ### 9.1 Fixed per-column sampling and event accounting (F-SIM-1)
 
-The matrix primary axis has $`n_{\text{active}}`$ active columns.
-$`n_{\text{events}}`$ is split as
-$`\text{base},\  \text{rem} = \mathrm{divmod}(n_{\text{events}}, n_{\text{active}})`$;
+The matrix primary axis has $n_{\text{active}}$ active columns.
+$n_{\text{events}}$ is split as
+$\text{base},\ \text{rem} = \mathrm{divmod}(n_{\text{events}}, n_{\text{active}})$;
 the active columns receive $\text{base} + 1$ for the first `rem` and `base`
 otherwise — exactly the round-robin assignment
-$`\text{active}[(\text{offset} + \text{event}) \bmod n_{\text{active}}]`$ written
+$\text{active}[(\text{offset} + \text{event}) \bmod n_{\text{active}}]$ written
 as a count vector. Within column $j$, each primary energy is drawn uniformly in
 its bin,
 
@@ -856,7 +987,7 @@ $$
 
 Every event is scored into exactly one cell: either an in-range positive
 deposit fills one $(\text{deposition}, \text{primary})$ cell of $G$, or the
-event is counted in $`\mathrm{zero}_j`$. Hence the accounting identity holds
+event is counted in $\mathrm{zero}_j$. Hence the accounting identity holds
 exactly by construction:
 
 $$
@@ -868,23 +999,23 @@ $$
 The scoring rule is $0 < \mathrm{totalKev} < \mathrm{high}$ **and**
 $\mathrm{totalKev} \ge \mathrm{low}$ for the in-range branch (exactly as
 implemented), so an event whose total deposit falls outside the deposition axis
-is *routed to* $`\mathrm{zero}_j`$ rather than lost. The identity therefore
+is *routed to* $\mathrm{zero}_j$ rather than lost. The identity therefore
 cannot detect an out-of-range deposit — it holds by construction, and
-$`\mathrm{zero}_j`$ is "no in-range deposit", not "nothing deposited" (§4.1).
+$\mathrm{zero}_j$ is "no in-range deposit", not "nothing deposited" (§4.1).
 What the identity does guarantee is that no event is dropped, double-counted or
 invented.
 
 ### 9.2 Exact fixed-total variance (F-SIM-2)
 
-Conditional on the fixed column total $`N_j`$, the deposition-bin counts are
-multinomial with probabilities $`p = G[d,j]/N_j`$, so the binomial marginal
+Conditional on the fixed column total $N_j$, the deposition-bin counts are
+multinomial with probabilities $p = G[d,j]/N_j$, so the binomial marginal
 
 $$
 \mathrm{Var}\big(G[d,j]\big) = N_j\ p\ (1 - p)
 $$
 
 is stored in `fSumw2`. Within a column the bins are **negatively correlated**
-and those correlations are reconstructed downstream from counts and $`N_j`$. A
+and those correlations are reconstructed downstream from counts and $N_j$. A
 Poisson `counts` variance would overstate the high-probability bins; this is
 why the exact fixed-total form is used. The source mode fills one entry per
 merged pulse, so the pulse total $P$ is itself random; conditional on the
@@ -901,22 +1032,22 @@ x = (2u_x - 1)h_x, \qquad y = (2u_y - 1)h_y, \qquad z = z_{\text{plane}}.
 $$
 
 Direction Lambertian about the inward normal $-z$:
-$`\cos\theta = \sqrt{u_{\cos}}`$ (the correct cosine-weighted law, not
-$\cos\theta = u$), $`\varphi = 2\pi u_\varphi`$, giving the unit vector
-$(-\sin\theta\cos\varphi,\  -\sin\theta\sin\varphi,\  -\cos\theta)$.
+$\cos\theta = \sqrt{u_{\cos}}$ (the correct cosine-weighted law, not
+$\cos\theta = u$), $\varphi = 2\pi u_\varphi$, giving the unit vector
+$(-\sin\theta\cos\varphi,\ -\sin\theta\sin\varphi,\ -\cos\theta)$.
 
-**Sphere.** A uniform point uses $`\cos\theta_0 = 2u_1 - 1`$,
-$`\varphi_0 = 2\pi u_2`$; a local orthonormal frame
-$`e_1 = n \times \hat{z}`$ (falling back to $(1,0,0)$ at the poles) and
-$`e_2 = n \times e_1`$ carries the same Lambertian direction. The result is a unit
+**Sphere.** A uniform point uses $\cos\theta_0 = 2u_1 - 1$,
+$\varphi_0 = 2\pi u_2$; a local orthonormal frame
+$e_1 = n \times \hat{z}$ (falling back to $(1,0,0)$ at the poles) and
+$e_2 = n \times e_1$ carries the same Lambertian direction. The result is a unit
 vector with positive projection on the inward normal.
 
 ### 9.4 Pulse merging and deterministic seeds (F-SIM-5/F-SIM-7)
 
 Crystal deposits carry their Geant4 global time; sorting by time, a pulse is the
-group accumulated while $`t \le t_0 + 10\ \mu\mathrm{s}`$, i.e. the **closed**
-window $`[t_0,\  t_0 + 10\ \mu\mathrm{s}]`$ (the boundary deposit at exactly
-$`t_0 + 10\ \mu\mathrm{s}`$ is included). Its energy is the sum of the group's
+group accumulated while $t \le t_0 + 10\ \mu\mathrm{s}$, i.e. the **closed**
+window $[t_0,\ t_0 + 10\ \mu\mathrm{s}]$ (the boundary deposit at exactly
+$t_0 + 10\ \mu\mathrm{s}$ is included). Its energy is the sum of the group's
 deposits. Only the source mode merges — the matrix mode scores one gamma per
 event.
 
@@ -940,8 +1071,8 @@ and runs in strict mode.
 Its scope is bounded by the routing rule of §9.1: an out-of-range total never
 reaches a $G$ cell at all, so this certificate proves that the cells that *were*
 scored respect energy conservation — it is **not** a detector of escaped
-deposits. Those are absorbed into $`\mathrm{zero}_j`$ by construction, which is
-why the $`\eta_j`$ of F-SIM-3 must be read as the in-range containment fraction.
+deposits. Those are absorbed into $\mathrm{zero}_j$ by construction, which is
+why the $\eta_j$ of F-SIM-3 must be read as the in-range containment fraction.
 
 ---
 
@@ -986,15 +1117,15 @@ both modes and cannot be disabled (D-62).
 | Resolution positivity | F-MODEL-5 | $\sigma^2 \ge -10^{-9}$ on the export grid |
 | Kernel column sums | F-KERN-2 | every non-empty column sums to $1$ within $10^{-10}$ |
 | Response columns | F-RESP-1 | every $C$ column sums to $1$ or is exactly $0$ |
-| Composition identity | F-RESP-2 | $R$ column sums equal detected mass $`/N_j`$ (the $\eta \in [0,1]$ bound is always-on) |
+| Composition identity | F-RESP-2 | $R$ column sums equal detected mass $/N_j$ (the $\eta \in [0,1]$ bound is always-on) |
 | Slice integrity | F-RESP-3 | sliced row sums never exceed full column sums |
 | KKT | F-SOLVE-3 | scaled reduced gradient and complementarity $\le 10^{-6}$ |
 | Mask reproducibility | F-SOLVE-6 | stored mask equals the mask recomputed from the recorded spectrum and settings |
 | Covariance PSD | F-COV-1/2 | symmetric, smallest eigenvalue $\ge -\mathrm{tol}$ |
-| Band decomposition | F-UNC-3 | $`\sigma_{\text{total}}^2 = \sigma_{\text{stat}}^2 + \sigma_{\text{syst}}^2`$ within $10^{-9}$ relative |
-| Event accounting | F-SIM-1 | $`\sum \text{counts} + \mathrm{zero} = N_j`$; $`\sum_j N_j = n_{\text{events}}`$ |
-| Simulation variance | F-SIM-2 | `fSumw2` $`= N_j\ p\ (1-p)`$ (matrix) or $c\ (1-c/P)$ (source) |
-| Efficiency bounds | F-SIM-3 | derived $`\eta_j = \text{column sum}_j / N_j`$ lies in $[0,1]$ |
+| Band decomposition | F-UNC-3 | $\sigma_{\text{total}}^2 = \sigma_{\text{stat}}^2 + \sigma_{\text{syst}}^2$ within $10^{-9}$ relative |
+| Event accounting | F-SIM-1 | $\sum \text{counts} + \mathrm{zero} = N_j$; $\sum_j N_j = n_{\text{events}}$ |
+| Simulation variance | F-SIM-2 | `fSumw2` $= N_j\ p\ (1-p)$ (matrix) or $c\ (1-c/P)$ (source) |
+| Efficiency bounds | F-SIM-3 | derived $\eta_j = \text{column sum}_j / N_j$ lies in $[0,1]$ |
 | Physical boundary | F-SIM-6 | impossible deposition cells are exactly $0$ (strict only) |
 | Finiteness | all | no NaN/Inf; shape and unit checks in every mode |
 
@@ -1013,7 +1144,7 @@ python -m kc761tool --help
 | `specadd` | add two spectra (values and DAQ times add) |
 | `specsub` | scale by DAQ time and subtract a background spectrum |
 | `sim` | Geant4 source mode (`mc_spectrum`) or matrix mode (`G`) |
-| `calib` | joint fit of $`(c_0 \dots c_3, b_0 \dots b_2)`$ and the per-dataset Bezier scales |
+| `calib` | joint fit of $(c_0 \dots c_3, b_0 \dots b_2)$ and the per-dataset Bezier scales |
 | `compose` | compose $R = C\ G\mathrm{diag}(1/N)$ for inspection |
 | `unfold` | solve the non-negative Tikhonov problem (full, or `--calib-only`) |
 
@@ -1021,6 +1152,12 @@ The chain is `csv2root -> specsub -> sim` (source) `-> calib -> sim` (matrix)
 `-> compose -> unfold`: the calibration consumes measured and source-mode
 simulated spectra, and the matrix simulation and unfolding consume the
 calibration product that supplies their energy axes.
+
+The `calib` step and the source-mode `sim` runs that feed it are the one-time
+detector calibration. Once `calib` has run, the remainder (`sim` matrix mode,
+`compose`, `unfold`) is applied to any number of measured spectra with that
+calibration held fixed, so the unfolded spectra need not be the calibration
+sources.
 
 `specadd` and `specsub` take their two operands positionally and share the
 F-SPEC-1/F-SPEC-2 formulas ([docs/formats.md](docs/formats.md) §7.4/§7.5):
@@ -1039,7 +1176,7 @@ A full unfold defaults to `alpha = 1` (D-191) and writes
 `work/unfold/unfold-<data-stem>-<sim-stem>.root` (D-192); `--alpha` overrides
 the strength and `-o/--output` the target. The SNIP peak mask is on by default
 with `snip_floor = 0.01` and `snip_max_iterations = 32` (D-191); it can be
-disabled with `--no-snip` or tuned with the `--snip-*` flags (§6). The unfold
+disabled with `--no-snip` or tuned with the `--snip-*` flags (§7). The unfold
 figure carries the linear spectrum and the relative residuals; `--log-plot`
 adds the logarithmic-y panel (D-193). Calibration prints a pre-fit summary and a
 progress line about once per second (`--no-progress` silences them,
@@ -1051,6 +1188,8 @@ refused up front rather than after a long run (D-171).
 python kc761tool.py unfold --strict ...        # every certificate
 KC761TOOL_STRICT=1 python kc761tool.py unfold ...  # same, via the environment
 ```
+
+---
 
 ## 13. Configuration files
 
@@ -1074,6 +1213,8 @@ declaration.
 See [examples/](examples/) for a commented file per subcommand, and
 [docs/plan.md](docs/plan.md) section 1.12 for the full rules.
 
+---
+
 ## 14. Requirements
 
 * Python >= 3.12.
@@ -1087,6 +1228,8 @@ See [examples/](examples/) for a commented file per subcommand, and
 
 Packaging is intentionally not provided (D-7); install the dependencies in a
 virtual environment and run from the repository root.
+
+---
 
 ## 15. Data and outputs
 
@@ -1105,11 +1248,13 @@ virtual environment and run from the repository root.
   and dependency versions, the sha256 of every input file, the ordered CLI
   arguments and a UTC timestamp.
 
+---
+
 ## 16. Development checks
 
 ```bash
 ruff check .
-pytest -q -m "not g4 and not root"        # 386 passed, 1 bench case skipped
+pytest -q -m "not g4 and not root"        # 445 passed, 9 framework cases deselected
 pytest -q tests/test_sim_g4.py            # needs geant4-pybind
 python tools/check_single_source.py       # the single-source gate
 python tools/generate_kernels.py          # regenerate kc761tool/core/_gen (committed)
@@ -1132,6 +1277,8 @@ python kc761tool.py --help
 python -m kc761tool --help
 for c in calib compose sim unfold; do python kc761tool.py "$c" -c "examples/$c.toml" --dry-run; done
 ```
+
+---
 
 ## 17. Repository layout
 
@@ -1160,6 +1307,8 @@ for c in calib compose sim unfold; do python kc761tool.py "$c" -c "examples/$c.t
 | `tests/` | auxiliary tests and deterministic fixtures |
 | `docs/` | plan, architecture, formats, derivations |
 | `AGENTS.md` | hard rules, file ownership, contract-change process |
+
+---
 
 ## 18. Documentation
 

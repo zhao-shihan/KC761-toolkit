@@ -36,8 +36,8 @@ venv/
 *.tar
 G4History.macro
 
-!tests/fixtures/data/
-!tests/fixtures/data/kc761_small.csv
+!tests/fixtures/data/*
+!examples/plots/*
 
 /work/*
 !/work/.gitkeep

@@ -1,0 +1,61 @@
+/* Data-flow diagram shown at the top of README.md.
+ *
+ * Render with:
+ *     dot -Tsvg examples/plots/workflow.dot -o examples/plots/workflow.svg
+ *
+ * Layout knobs: `rankdir` (LR/TB), `nodesep` (gap between boxes in a rank),
+ * `ranksep` (gap between ranks), `splines` (spline/ortho/polyline), `ratio`
+ * (target aspect ratio), and the `{ rank=same; ... }` groups, which set how the
+ * chain wraps when it does not fit in one row.
+ */
+digraph flow {
+  graph [rankdir=LR, splines=spline, nodesep=0.5, ranksep=0.5, bgcolor="#ffffff",
+         pad=0.15, fontname="Helvetica"];
+  node  [shape=box, style="rounded,filled", fillcolor="#ffffff", fontname="Helvetica",
+         fontsize=11, margin="0.14,0.08", penwidth=1.5, color="#1f4e9c", height=0.62];
+  edge  [color="#6e6e6e", penwidth=1.2, arrowsize=0.65, fontname="Helvetica",
+         fontsize=9, fontcolor="#4d4d4d"];
+
+  /* ---- measured data: MCA histogram, converted, then background subtracted ---- */
+  csv   [label=<<b>MCA histogram</b>>];
+  spec  [label=<<b>Data spectrum</b><br/><font point-size="9" color="#555555">kc761_spectrum</font>>];
+  data  [label=<<b>Net data spectrum</b>>];
+
+  /* ---- Geant4 simulation: one entry point, two modes ---- */
+  sim   [label=<<b>Simulation</b>>,
+         color="#7a1f1f"];
+  mc    [label=<<b>MC spectrum</b><br/><font point-size="9" color="#555555">kc761_mc_spectrum</font>>,
+         color="#a35a00"];
+  gmat  [label=<<b>Energy map (G)</b><br/><font point-size="9" color="#555555">primary_to_deposition</font>>,
+         color="#a35a00"];
+
+  /* ---- estimation ---- */
+  calib [label=<<b>Calibration</b><br/><font point-size="9" color="#555555">E(ch), sigma(E), scales</font>>,
+         color="#7a1f1f"];
+
+  /* ---- products ---- */
+  cprod [label=<<b>Calibration matrix (C)</b><br/><font point-size="9" color="#555555">deposition_to_channel</font>>,
+         color="#1f4e9c"];
+  resp  [label=<<b>Response matrix (R)</b><br/><font point-size="9" color="#555555">R = C G diag(1/N)</font>>,
+         color="#1f4e9c"];
+
+  /* ---- recovery ---- */
+  unf   [label=<<b>Unfold</b>>,
+         color="#7a1f1f"];
+  out   [label=<<b>Unfolded spectrum</b>>,
+         color="#1f4e9c"];
+
+  /* ---- dependencies ---- */
+  csv -> spec  [label="csv2root"];
+  spec -> data [label="specsub / specadd"];
+  sim -> mc    [label="source mode", fontcolor="#a35a00"];
+  sim -> gmat  [label="matrix mode", fontcolor="#a35a00"];
+  mc -> calib;
+  data -> calib;
+  gmat -> resp;
+  calib -> cprod;
+  cprod -> resp  [label="compose"];
+  data -> unf;
+  resp -> unf;
+  unf -> out;
+}
