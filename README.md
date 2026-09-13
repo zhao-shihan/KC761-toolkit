@@ -1,99 +1,61 @@
-# KC761 toolkit
+# KC761 工具包
 
-The toolkit covers the full chain from a measured pulse-height histogram of a
-MEASALL KC761x/KC761 spectrometer to a primary gamma spectrum. `calib` fits the
-energy calibration and the resolution model to measured and simulated spectra of
-known sources, `compose` combines that calibration with the
-primary-to-deposition matrix from a Geant4 matrix simulation into the
-primary-to-channel response matrix, and `unfold` solves the resulting
-non-negative inverse problem and reports statistical and systematic
-uncertainties. Everything is Python on the scientific stack, and ROOT files are
-read and written through `uproot`, so no ROOT installation is required. Each
-stage is one subcommand, writes one product with full provenance, and is
-described by a formula registry ID (`F-...`) whose derivation is in
-[docs/derivations.md](docs/derivations.md). Fits and propagation use analytic
-Jacobians; no finite differences enter production.
+**简体中文** | [English](README.en.md)
 
-The stages:
+本工具包覆盖从 MEASALL KC761x/KC761 谱仪实测脉冲幅度直方图（pulse-height histogram）到初级伽马能谱（primary gamma spectrum）的完整链条。`calib` 以已知放射性核素的实测谱与模拟谱为输入，联合拟合能量刻度（energy calibration）与能量分辨率模型（resolution model）；`compose` 将该刻度与 Geant4 矩阵模拟给出的初级—沉积矩阵合成为初级—道址响应矩阵（response matrix）；`unfold` 求解由此得到的非负反问题，并给出统计与系统不确定度。全部实现均基于 Python 科学计算栈，ROOT 文件经 `uproot` 读写，因而无需安装 ROOT。每个环节对应一个子命令，写出一个带完整溯源信息（provenance）的数据产品（product），并由一个公式登记号（`F-...`）标识，其推导见 [docs/derivations.md](docs/derivations.md)。拟合与不确定度传递一律使用解析雅可比矩阵（Jacobian），生产流程中不引入有限差分。
 
-* `csv2root` converts a raw MCA CSV export into a spectrum
-  product; `specsub` (and `specadd`) combine spectra, scaling the background by
-  the acquisition-time ratio $r = t_A / t_B$.
-* `sim` runs Geant4 in source mode, producing a Monte-Carlo
-  spectrum per calibration source (`mc_spectrum`), or in matrix mode, producing
-  the primary-to-deposition matrix $G$ from a calibration product.
-* `calib` fits the energy calibration $E(\mathrm{ch})$ and the
-  resolution model $\sigma(E)$ jointly over all measured and simulated spectrum
-  pairs, and reports the parameter covariance; `compose` forms the response
-  matrix $R = C\ G\ \mathrm{diag}(1/N)$ for inspection.
-* `unfold` solves the regularized problem
-  $\min_{\mu \ge 0} \lVert (R\mu - y)/\sigma \rVert^2 + \alpha \lVert \tilde{D}'\mu \rVert^2$
-  and reports the unfolded spectrum, the refolded spectrum and the two
-  uncertainty bands, with the relative residuals as the fit diagnostic.
+各环节如下：
 
-![Data flow through the toolkit](examples/plots/workflow.svg)
+* `csv2root` 将 MCA 导出的原始 CSV 转换为谱数据产品；`specsub`（以及 `specadd`）用于谱的合成，本底按采集时间比 $r = t_A / t_B$ 缩放。
+* `sim` 在源模式（source mode）下运行 Geant4，为每个刻度源生成一套蒙特卡罗谱（`mc_spectrum`）；在矩阵模式（matrix mode）下，依据刻度产品生成初级—沉积矩阵 $G$。
+* `calib` 对全部实测谱与模拟谱数据对联合拟合能量刻度 $E(\mathrm{ch})$ 与分辨率模型 $\sigma(E)$，并报出参数协方差；`compose` 构造响应矩阵 $R = C\ G\ \mathrm{diag}(1/N)$ 以供检查。
+* `unfold` 求解正则化问题 $\min_{\mu \ge 0} \lVert (R\mu - y)/\sigma \rVert^2 + \alpha \lVert \tilde{D}'\mu \rVert^2$，报出解谱能谱、重褶积谱（refolded spectrum）与两条不确定度带，并以相对残差作为拟合诊断量。
 
-*Data flow and the products exchanged between the stages; §2 states the problem,
-and the figure captions of [§1.1](#11-what-the-output-looks-like) show the
-corresponding reports.*
+![工具包的数据流](examples/plots/workflow.svg)
 
-**Jump to:** [Quick start](#1-quick-start) ·
-[What the output looks like](#11-what-the-output-looks-like) ·
-[The detector model](#2-detector-model-energy-calibration-and-resolution) ·
-[Calibration](#5-calibration-a-joint-fit-over-datasets) ·
-[Unfolding](#6-unfolding-i-the-regularized-non-negative-problem) ·
-[Uncertainties](#8-uncertainty-propagation-with-a-strict-statsyst-split) ·
-[Simulation](#9-simulation-sampling-exact-variances-and-seeding) ·
-[Certificates](#11-runtime-certificates) ·
-[Running](#12-running) · [Configuration](#13-configuration-files) ·
-[Development](#16-development-checks) ·
-[Repository layout](#17-repository-layout) ·
-[Documentation](#18-documentation)
+*各环节之间交换的数据产品与数据流；第 2 节给出问题陈述，[§1.1](#11-输出结果概览) 的图注给出相应的报告图。*
+
+**快速跳转：** [快速开始](#1-快速开始) · [输出结果概览](#11-输出结果概览) · [探测器模型](#2-探测器模型能量刻度与能量分辨率) · [刻度](#5-刻度跨数据集联合拟合) · [解谱](#6-解谱一正则化非负问题) · [不确定度](#8-不确定度传递统计与系统分量的严格拆分) · [模拟](#9-模拟抽样精确方差与随机数种子) · [运行时校验](#11-运行时校验) · [运行方式](#12-运行方式) · [配置文件](#13-配置文件) · [开发检查](#16-开发检查) · [仓库结构](#17-仓库结构) · [文档](#18-文档)
 
 ---
 
-## 1. Quick start
+## 1. 快速开始
 
-Everything runs from the repository root; `work/` holds data and products and is
-not committed.
+全部操作均在仓库根目录下执行；`work/` 存放数据与数据产品，不纳入版本控制。
 
 ```bash
 python -m venv .venv && . .venv/bin/activate    # Python >= 3.12
-pip install -r requirements.txt                 # numpy, scipy, numba, uproot, sympy, matplotlib
-                                                # add geant4-pybind to re-run the simulation stages
-python kc761tool.py --help                      # the seven subcommands
+pip install -r requirements.txt                 # numpy、scipy、numba、uproot、sympy、matplotlib
+                                                # 需重跑模拟环节时另装 geant4-pybind
+python kc761tool.py --help                      # 七个子命令
 ```
 
-The production chain, spelled out stage by stage (paths as used for the
-reference campaign in `work/data/2609a/`; substitute your own campaign). Each
-command prints its resolved inputs and writes its product atomically, and the
-four `-c/--config` commands (`sim`, `calib`, `compose`, `unfold`) accept
-`--dry-run` to show the resolved run without side effects:
+生产链条按环节逐一列出（路径取自参考测量活动 `work/data/2609a/`，使用时替换为自己的测量活动）。每条命令都会打印解析后的输入，并以原子方式写出数据产品；四个接受 `-c/--config` 的命令（`sim`、`calib`、`compose`、`unfold`）支持 `--dry-run`，可在无副作用的前提下显示解析后的运行配置：
 
 ```bash
-# 1. raw MCA CSV export -> spectrum product (counts, fSumw2, DAQ time)
+# 1. MCA 原始 CSV 导出 -> 谱数据产品（计数、fSumw2、DAQ 时间）
 python kc761tool.py csv2root work/data/2609a/th232-260908.csv
 
-# 2. background subtraction, scaled by the acquisition-time ratio
+# 2. 本底扣除，按采集时间比缩放
 python kc761tool.py specsub work/data/2609a/th232-260908.root work/data/2609a/bkg-260909.root
 
-# --- calibrate the detector once, from sources of known radionuclides ---
-# 3. Geant4 source mode, once per calibration source
+# --- 用已知放射性核素的源对探测器做一次性刻度 ---
+# 3. Geant4 源模式，每个刻度源各运行一次
 python kc761tool.py sim --th232 -n 200000000 -s 908136382
 
-# 4. joint fit of the energy calibration and the resolution model
+# 4. 能量刻度与分辨率模型的联合拟合
 python kc761tool.py calib -c work/calib-2609a.toml
 
-# 5. Geant4 matrix mode, once, after calib: primary-to-deposition matrix G
+# 5. Geant4 矩阵模式，在 calib 之后运行一次：初级—沉积矩阵 G
 python kc761tool.py sim --plane-front-gamma work/calib/calib-2609a.root \
     -n 1000000000 -f
 
-# 6. compose R = C G diag(1/N) for inspection (unfold composes it internally)
+# 6. 合成 R = C G diag(1/N) 以供检查（unfold 内部会自行合成）
 python kc761tool.py compose --calib work/calib/calib-2609a.root \
     --sim work/sim/calib-2609a-plane-front-gamma-n1000000000-s908136382.root
 
-# --- then unfold the spectrum of interest, reusing that calibration ---
-# 7. non-negative Tikhonov unfold with stat/syst bands and the diagnostic figure
+# --- 随后用该刻度解谱待研究的能谱 ---
+# 7. 非负 Tikhonov 解谱，给出统计/系统不确定度带与诊断图
 python kc761tool.py unfold \
     --data work/data/2609a/th232-260908-subbkg.root \
     --calib work/calib/calib-2609a.root \
@@ -101,213 +63,114 @@ python kc761tool.py unfold \
     --energy-low 30 --energy-high 3000
 ```
 
-Steps 3-6 are the one-time preparation: they consume measurements of *known*
-sources and produce the calibration and the response matrix. Step 7 then applies
-those two products to the spectrum under study. This walkthrough unfolds one of
-the sources used to calibrate, which is the shipped test case; in production the
-`--data` product comes from the measurement being analyzed.
+第 3—6 步是一次性的准备工作：它们使用*已知*核素的测量结果，产生刻度与响应矩阵；第 7 步再把这两个数据产品应用于待研究的能谱。本示例解谱的是用于刻度的源之一；在实际分析中，`--data` 指向待分析能谱的数据产品。
 
-On the shipped reference products the unfold itself takes about 11 s
-(the response kernel being JIT-compiled on first use dominates the wall clock;
-it is thread-parallel and results are thread-count independent). `sim` is the
-only stage that needs Geant4; `calib`, `compose` and `unfold` run on the
-recorded products alone.
+在参考测量活动的数据产品上，解谱本身约需 11 s（首次使用时响应核的即时编译（JIT）主导了墙钟时间；该核为线程并行，结果与线程数无关）。`sim` 是唯一需要 Geant4 的环节；`calib`、`compose` 与 `unfold` 仅依赖已记录的数据产品即可运行。
 
-`calib`, `compose`, `sim` and `unfold` also take a TOML file
-(`-c/--config examples/<command>.toml`), and every product-writing command
-refuses to overwrite an existing file unless you pass `-f/--force`.
+`calib`、`compose`、`sim` 与 `unfold` 亦可接受 TOML 配置文件（`-c/--config examples/<command>.toml`）；所有写数据产品的命令在目标文件已存在时一律拒绝覆盖，除非显式给出 `-f/--force`。
 
-### 1.1 What the output looks like
+### 1.1 输出结果概览
 
-Figures are produced by the two commands that fit something, in the order the
-workflow runs them. `calib` is run **once, on calibration sources**: measured
-spectra of known radionuclides paired with their Geant4 simulations fix the
-energy calibration, the resolution model and the detector response. `unfold` then applies
-that calibration to the spectrum under study, which is normally not one of the
-calibration runs. The figures below use the calibration-source data because that
-is the shipped test case. The report is wide enough that it is shown at a fixed
-width; open the full-size image to read its panel labels.
+图件由两个执行拟合的命令产生，顺序与工作流一致。`calib` 在**刻度源上一次性运行**：已知放射性核素的实测谱与其 Geant4 模拟谱配对，确定能量刻度、分辨率模型与探测器响应。`unfold` 随后把该刻度应用于待研究的能谱，后者通常不属于刻度测量。下文图件取自刻度源的测量结果。报告图较宽，故以固定宽度展示；查看面板标签请打开原始尺寸图。
 
-<a href="examples/plots/calib-example.jpg"><img src="examples/plots/calib-example.jpg" width="580" alt="KC761 calibration report: one data/MC row per dataset, then the global energy calibration and resolution"></a>
+<a href="examples/plots/calib-example.jpg"><img src="examples/plots/calib-example.jpg" width="580" alt="KC761 刻度报告：每个数据集一行数据/模拟对比，其后为全局能量刻度与分辨率"></a>
 
-*The `calib` report: one data/MC row per dataset (fit window, $\chi^2$ and bin
-count, fitted model over the raw and fitted data, residuals, the per-dataset
-quadratic Bezier scale), then the global energy calibration
-$E(\mathrm{ch}) = c_0 + c_1\mathrm{ch} + c_2\mathrm{ch}^2 + c_3\mathrm{ch}^3$, the
-global resolution $\mathrm{FWHM}(E)$, and the fitted coefficients with their
-uncertainties.*
+*`calib` 报告图：每个数据集一行数据/模拟对比（拟合窗口、$\chi^2$ 与道数、叠加在原始谱与拟合后数据上的拟合模型、残差、逐数据集的二次 Bezier 归一化因子），其后为全局能量刻度 $E(\mathrm{ch}) = c_0 + c_1\mathrm{ch} + c_2\mathrm{ch}^2 + c_3\mathrm{ch}^3$、全局分辨率 $\mathrm{FWHM}(E)$，以及拟合系数及其不确定度。*
 
-The three figures below are the shipped `unfold` products for Th-232, Lu-176 and
-Ra-226 (linear-y spectrum panel; `--log-plot` inserts the logarithmic-y panel,
-D-193). Each panel overlays the measured spectrum, the unfolded primary spectrum
-and the refolded spectrum, draws the total uncertainty band with the systematic
-part nested inside it, and puts the relative residuals of the refold below.
+以下三幅图给出 Th-232、Lu-176 与 Ra-226 的解谱结果（能谱面板为线性纵轴；`--log-plot` 可插入对数纵轴面板，D-193）。每个面板叠加显示实测谱、解谱后的初级能谱与重褶积谱，绘出总不确定度带并将系统分量嵌套于其中，下方给出重褶积谱的相对残差。
 
-| Th-232 (30-3000 keV) | Lu-176 (15-400 keV) | Ra-226 (15-2500 keV) |
+| Th-232（30—3000 keV） | Lu-176（15—400 keV） | Ra-226（15—2500 keV） |
 |---|---|---|
-| ![Th-232 unfolded spectrum](examples/plots/unfold-th232-example.jpg) | ![Lu-176 unfolded spectrum](examples/plots/unfold-lu176-example.jpg) | ![Ra-226 unfolded spectrum](examples/plots/unfold-ra226-example.jpg) |
-| $\chi^2/\mathrm{dof} = 628.3/713 = 0.88$; SNIP candidates $14$, protected bins $96$ | $\chi^2/\mathrm{dof} = 93.3/121 = 0.77$; SNIP candidates $5$, protected bins $35$ | $\chi^2/\mathrm{dof} = 316.0/533 = 0.59$; SNIP candidates $16$, protected bins $112$ |
+| ![Th-232 解谱能谱](examples/plots/unfold-th232-example.jpg) | ![Lu-176 解谱能谱](examples/plots/unfold-lu176-example.jpg) | ![Ra-226 解谱能谱](examples/plots/unfold-ra226-example.jpg) |
+| $\chi^2/\mathrm{dof} = 628.3/713 = 0.88$；SNIP 候选 $14$ 个，保护道 $96$ 个 | $\chi^2/\mathrm{dof} = 93.3/121 = 0.77$；SNIP 候选 $5$ 个，保护道 $35$ 个 | $\chi^2/\mathrm{dof} = 316.0/533 = 0.59$；SNIP 候选 $16$ 个，保护道 $112$ 个 |
 
-The residual baseline is flat and centered on zero over the whole window, and
-dips only where the refolded spectrum leans on a sharp line. Near the window
-edges the residuals grow; this is the boundary layer documented in §3.3, so
-widen the window and quote the interior for quantitative bins close to an edge.
+残差基线在整个窗口内平坦且以零为中心，仅在重褶积谱倚赖锐线处出现下凹。窗口边缘附近残差增大，这是 §2.4 所述边界层的表现；若需要靠近边缘的定量道，应加宽窗口并只引用内部区域的结果。
 
-Both reports are written by default (`--no-plot` disables them) as a PDF next to
-the product they describe; `compose` and `sim` produce no figures (D-142).
+两份报告图默认写出（`--no-plot` 关闭），以 PDF 形式置于其所描述的数据产品旁；`compose` 与 `sim` 不产生图件（D-142）。
 
 ---
 
-## 2. Detector model: energy calibration and resolution
+## 2. 探测器模型：能量刻度与能量分辨率
 
-A scintillation detector does not measure gamma energies; it measures a
-smeared, efficiency-limited, background-contaminated channel histogram. The
-toolkit estimates three mathematical objects and composes them into one linear
-inverse problem:
+闪烁体探测器并**不**直接测量伽马能量，它测量的是被展宽、受探测效率限制并含本底的道址直方图。本工具包估计三个数学对象，并将其组合为一个线性反问题：
 
-| Object | Symbol | Meaning | Built by |
-|--------|--------|---------|----------|
-| Energy calibration | $E(\mathrm{ch})$ | channel $\to$ keV, cubic, strictly increasing | `calib` (F-MODEL-1) |
-| Energy resolution | $\sigma(E)$ | detector width in keV ($\mathrm{FWHM} = 2.355\ \sigma$) | `calib` (F-MODEL-4) |
-| Response | $R$ | primary energy $\to$ expected channel counts per primary | `compose` (F-RESP-2) |
+| 对象 | 符号 | 含义 | 构造者 |
+|------|------|------|--------|
+| 能量刻度 | $E(\mathrm{ch})$ | 道址 → keV，三次多项式，严格递增 | `calib`（F-MODEL-1） |
+| 能量分辨率 | $\sigma(E)$ | 探测器在 keV 尺度上的宽度（$\mathrm{FWHM} = 2.355\ \sigma$） | `calib`（F-MODEL-4） |
+| 响应 | $R$ | 初级能量 → 每个初级粒子在道址上的期望计数 | `compose`（F-RESP-2） |
 
-The measured spectrum $y$ is then modeled as
+实测谱 $y$ 因而可建模为
 
 $$
 y \ \approx\ R\ \mu + \text{noise}, \qquad \mu \ge 0,
 $$
 
-where $\mu$ is the primary (incident) energy spectrum. $\mu$ is recovered by
-`unfold` (F-SOLVE-1..6) and reported with strictly split uncertainty bands
-(F-UNC-1..3). The data flow between these objects, and the commands and products
-that carry them, are drawn in the figure at the top of this README.
+其中 $\mu$ 为初级（入射）能谱。$\mu$ 由 `unfold` 反演求得（F-SOLVE-1..6），并连同严格拆分的不确定度带一并报出（F-UNC-1..3）。这些对象之间的数据流，以及承载它们的命令与数据产品，见本文开头的图。
 
-Every stage is a matrix or a low-dimensional optimization; no stage compares
-against stored reference output. Correctness is defined by the derivations and
-the runtime certificates of section 16.
+每个环节要么是一个矩阵运算，要么是一个低维优化问题；没有任何环节与存储的参考输出作比较。正确性由推导与 §11 的运行时校验（runtime certificate）定义。
 
----
+### 2.1 双基底三次能量刻度（F-MODEL-1/F-MODEL-2）
 
-### 2.1 Dual-basis cubic energy calibration (F-MODEL-1/F-MODEL-2)
-
-$E(\mathrm{ch})$ is cubic on the acquisition range
-$[0, \mathrm{ch}_{\max}]$. The fit does **not** use the plain coefficients: it
-uses the value at the origin and the slopes at three nodes,
+$E(\mathrm{ch})$ 在采集范围 $[0, \mathrm{ch}_{\max}]$ 上为三次多项式。拟合**不**直接使用原始多项式系数，而是使用原点处的取值与三个节点处的斜率：
 
 $$
 c_0 = E(0), \qquad k_1 = E^{\prime}(0), \qquad
 k_2 = E^{\prime}(\mathrm{ch}_{\max}/2), \qquad k_3 = E^{\prime}(\mathrm{ch}_{\max}),
 $$
 
-which gives the numerically well-scaled internal form
+由此得到数值标度良好的内部形式
 
 $$
 E(\mathrm{ch}) = c_0 + k_1\ \mathrm{ch} + \frac{4k_2 - 3k_1 - k_3}{2\ \mathrm{ch}_{\max}}\ \mathrm{ch}^2 + \frac{2\ (k_1 - 2k_2 + k_3)}{3\ \mathrm{ch}_{\max}^2}\ \mathrm{ch}^3.
 $$
 
-Products store the plain cubic $(c_0, c_1, c_2, c_3)$. The two bases are related
-by an **affine** map, so its Jacobian is constant in the parameters
-(`internal_jacobian`), and covariance transforms between bases by
-$T \mathrm{cov} T^{\mathsf{T}}$. Round-tripping is exact to round-off.
-This basis choice is what keeps the fit conditioning sane: the slope
-coordinates are $O(1)$ where the raw cubic coefficients differ by orders of
-magnitude.
+数据产品存储原始三次系数 $(c_0, c_1, c_2, c_3)$。两种基底由**仿射**变换相联系，故其雅可比矩阵与参数无关（`internal_jacobian`）；协方差按 $T \mathrm{cov} T^{\mathsf{T}}$ 在两基底间变换，往返转换精确到舍入误差。这一基底选择正是拟合条件数得以保持正常的原因：斜率坐标的量级为 $O(1)$，而原始三次系数彼此相差若干数量级。
 
-### 2.2 Resolution as a quadratic Bernstein form (F-MODEL-4)
+### 2.2 二次 Bernstein 形式的能量分辨率（F-MODEL-4）
 
-With $t = \max(E, 0) / E_{\mathrm{REF}}$ and $E_{\mathrm{REF}} = 2000$ keV, the
-variance is the degree-2 Bernstein polynomial with control values
-$(b_0^2, b_1^2, b_2^2) \ge 0$:
+令 $t = \max(E, 0) / E_{\mathrm{REF}}$、$E_{\mathrm{REF}} = 2000$ keV，则方差为控制值 $(b_0^2, b_1^2, b_2^2) \ge 0$ 的二次 Bernstein 多项式：
 
 $$
 \sigma^2(t) = (1-t)^2 b_0^2 + 2(1-t)\ t\ b_1^2 + t^2 b_2^2.
 $$
 
-For $t \in [0, 1]$ this is a **convex combination** of non-negative controls,
-so positivity is structural rather than checked. Only $b_k^2$ enters, so the
-sign of $b_k$ is irrelevant. Exact derivatives
-$\partial\sigma / \partial b_k$ come from the same symbolic expression (§15).
-For $E > E_{\mathrm{REF}}$ the form is extrapolated and the cross term can
-drive $\sigma^2$ negative — that is a physical statement about the model class,
-and it is guarded by a certificate rather than hidden (§2.3).
+当 $t \in [0, 1]$ 时，该式为非负控制值的**凸组合**，故正性由结构保证而非逐点检查。式中仅出现 $b_k^2$，因此 $b_k$ 的符号不影响结果。精确导数 $\partial\sigma / \partial b_k$ 由同一符号表达式生成（§10）。当 $E > E_{\mathrm{REF}}$ 时该式为外推，交叉项可能使 $\sigma^2$ 变负——这是关于模型类适用范围的物理陈述，由校验加以防护，而非隐去（§2.3）。
 
-### 2.3 Certificates rather than assumptions
+### 2.3 以运行时校验代替假设
 
-* **Monotonicity (F-MODEL-3).** $E^{\prime}$ is quadratic, so its minimum on
-  $[0, \mathrm{ch}_{\max}]$ lies at an endpoint or at the exact vertex. The
-  certificate reconstructs the quadratic coefficients by finite differences and
-  evaluates the vertex — a sampling grid could hide a narrow dip, an exact
-  check cannot. A zero slope is rejected: a plateau makes the channel-energy
-  map non-invertible.
-* **Positivity (F-MODEL-5).** Strict mode raises when
-  $\sigma^2 < -10^{-9}\ \mathrm{keV}^2$. Outside strict mode a non-positive
-  variance is clamped to $\sigma_{\text{floor}} = 10^{-3}$ keV; a strictly
-  negative variance emits a `RuntimeWarning`, and the affected energies are
-  recorded in the product `meta` as `resol_clamp_count`,
-  `resol_clamp_energy_low_kev` and `resol_clamp_energy_high_kev`. The clamp is
-  explicit, logged and recorded — never silent.
+* **单调性（F-MODEL-3）。** $E^{\prime}$ 为二次多项式，其在 $[0, \mathrm{ch}_{\max}]$ 上的最小值必出现在端点或解析顶点处。该校验由有限差分重构二次系数并计算顶点——抽样网格可能漏掉狭窄的下凹，解析检查则不会。零斜率被拒绝：平台会使道址—能量映射不可逆。
+* **正性（F-MODEL-5）。** 严格模式下，$\sigma^2 < -10^{-9}\ \mathrm{keV}^2$ 即报错终止。非严格模式下，非正方差被钳制到 $\sigma_{\text{floor}} = 10^{-3}$ keV；若方差严格为负，则发出 `RuntimeWarning`，并把受影响的能量记入数据产品 `meta` 的 `resol_clamp_count`、`resol_clamp_energy_low_kev` 与 `resol_clamp_energy_high_kev`。该钳制是显式的、有告警的、有记录的，绝不静默发生。
 
-### 2.4 The solve space is the reported window (D-187)
+### 2.4 求解空间即报出窗口（D-187）
 
-The fit rows are the reported channel rows
-$[\mathrm{ch}_{\mathrm{lo}}, \mathrm{ch}_{\mathrm{hi}}]$ and the fit primary
-columns are the reported primary bins, i.e. exactly what the product reports.
-The earlier F-BIN-3 padding
-($[\mathrm{ch}_{\mathrm{lo}} - \mathrm{pad},\ \mathrm{ch}_{\mathrm{hi}} + \mathrm{pad}]$
-with `pad` in local resolution widths) is **retired**: it silently fitted a
-region the requested window excludes, and on measured data the region just
-outside the window is frequently the one where the composed response is least
-trustworthy. When that happens the padded rows dominate the weighted
-$\chi^2$ and the fit gives up genuine lines inside the window.
+拟合行取报出的道址行 $[\mathrm{ch}_{\mathrm{lo}}, \mathrm{ch}_{\mathrm{hi}}]$，拟合初级列取报出的初级道，即与数据产品所报出的内容完全一致。此前的 F-BIN-3 填充（以局部分辨率宽度为单位的 $[\mathrm{ch}_{\mathrm{lo}} - \mathrm{pad},\ \mathrm{ch}_{\mathrm{hi}} + \mathrm{pad}]$）已**废止**：它会静默地拟合用户所请求窗口之外的区域，而在实测数据上，紧邻窗口之外的区域往往正是合成响应最不可靠之处。一旦如此，被填充的行将主导加权 $\chi^2$，拟合因而放弃窗口内真实存在的谱线。
 
-**Consequence — the window edge.** A line inside the window whose response
-leaks outside it loses the rows that constrain the leaked part, and near the
-edge the response columns of adjacent primaries are strongly collinear, so the
-penalty resolves that near-degenerate direction toward the boundary. The
-result is a *boundary layer* — not a global bias, but not a one-bin effect
-either: in a window only a few resolution widths wide it reaches several
-reported bins. Measured on the shipped fixture (220-520 keV): a truth line in
-the second-to-last reported primary bin recovers 0.20 of its amplitude and its
-strength moves into the last reported bin, while a line six bins inside loses
-15%; widening the window to 200-560 keV restores 0.88-0.91, and the production
-30-3000 keV window (1336 fitted rows) closes with a total flux ratio of 0.9998.
-If you need quantitative bins near the edge of your region of interest, request
-a window wider than that region and quote only the interior — the standard
-unfolding convention the padding used to implement.
+**后果——窗口边缘。** 若窗口内某条谱线的响应泄漏到窗口之外，则约束该泄漏部分的行不再参与拟合；而在边缘附近，相邻初级道的响应列强共线，惩罚项会把这个近乎简并的方向解向边界。结果形成一条*边界层*：它不是全局偏差，但也不止影响一道——当窗口宽度仅为几个分辨率宽度时，边界层可延伸若干个报出道。在合成测试夹具（220—520 keV）上测得：位于倒数第二个报出初级道的真值线仅恢复其幅度的 0.20，强度向最后一个报出道转移；而位于窗口内第六道的谱线损失 15%；把窗口加宽至 200—560 keV 后恢复至 0.88—0.91，生产用 30—3000 keV 窗口（1336 个拟合行）的总通量比闭合于 0.9998。若需要感兴趣区边缘附近的定量道，应请求比该区域更宽的窗口，并只引用内部区域的结果——这正是此前填充机制所实现的标准解谱约定。
 
 ---
 
-## 3. The response kernel: exact Gaussian bin integrals
+## 3. 响应核：高斯分道积分的精确计算
 
-### 3.1 Exact bin probability, no midpoint approximation (F-KERN-1)
+### 3.1 分道概率的精确计算，不含中点近似（F-KERN-1）
 
-For a source at energy $c_j$ with width $\sigma_j$, the probability that the
-smeared energy lands in channel bin $i$ with edges $[e_i, e_{i+1}]$ is the
-Gaussian integral over the bin,
+对于能量为 $c_j$、宽度为 $\sigma_j$ 的源，经展宽后的能量落入边界为 $[e_i, e_{i+1}]$ 的道址区间 $i$ 的概率，即高斯分布在该道上的积分：
 
 $$
 P(i \mid j) = \Phi\left(\frac{e_{i+1} - c_j}{\sigma_j}\right) - \Phi\left(\frac{e_i - c_j}{\sigma_j}\right),
 $$
 
-with $\Phi$ the standard normal CDF evaluated through $\mathrm{erf}$. The
-expression is analytic; the only error is floating-point round-off. There is no
-midpoint approximation and no truncation to a tabulated kernel.
+其中 $\Phi$ 为经 $\mathrm{erf}$ 计算的标准正态累积分布函数。该式为解析式，唯一误差来源是浮点舍入。既无中点近似，也无向表格化核函数的截断。
 
-### 3.2 C1 smoothstep support taper and exact renormalization (F-KERN-2)
+### 3.2 C¹ 平滑阶跃支撑截断与精确重归一化（F-KERN-2）
 
-A Gaussian has infinite support; the kernel is truncated with a compactly
-supported $C^1$ taper. With $x$ the **bin-center** offset from the source
-(D-83), $s = \mathrm{clip}\big((n_\sigma \sigma - \lvert x \rvert)/\sigma,\ 0,\ 1\big)$ and
+高斯分布的支撑为无限区间，故用紧支撑的 $C^1$ 渐变函数（taper）截断。以 $x$ 表示 **道中心**相对源位置的偏移（D-83），令 $s = \mathrm{clip}\big((n_\sigma \sigma - \lvert x \rvert)/\sigma,\ 0,\ 1\big)$，则
 
 $$
 w(x) = 3s^2 - 2s^3.
 $$
 
-$w = 1$ on the plateau $\lvert x \rvert \le (n_\sigma - 1)\sigma$, decays
-smoothly to $0$ at $\lvert x \rvert = n_\sigma \sigma$, and is exactly $0$
-beyond. Its first derivative $(6s - 6s^2)\ \mathrm{d}s/\mathrm{d}x$ vanishes at
-both clip boundaries, so the taper is $C^1$ and adds **no kink** to the fit
-objective. The tapered column is then renormalized exactly:
+$w = 1$ 于平台区 $\lvert x \rvert \le (n_\sigma - 1)\sigma$，在 $\lvert x \rvert = n_\sigma \sigma$ 处平滑地衰减至 $0$，超出后严格为零。其一阶导数 $(6s - 6s^2)\ \mathrm{d}s/\mathrm{d}x$ 在两个截断边界处均为零，故该渐变函数为 $C^1$，不会给拟合目标函数引入**折点**。随后对截断后的列作精确重归一化：
 
 $$
 n_{ij} = P(i \mid j)\ w_{ij}, \qquad
@@ -315,124 +178,69 @@ D_j = \sum_i n_{ij}, \qquad
 p_{ij} = \frac{n_{ij}}{D_j}.
 $$
 
-Every non-empty column therefore sums to exactly $1$; a column with $D_j = 0$
-is exactly zero. Renormalization is what makes the taper an approximation of
-the *shape* rather than a silent loss of probability.
+因而每个非空列之和精确为 $1$；$D_j = 0$ 的列为严格零列。重归一化使该渐变截断成为对*形状*的近似，而不是对概率的静默丢失。
 
-### 3.3 Sparse assembly with exact-zero pruning (F-KERN-3)
+### 3.3 精确零元剪枝与稀疏装配（F-KERN-3）
 
-Only bin centers strictly inside
-$(c_j - n_\sigma \sigma_j,\ c_j + n_\sigma \sigma_j)$ are evaluated
-(`searchsorted`). Everywhere else the taper is *exactly* zero and all its first
-derivatives vanish, so the pruned sum is identical to the full sum for
-**every** parameter value. The pattern has $O(\sum_j \mathrm{reach}_j)$ entries
-with $\mathrm{reach}_j \sim 2 n_\sigma \sigma_j / w$; no dense
-$n_{\text{channels}} \times n_{\text{deposition}}$ intermediate is ever created,
-and the assembled matrix is CSR.
+仅对严格位于 $(c_j - n_\sigma \sigma_j,\ c_j + n_\sigma \sigma_j)$ 之内的道中心求值（`searchsorted`）。在其他位置渐变函数*严格*为零，且其全部一阶导数均为零，因此对**任意**参数取值，剪枝后的求和与完整求和完全相同。该稀疏模式含 $O(\sum_j \mathrm{reach}_j)$ 个元素，其中 $\mathrm{reach}_j \sim 2 n_\sigma \sigma_j / w$；过程中不会生成 $n_{\text{channels}} \times n_{\text{deposition}}$ 的稠密中间矩阵，装配结果为 CSR 格式。
 
-This is the mechanism behind D-79: the response geometry is
-**parameter-independent** (full deposition axis $\times$ requested channel rows,
-no freeze, no bin selection), so the fit objective is continuous in the
-parameters *by construction* while remaining sparse.
+这正是 D-79 背后的机制：响应几何**与参数无关**（完整的沉积轴 × 所请求的道址行，不冻结、不选道），因此拟合目标函数*由构造保证*对参数连续，同时又保持稀疏。
 
-### 3.4 Kernel derivatives and center folding (F-KERN-4)
+### 3.4 核函数导数与道中心折叠（F-KERN-4）
 
-The generated module provides $\partial n/\partial e_{\mathrm{lo}}$,
-$\partial n/\partial e_{\mathrm{hi}}$, $\partial n/\partial c$,
-$\partial n/\partial \sigma$ and $\partial n/\partial c_{\text{ctr}}$. Because
-the bin center is $(e_{\mathrm{lo}} + e_{\mathrm{hi}})/2$, moving either edge
-displaces the taper argument by half the displacement, so the kernel adds
-$\tfrac12\ \partial n/\partial c_{\text{ctr}}$ to each edge derivative. The
-clipped smoothstep is differentiated by the chain rule with the clipping
-prefactor, which vanishes outside the transition band — the $C^1$ extension is
-exact.
+所生成的模块提供 $\partial n/\partial e_{\mathrm{lo}}$、$\partial n/\partial e_{\mathrm{hi}}$、$\partial n/\partial c$、$\partial n/\partial \sigma$ 与 $\partial n/\partial c_{\text{ctr}}$。由于道中心为 $(e_{\mathrm{lo}} + e_{\mathrm{hi}})/2$，移动任一边界都会使渐变函数的自变量偏移该位移的一半，故核函数对每条边界导数的贡献为 $\tfrac12\ \partial n/\partial c_{\text{ctr}}$。带截断的平滑阶跃按链式法则配合截断前因子求导，该前因子在过渡带之外为零——因而 $C^1$ 延拓是精确的。
 
 ---
 
-## 4. Response composition and the analytic Jacobian
+## 4. 响应矩阵合成与解析雅可比
 
-### 4.1 The matrices $C$ and $R = C\ G\mathrm{diag}(1/N)$ (F-RESP-1/F-RESP-2)
+### 4.1 矩阵 $C$ 与 $R = C\ G\mathrm{diag}(1/N)$（F-RESP-1/F-RESP-2）
 
-$C[i,j]$ is the probability that a gamma depositing energy in deposition bin
-$j$ lands in channel bin $i$; the channel edges are $E(i - \tfrac12)$ from
-F-MODEL-1. With $G$ the matrix-mode deposition-by-primary count matrix, $S_j$
-its column sums and $N_j$ the per-column generated-event totals,
+$C[i,j]$ 表示在沉积能量道 $j$ 沉积能量的伽马被记录进道址区间 $i$ 的概率；道边界由 F-MODEL-1 给出，为 $E(i - \tfrac12)$。记 $G$ 为矩阵模式下的“沉积能量 × 初级能量”计数矩阵，$S_j$ 为其列和，$N_j$ 为逐列生成的事件总数，则
 
 $$
 \tilde{p} = \frac{G}{S_j}, \qquad \eta_j = \frac{S_j}{N_j}, \qquad
 R = C\ \tilde{p}\ \mathrm{diag}(\eta) = C\ G\ \mathrm{diag}(1/N).
 $$
 
-The two forms are algebraically identical because
-$\tilde{p}\ \eta = G/N$. The implementation uses the second: it has no
-intermediate $0/0$ and one fewer normalization step. $\eta_j$ is the
-**detection efficiency** (F-SIM-3) and is validated to lie in $[0, 1]$; it
-follows the identity $\eta_j = 1 - \mathrm{zero}_j / N_j$.
+两种写法在代数上完全等价，因为 $\tilde{p}\ \eta = G/N$。实现采用第二种：它不产生 $0/0$ 的中间量，且少一步归一化。$\eta_j$ 即**探测效率**（F-SIM-3），经校验位于 $[0, 1]$ 内，并满足恒等式 $\eta_j = 1 - \mathrm{zero}_j / N_j$。
 
-Read that identity precisely: $\mathrm{zero}_j$ counts every generated primary
-of column $j$ that did **not** land in an in-range deposition bin, which
-includes both events that deposited nothing in the crystal and events whose
-total deposit fell outside the deposition axis. $\eta_j$ is therefore the
-fraction of primaries with an in-range deposit — the containment the matrix can
-represent, not a claim about the crystal's physical detection threshold.
+需准确理解该恒等式：$\mathrm{zero}_j$ 统计第 $j$ 列中一切**未**落入沉积轴范围内的初级事件，其中既包括在晶体中未产生任何沉积的事件，也包括总沉积能量落在沉积轴之外的事件。因此 $\eta_j$ 是初级粒子中沉积能量落在轴内的比例——即矩阵所能表示的包容率，而不是关于晶体物理探测阈值的断言。
 
-### 4.2 Compose on the full axis, then slice (F-RESP-3)
+### 4.2 先在全轴上合成，再切片（F-RESP-3）
 
-Composition runs over the **full** primary axis and window slicing happens
-afterward. `column_sums` and `efficiency` keep their full-axis meaning, while
-`channel_low`/`channel_high` describe the rows the matrix actually holds.
-Composing after slicing would renormalize the response with the wrong window;
-the certificate instead verifies that slicing only removed non-negative row
-mass and that sliced row sums never exceed full column sums.
+合成在**完整**初级轴上进行，窗口切片在其后进行。`column_sums` 与 `efficiency` 保持其全轴含义，而 `channel_low`/`channel_high` 描述矩阵实际持有的行。若先切片再合成，响应将以错误的窗口重归一化；本实现改用校验来确认切片只移除了非负的行质量，且切片后的行和不超过完整列和。
 
-### 4.3 Response Jacobian by chaining (F-RESP-4)
+### 4.3 链式法则求响应雅可比（F-RESP-4）
 
-For $q = (c_0, c_1, c_2, c_3, b_0, b_1, b_2)$ in the reported basis, a channel
-edge contributes through its energy and a deposition column through its width:
+对报出基底下的 $q = (c_0, c_1, c_2, c_3, b_0, b_1, b_2)$，道边界通过其能量贡献导数，沉积列通过其宽度贡献导数：
 
 $$
 \begin{aligned}
-u_{ij} &= \frac{\partial n}{\partial e_{\mathrm{lo}}}\ \frac{\partial e_i}{\partial q_k} + \frac{\partial n}{\partial e_{\mathrm{hi}}}\ \frac{\partial e_{i+1}}{\partial q_k} && \text{(calibration)}, \\
-u_{ij} &= \frac{\partial n}{\partial \sigma_j}\ \frac{\partial \sigma_j}{\partial b_k} && \text{(resolution)},
+u_{ij} &= \frac{\partial n}{\partial e_{\mathrm{lo}}}\ \frac{\partial e_i}{\partial q_k} + \frac{\partial n}{\partial e_{\mathrm{hi}}}\ \frac{\partial e_{i+1}}{\partial q_k} && \text{(刻度)}, \\
+u_{ij} &= \frac{\partial n}{\partial \sigma_j}\ \frac{\partial \sigma_j}{\partial b_k} && \text{(分辨率)},
 \end{aligned}
 $$
 
-with $\partial e_l / \partial q_k = \mathrm{ch}_l^{k}$ for the reported basis
-(F-MODEL-2). The **quotient rule couples every entry of a column** through the
-renormalization denominator:
+其中报出基底下 $\partial e_l / \partial q_k = \mathrm{ch}_l^{k}$（F-MODEL-2）。**商法则通过重归一化分母把同一列的所有元素耦合起来**：
 
 $$
 \frac{\partial p_{ij}}{\partial q_k} = \frac{u_{ij}}{D_j} - \frac{n_{ij} \sum_{i'} u_{i'j}}{D_j^{2}}.
 $$
 
-Every column of $\partial C/\partial q$ therefore sums to zero — a conservation
-identity the tests check — and the composed Jacobian is
-$\partial R/\partial q_k = (\partial C/\partial q_k)\ P$ with
-$P = G\mathrm{diag}(1/N)$. All seven matrices are returned as sparse CSR;
-no dense $n_{\text{channels}} \times n_{\text{deposition}} \times 7$ tensor is
-materialized.
+因此 $\partial C/\partial q$ 的每一列之和均为零——这一守恒恒等式由测试检查——而合成后的雅可比为 $\partial R/\partial q_k = (\partial C/\partial q_k)\ P$，其中 $P = G\mathrm{diag}(1/N)$。七个矩阵均以稀疏 CSR 格式返回；不会实体化 $n_{\text{channels}} \times n_{\text{deposition}} \times 7$ 的稠密张量。
 
-### 4.4 Overlap projection between binnings (F-PROJ-1/F-PROJ-2)
+### 4.4 不同分道之间的重叠投影（F-PROJ-1/F-PROJ-2）
 
-For rebinning, the union of source and target edges is split into segments,
-each lying inside exactly one source and one target bin. $W[t,s]$ is the
-segment length inside target bin $t$ divided by the source bin width, so each
-source bin is distributed exactly. `build_projection_plan` requires full
-coverage (within $10^{-9}$) and fails loudly otherwise — it never silently
-drops mass. Values project as $Wv$ (mass conserving) and independent variances
-as $W^2\ \mathrm{Var}$; identical binnings give $W = I$, so the projection is
-idempotent. Covariances between source bins are not modeled (documented
-limitation).
+重分道（rebinning）时，把源道边界与目标道边界的并集划分为若干区段，每个区段恰好落在唯一一个源道与唯一一个目标道之内。$W[t,s]$ 为落在目标道 $t$ 内的区段长度除以源道宽度，因而每个源道都被精确分配。`build_projection_plan` 要求完全覆盖（相对误差在 $10^{-9}$ 以内），否则明确报错——绝不静默丢失计数。数值按 $Wv$ 投影（保持总计数），独立方差按 $W^2\ \mathrm{Var}$ 投影；分道相同时 $W = I$，故投影为幂等变换。源道之间的协方差未纳入建模（已知局限，已记录）。
 
 ---
 
-## 5. Calibration: a joint fit over datasets
+## 5. 刻度：跨数据集联合拟合
 
-### 5.1 The forward model (F-CAL-1)
+### 5.1 正向模型（F-CAL-1）
 
-For each dataset $d$, with the shared internal core
-$q = (c_0, k_1, k_2, k_3, b_0, b_1, b_2)$ and a per-dataset scale
-$s_d(\mathrm{ch})$:
+对每个数据集 $d$，记共享的内部核心参数 $q = (c_0, k_1, k_2, k_3, b_0, b_1, b_2)$ 与逐数据集的归一化因子 $s_d(\mathrm{ch})$：
 
 $$
 \text{prediction}_d = s_d \odot \big(C_{\mathrm{fit}}(q)\ \mathrm{mc}_d\big),
@@ -440,16 +248,9 @@ $$
 \text{data}_d \approx \text{prediction}_d + \text{noise}.
 $$
 
-$C_{\mathrm{fit}}$ is evaluated on the **fixed** uniform deposition axis
-$0..4096$ keV / 4096 bins (F-BIN-4) so its geometry does not depend on the
-fitted parameters (D-79/D-101). The fit only contracts
-$C_{\mathrm{fit}}$ with the MC spectrum and its variance, so the implementation
-builds it on the contiguous hull of the non-zero MC bins — exactly the
-corresponding sub-matrix of the fixed axis, because each column's kernel and
-renormalization depend on that column alone. The export matrix is rebuilt
-separately on the channel-derived axis $E(i \pm \tfrac12)$ (D-101).
+$C_{\mathrm{fit}}$ 在**固定**的均匀沉积轴 $0..4096$ keV / 4096 道上求值（F-BIN-4），故其几何不依赖于被拟合参数（D-79/D-101）。拟合只需把 $C_{\mathrm{fit}}$ 与 MC 谱及其方差作缩并，因此实现只在非零 MC 道的连续包络上构造它——由于每一列的核函数与重归一化仅依赖该列本身，这一子矩阵与固定轴上的对应子矩阵完全相同。导出用的矩阵则另行在由道址导出的轴 $E(i \pm \tfrac12)$ 上重建（D-101）。
 
-Weights follow the frozen convention (D-48):
+权重遵循冻结约定（D-48）：
 
 $$
 \mathrm{var}_d = \max(\mathrm{stat}_d, 1) + \big(\mathrm{systFrac}_d \cdot \mathrm{data}_d\big)^2 + \mathrm{MC}_d,
@@ -457,23 +258,13 @@ $$
 \mathrm{MC}_d = \left(s_d\sqrt{(C_{\mathrm{fit}}^2)\ \mathrm{varMC}_d}\right)^2.
 $$
 
-Here $\mathrm{stat}_d$ is the data variance `fSumw2`, $\mathrm{systFrac}_d$ the
-per-dataset fractional systematic (`syst_frac`), $\mathrm{varMC}_d$ the MC
-spectrum variance (`var_mc`), and $\mathrm{MC}_d$ the folded prediction's MC
-variance.
+其中 $\mathrm{stat}_d$ 为数据方差 `fSumw2`，$\mathrm{systFrac}_d$ 为逐数据集的系统不确定度相对值（`syst_frac`），$\mathrm{varMC}_d$ 为 MC 谱方差（`var_mc`），$\mathrm{MC}_d$ 为褶积后预测值的 MC 方差。
 
-The $\max(\mathrm{stat}, 1)$ floor is a **documented approximation**: for
-Poisson data with $\text{pred} < 1$ the realized
-$(\text{data} - \text{pred})^2 / \max(\text{data}, 1)$ has expectation below
-$\text{pred}$, so $\chi^2/\mathrm{dof}$ can sit below one on low-count spectra.
-The covariance is defined for the weights actually used.
+$\max(\mathrm{stat}, 1)$ 下限是一个**已记录的近似**：对 $\text{pred} < 1$ 的泊松数据，实际使用的 $(\text{data} - \text{pred})^2 / \max(\text{data}, 1)$ 的期望低于 $\text{pred}$，故低计数谱的 $\chi^2/\mathrm{dof}$ 可能小于 1。协方差是针对实际使用的权重定义的。
 
-### 5.2 Per-dataset quadratic Bezier scale (F-CAL-2)
+### 5.2 逐数据集的二次 Bezier 归一化因子（F-CAL-2）
 
-The scale corrects the simulated/real normalization difference across a
-dataset's fit window $[x_{\mathrm{lo}}, x_{\mathrm{hi}}]$. It is the quadratic
-Bezier curve with control abscissae $(x_{\mathrm{lo}}, s_0, x_{\mathrm{hi}})$
-and ordinates $(s_1, s_2, s_3)$:
+归一化因子用于校正模拟与实测在数据集拟合窗口 $[x_{\mathrm{lo}}, x_{\mathrm{hi}}]$ 内的归一化差异。它是以 $(x_{\mathrm{lo}}, s_0, x_{\mathrm{hi}})$ 为控制点横坐标、以 $(s_1, s_2, s_3)$ 为纵坐标的二次 Bezier 曲线：
 
 $$
 \begin{aligned}
@@ -484,17 +275,7 @@ a = s_0 - x_{\mathrm{lo}},\quad c = x_{\mathrm{lo}} - 2s_0 + x_{\mathrm{hi}},\qu
 \end{aligned}
 $$
 
-$x(t)$ is strictly increasing for $s_0$ strictly inside the window, so $t$ is
-the unique in-interval root; the rationalized form is exact at both endpoints
-and free of catastrophic cancellation. The middle control **abscissa $s_0$ is a
-free parameter** (D-103). For a constant scale ($s_1 = s_2 = s_3$) the
-derivative with respect to $s_0$ vanishes identically, and at
-$s_0 = (x_{\mathrm{lo}} + x_{\mathrm{hi}})/2$ the parametrization becomes
-linear, collapsing the four-parameter family onto the three-parameter quadratic
-(degree-2 Bernstein) subfamily — the $s_0$ direction is then an exact **gauge**.
-So $s_0$ is kept free, the model is seeded with a non-constant scale to avoid
-starting on the gauge plateau, and the scale block is marginalized stably
-(§5.4). Derivatives:
+当 $s_0$ 严格位于窗口内部时 $x(t)$ 严格递增，故 $t$ 是区间内的唯一根；有理化形式在两个端点处精确，且避免了灾难性抵消。中间控制点横坐标 $s_0$ 是**自由参数**（D-103）。当归一化因子为常数（$s_1 = s_2 = s_3$）时，对 $s_0$ 的导数恒为零；而在 $s_0 = (x_{\mathrm{lo}} + x_{\mathrm{hi}})/2$ 处参数化退化为线性，四参数族随即塌缩到三参数的二次（degree-2 Bernstein）子族——此时 $s_0$ 方向是一个精确的**规范自由度**。因此实现保留 $s_0$ 为自由参数，以非恒定归一化因子作为模型初值以避免从规范平台出发，并对归一化因子分块作稳定的边缘化处理（§5.4）。各阶导数为：
 
 $$
 \frac{\partial s}{\partial s_0} = \frac{\mathrm{d}s}{\mathrm{d}t}\cdot\frac{-2t(1-t)}{\mathrm{d}x/\mathrm{d}t},
@@ -504,11 +285,9 @@ $$
 \frac{\partial s}{\partial s_3} = t^2.
 $$
 
-### 5.3 Analytic Jacobian and the exact chi-square gradient (F-CAL-4)
+### 5.3 解析雅可比与精确的 χ² 梯度（F-CAL-4）
 
-Differentiating the forward model, with
-$C_k = \partial C/\partial q_k$ from F-RESP-4 chained into the internal basis
-through the F-MODEL-2 Jacobian:
+对正向模型求导，其中 $C_k = \partial C/\partial q_k$ 由 F-RESP-4 给出，并经 F-MODEL-2 的雅可比矩阵链式变换到内部基底：
 
 $$
 \frac{\partial\ \text{prediction}_d}{\partial q_k} = s_d \odot \big(C_k[\text{window}]\ \mathrm{mc}_d\big),
@@ -516,8 +295,7 @@ $$
 \frac{\partial\ \text{prediction}_d}{\partial s_p} = \frac{\partial s_d}{\partial s_p} \odot \big(C_{\mathrm{fit}}[\text{window}]\ \mathrm{mc}_d\big).
 $$
 
-The variance depends on the parameters, so the **exact** gradient carries an
-extra term:
+由于方差依赖参数，**精确**梯度含一个附加项：
 
 $$
 \frac{\mathrm{d}\chi^2}{\mathrm{d}\theta} = -2 J^{\mathsf{T}} \frac{\text{data} - p}{v} - \left(\frac{\mathrm{d}v}{\mathrm{d}\theta}\right)^{\mathsf{T}} \frac{(\text{data} - p)^2}{v^2},
@@ -529,20 +307,11 @@ $$
 \frac{\partial v}{\partial s_p} = 2 s_d \frac{\partial s_d}{\partial s_p}\Big[(C_{\mathrm{fit}}^2)[\text{window}]\ \mathrm{varMC}_d\Big].
 $$
 
-The optimizer then sees the residual
-$r = (\text{data} - p)/\sigma$ and its Jacobian
-$\mathrm{d}r/\mathrm{d}\theta = -J/\sigma - r\ (\mathrm{d}v/\mathrm{d}\theta)/(2v)$,
-so its gradient is the exact gradient of the objective it minimizes. **No
-finite differences enter production.** The fit itself is a single bounded
-trust-region (reflective) least-squares stage via
-`scipy.optimize.least_squares` with `x_scale="jac"`, started from the frozen
-bounds and seeds of F-CAL-3.
+于是优化器所见的是残差 $r = (\text{data} - p)/\sigma$ 及其雅可比 $\mathrm{d}r/\mathrm{d}\theta = -J/\sigma - r\ (\mathrm{d}v/\mathrm{d}\theta)/(2v)$，因此其梯度正是它所最小化的目标函数的精确梯度。**生产流程中不引入有限差分。** 拟合本身是单次带边界的信赖域（反射式）最小二乘，由 `scipy.optimize.least_squares` 以 `x_scale="jac"` 执行，初值取 F-CAL-3 所冻结的边界与种子。
 
-### 5.4 Covariance with the scale marginalized (F-CAL-5)
+### 5.4 边缘化归一化因子后的协方差（F-CAL-5）
 
-With $J$ the full-parameter Jacobian, $W = \mathrm{diag}(1/v)$ (F-CAL-1)
-and $F = J^{\mathsf{T}} W J$, split the parameters into the reported core $c$
-and the scale $s$:
+记 $J$ 为全参数雅可比矩阵、$W = \mathrm{diag}(1/v)$（F-CAL-1）、$F = J^{\mathsf{T}} W J$，把参数分为报出核心 $c$ 与归一化因子 $s$：
 
 $$
 \mathrm{cov}_{\text{core}}
@@ -551,34 +320,19 @@ $$
 \mathrm{cov}_{\text{reported}} = T \mathrm{cov}_{\text{core}} T^{\mathsf{T}},
 $$
 
-with $T = \mathrm{diag}\big(\texttt{internal\_jacobian}(\mathrm{ch}_{\max}), I_3\big)$.
+其中 `T = diag(internal_jacobian(channel_max=ch_max), I_3)`。
 
-The Schur complement $F_{cc} - F_{cs}F_{ss}^{+}F_{sc}$ is the $(c,c)$ block of
-$F^{-1}$, i.e. the scale **marginalized** rather than fixed; $F_{ss}^{+}$ is the
-Moore-Penrose inverse, which projects out the $s_0$ gauge when the fitted scale
-is (nearly) polynomial. Jacobi (diagonal) preconditioning is applied before the
-factorization. $\chi^2/\mathrm{dof}$ is the single global scale (PDG convention,
-F-COV-2): $\mathrm{cov} = s^2 F^{-1}$ with $s^2 = \chi^2/\mathrm{dof}$; a
-singular or non-positive-definite Fisher matrix is a **hard failure** — there is
-no pseudo-inverse fallback for the core. For invertible $F_{ss}$ this is
-algebraically identical to taking the core block of the full inverse, which the
-tests verify on a well-conditioned Fisher. The estimator string recorded with
-the product is `fisher-x2dof-marginalized-reported`.
+Schur 补 $F_{cc} - F_{cs}F_{ss}^{+}F_{sc}$ 即 $F^{-1}$ 的 $(c,c)$ 分块，亦即把归一化因子**边缘化**而非固定；$F_{ss}^{+}$ 为 Moore–Penrose 广义逆，当拟合出的归一化因子（近乎）为多项式时，它把 $s_0$ 规范自由度投影掉。分解之前施加 Jacobi（对角）预条件。$\chi^2/\mathrm{dof}$ 是唯一的全局缩放因子（PDG 约定，F-COV-2）：$\mathrm{cov} = s^2 F^{-1}$，其中 $s^2 = \chi^2/\mathrm{dof}$；Fisher 矩阵奇异或非正定属**硬失败**——核心参数部分没有伪逆回退。当 $F_{ss}$ 可逆时，该结果与直接取完整逆的核心分块在代数上完全相同，测试已在良态 Fisher 矩阵上验证了这一点。随数据产品记录的估计量字符串为 `fisher-x2dof-marginalized-reported`。
 
-An optional **profile-covariance diagnostic** (F-COV-3) profiles each parameter
-at $p_i \pm 4\sqrt{2/H_{ii}}$, re-optimizes the rest, solves the
-$\Delta\chi^2 = 1$ crossing with `brentq`, and takes correlations from the
-numerical Hessian. It never replaces the analytic estimate.
+可选的**轮廓协方差诊断**（F-COV-3）在 $p_i \pm 4\sqrt{2/H_{ii}}$ 处对每个参数作轮廓化，重新优化其余参数，用 `brentq` 求解 $\Delta\chi^2 = 1$ 的交点，并由数值 Hessian 矩阵给出相关系数。它绝不替代解析估计。
 
 ---
 
-## 6. Unfolding I: the regularized non-negative problem
+## 6. 解谱（一）：正则化非负问题
 
-### 6.1 Tikhonov objective with a normalization-invariant `alpha` (F-SOLVE-1)
+### 6.1 归一化不变的 $\alpha$ 与 Tikhonov 目标函数（F-SOLVE-1）
 
-Unfolding is ill-posed: neighboring primary bins map to nearly the same
-channel distribution, so the unregularized least-squares solution oscillates
-violently. The toolkit minimizes
+解谱问题是不适定的（ill-posed）：相邻初级道映射到几乎相同的道址分布，因而无正则化的最小二乘解会剧烈振荡。本工具包最小化
 
 $$
 \min_{\mu \ge 0}\ \ \chi^2(\mu) + \alpha\ \lVert \tilde{D}\mu \rVert^2,
@@ -586,7 +340,7 @@ $$
 \chi^2(\mu) = \left\lVert \frac{R\mu - y}{\sigma} \right\rVert^2,
 $$
 
-with the weight matrix and normal-equation building blocks
+其中权重矩阵与法方程的基本量为
 
 $$
 W = \mathrm{diag}(1/\sigma^2), \qquad
@@ -594,73 +348,45 @@ A = R^{\mathsf{T}} W R, \qquad
 b = R^{\mathsf{T}} W y.
 $$
 
-Here $D$ is the order-1 $[-1, 1]$ or order-2 $[1, -2, 1]$ finite-difference
-operator and
+这里 $D$ 为一阶 $[-1, 1]$ 或二阶 $[1, -2, 1]$ 有限差分算子，且
 
 $$
 \tilde{D} = D \mathrm{diag}\left(\sqrt{\mathrm{diag}(A)}\right).
 $$
 
-The normalization is the point of D-80. Rescale the data by $y \to ky$,
-$\sigma \to k\sigma$. Then $W \to W/k^2$, hence $A \to A/k^2$ and
-$\mathrm{diag}(\sqrt{A}) \to \mathrm{diag}(\sqrt{A})/k$. Taking the
-solution to scale as $\mu \to k\mu$, **both** objective terms are then exactly
-invariant:
+该归一化正是 D-80 的要点。将数据按 $y \to ky$、$\sigma \to k\sigma$ 重标度，则 $W \to W/k^2$，从而 $A \to A/k^2$、$\mathrm{diag}(\sqrt{A}) \to \mathrm{diag}(\sqrt{A})/k$。若解按 $\mu \to k\mu$ 缩放，则目标函数的**两项**都严格不变：
 
 $$
 \chi^2 \to \chi^2, \qquad
 \lVert \tilde{D}\mu \rVert^2 \to \lVert \tilde{D}\mu \rVert^2.
 $$
 
-The minimizer therefore scales as $\mu \to k\mu$ (counts in, counts out) while
-its **shape** is unchanged, and the ratio that $\alpha$ balances is invariant.
-That is what makes one $\alpha$ meaningful across datasets, windows and units
-(counts vs counts per second): the balance between data fidelity and roughness
-does not depend on how the counts happen to be normalized. Note that the
-invariances claimed are under count rescaling only: $D$ is the unit-coefficient
-difference of adjacent **bins**, so $\alpha$ is not transferable to a different
-binning or to a response expressed in different units.
+因此极小点按 $\mu \to k\mu$ 缩放（计数进、计数出）而**形状**不变，$\alpha$ 所平衡的比值也不变。这正是同一个 $\alpha$ 能够跨数据集、跨窗口、跨单位（计数与计数率）保持意义的原因：数据保真度与粗糙度之间的平衡不依赖于计数以何种方式归一化。需注意，上述不变性仅适用于计数重标度：$D$ 是相邻**道**之间系数为单位值的差分算子，故 $\alpha$ 不可迁移到不同的分道方式，也不可迁移到以不同单位表示的响应。
 
-The half-gradient is $g(\mu) = H\mu - b$ with
+半梯度为 $g(\mu) = H\mu - b$，其中
 
 $$
 H = A + \alpha\ \tilde{D}^{\mathsf{T}}\tilde{D}.
 $$
 
-$H$ is built once and shared by the solver and the uncertainty propagation, so
-values and errors cannot drift apart (D-150). Zero-curvature columns
-($A_{jj} = 0$) are dropped from the penalty exactly (they carry no data
-information) and the solver fixes them at zero.
+$H$ 只构造一次，由求解器与不确定度传递共用，因而数值与误差不会彼此漂移（D-150）。零曲率列（$A_{jj} = 0$）被精确地从惩罚项中剔除（它们不携带数据信息），求解器将其固定为零。
 
-$\alpha$ is **optional and defaults to 1** (D-191; it was mandatory with no
-default under D-45): the choice of regularization strength is still a physics
-statement, not a numerical detail, so an explicit `--alpha` remains the way to
-declare a different one.
+$\alpha$ **可选，默认值为 1**（D-191；在 D-45 下它必填且无默认值）：正则化强度的选择仍是一项物理判断，而非数值细节，因此要声明其他取值仍应显式给出 `--alpha`。
 
-### 6.2 Lawson-Hanson active set on the normal equations (F-SOLVE-2)
+### 6.2 法方程上的 Lawson–Hanson 活动集法（F-SOLVE-2）
 
-The QP $\min \tfrac12 \mu^{\mathsf{T}} H \mu - b^{\mathsf{T}}\mu$ subject to
-$\mu \ge 0$ is solved with a self-implemented **Lawson-Hanson active set**
-method:
+约束 $\mu \ge 0$ 下的二次规划 $\min \tfrac12 \mu^{\mathsf{T}} H \mu - b^{\mathsf{T}}\mu$ 用自行实现的 **Lawson–Hanson 活动集法**求解：
 
-1. start at $\mu = 0$;
-2. solve the reduced system $H_{FF}\ \mu_F = b_F$ on the free set $F$;
-3. if the proposal is positive, accept it; otherwise step from the current
-   feasible $\mu$ toward it until a variable hits the boundary, move exactly
-   the blocking variables into the active set, and repeat;
-4. release the blocked variable with the most negative reduced gradient; stop
-   when none has one below the tolerance.
+1. 从 $\mu = 0$ 出发；
+2. 在自由集 $F$ 上求解约化方程组 $H_{FF}\ \mu_F = b_F$；
+3. 若所得候选解为正，则接受；否则从当前可行点 $\mu$ 向该候选解移动，直到某个变量触及边界，把恰好阻挡移动的变量移入活动集，然后重复；
+4. 释放约化梯度最负的被阻挡变量；当不再有低于容差的约化梯度时停止。
 
-Bins with zero curvature and zero gradient are fixed at zero; a zero-curvature
-bin with a non-zero gradient is an unbounded problem and raises `SolverError`.
-Reduced systems use dense Cholesky for small or dense matrices, banded
-Cholesky when the half-bandwidth is below $n/4$, and sparse LU otherwise
-(`core/_linalg.py`, one shared policy). The iteration budget is $10n + 100$ and
-exhaustion raises in every mode — it never returns a half-converged answer.
+曲率与梯度均为零的道固定为零；曲率为零而梯度非零的道属无界问题，报 `SolverError`。约化方程组对小型或稠密矩阵使用稠密 Cholesky 分解，半带宽小于 $n/4$ 时使用带状 Cholesky 分解，其余情形使用稀疏 LU 分解（`core/_linalg.py`，单一共享策略）。迭代预算为 $10n + 100$，预算耗尽在任何模式下都会报错终止——绝不返回半收敛的结果。
 
-### 6.3 KKT certificate in data-gradient units (F-SOLVE-3)
+### 6.3 以数据梯度为单位的 KKT 校验（F-SOLVE-3）
 
-For $r = H\mu - b$, the reported metrics are
+对 $r = H\mu - b$，所报出的度量为
 
 $$
 \frac{\max\left(0,\ -\min_{i \in \text{active}} r_i\right)}{\max\left(1, \lVert b \rVert_\infty\right)} \le 10^{-6},
@@ -669,19 +395,11 @@ $$
      {\max\left(1, \lVert b \rVert_\infty\right)\ \max\left(1, \lVert \mu \rVert_\infty\right)} \le 10^{-6}.
 $$
 
-Dividing by the data-gradient scale makes the certificate **independent of the
-count normalization** of the problem: the same solution quality passes whether
-the spectrum is stored in counts or in counts per second. This is the
-complementarity-and-dual-feasibility pair of the QP KKT system. Strict mode
-raises `CertificateError("F-SOLVE-3")` on failure.
+除以数据梯度标度使该校验**不依赖于问题的计数归一化**：无论谱以计数还是以计数率存储，同等质量的解都能通过。这两式即二次规划 KKT 系统中的互补松弛条件与对偶可行性条件。严格模式下校验失败会报 `CertificateError("F-SOLVE-3")`。
 
-### 6.4 Pruning and diagnostics (F-UNF-3/F-UNF-4)
+### 6.4 剪枝与诊断量（F-UNF-3/F-UNF-4）
 
-$R = C\ G\mathrm{diag}(1/N)$ is non-negative, so a column is exactly zero
-**iff** its sum is exactly zero (compared with `== 0.0`, never a tolerance).
-Such columns have zero gradient and zero normal-matrix diagonal, so the solver
-fixes them at zero anyway; they are removed before the solve (D-110) and
-re-inserted as zeros. Reported diagnostics are
+$R = C\ G\mathrm{diag}(1/N)$ 非负，故某列为严格零列**当且仅当**其和严格为零（以 `== 0.0` 比较，绝不使用容差）。这类列的梯度与法矩阵对角元均为零，求解器本就会把它们固定为零；实现仍在求解前将其移除（D-110），再以零重新插入。所报出的诊断量为
 
 $$
 \chi^2 = \sum_{i \in F} \frac{(y_i - (R\mu)_i)^2}{\sigma_{\mathrm{fit},i}^2},
@@ -691,32 +409,19 @@ n_{\text{active}} = \lbrace k : \mu_k > 0 \rbrace,
 \mathrm{dof} = \lvert F \rvert - n_{\text{active}},
 $$
 
-with $\texttt{covariance\_scale} = 1$.
+且 `covariance_scale = 1`。
 
-`covariance_scale` is fixed at one because the unfold reports the analytic
-first-order propagation and never rescales it by a reduced chi-square. `dof`
-can be zero or negative for a heavily regularized problem; it is reported as
-computed and $\chi^2/\mathrm{dof}$ is then not used.
+`covariance_scale` 固定为 1，因为解谱报出的是解析一阶传递结果，绝不用约化 $\chi^2$ 对其重新缩放。对强正则化的问题，`dof` 可能为零或负；此时按其计算值报出，且不再使用 $\chi^2/\mathrm{dof}$。
 
 ---
 
-## 7. Unfolding II: SNIP peak protection
+## 7. 解谱（二）：SNIP 峰保护
 
-Regularization suppresses noise-driven oscillations, but a global $\alpha$
-large enough to do that also erodes genuine peaks. The toolkit resolves this
-with a **data-derived, pre-solve, fixed** diagonal mask that relaxes the
-roughness penalty at resolved peaks. Because the mask depends only on the
-measured spectrum, the problem stays convex and the KKT certificate is
-unchanged (D-155).
+正则化能够抑制噪声驱动的振荡，但足以做到这一点的全局 $\alpha$ 同时也会削弱真实的峰。本工具包用一个由数据导出、在求解之前即固定的对角掩模（mask）来解决这一矛盾：它在已分辨的峰处放松粗糙度惩罚。由于掩模只依赖实测谱，问题仍保持凸性，KKT 校验也不受影响（D-155）。
 
-### 7.1 SNIP LLS baseline (F-SOLVE-4)
+### 7.1 SNIP 的对数—对数—平方根基线（F-SOLVE-4）
 
-SNIP (Statistics-sensitive Non-linear Iterative Peak-clipping) is used **only
-to locate genuine peaks**, never as a background measurement. Background
-subtraction can leave negative bins, so the estimator operates on
-$y^{+} = \max(y, 0)$ and records how many bins were clipped and their index
-range — no shift and no imputation. The dynamic range is compressed with
-Morháč's log-log-sqrt transform,
+SNIP（统计敏感的非线性迭代削峰法，Statistics-sensitive Non-linear Iterative Peak-clipping）在本工具包中**仅用于定位真实峰**，绝不作为本底测量手段。本底扣除可能留下负计数道，因此该估计量在 $y^{+} = \max(y, 0)$ 上运行，并记录被截去的道数及其索引范围——不作平移，也不作插补。动态范围用 Morháč 的对数—对数—平方根变换压缩：
 
 $$
 v_i = \ln\Big(\ln\big(\sqrt{y_i^{+} + 1} + 1\big) + 1\Big),
@@ -724,16 +429,13 @@ v_i = \ln\Big(\ln\big(\sqrt{y_i^{+} + 1} + 1\big) + 1\Big),
 y_i = \Big(e^{\ e^{v_i} - 1} - 1\Big)^2 - 1,
 $$
 
-and the iteration is, for $p = 1 \dots m$,
+迭代则对 $p = 1 \dots m$ 按
 
 $$
 v_i \ \leftarrow\ \min\left(v_i,\ \frac{v_{i-p} + v_{i+p}}{2}\right),
 $$
 
-applied to interior bins only: a bin whose $i - p$ or $i + p$ neighbor does not
-exist keeps its value, so the baseline is not pulled down at the ends of the
-axis. The iteration count $m$ is **resolution-derived, not a free knob**
-(D-157):
+进行，且仅施加于内部道：若某道的 $i - p$ 或 $i + p$ 邻道不存在，该道保持原值，因而基线在轴的两端不会被拉低。迭代次数 $m$ **由分辨率导出，而非可自由调节的旋钮**（D-157）：
 
 $$
 \mathrm{FWHM}_{\text{bins}} = \frac{2\sqrt{2\ln 2}\ \sigma_E(E_{\text{mid}})}{\Delta_E},
@@ -741,35 +443,11 @@ $$
 m = \mathrm{clip}\left(\mathrm{round}\left(\tfrac12 \mathrm{FWHM}_{\text{bins}}\right),\ 1,\ m_{\max} = 32\right).
 $$
 
-$E_{\text{mid}}$ is the **reported-window midpoint** (D-157/D-188): the unfold
-layer passes the bin whose center is nearest $(e_{\text{lo}} + e_{\text{hi}})/2$
-as `iteration_reference_index`, and $\Delta_E$ is the local bin width there, so
-$\mathrm{FWHM}_{\text{bins}}$ is the detector peak width measured in bins.
-Tying $m$ to the detector width is what removes the detector peak before
-estimating the continuum — the intended behavior. An explicit override is
-allowed and recorded. The cap $m_{\max} = 32$ (D-191; it was 8 under D-162)
-binds only when $\mathrm{round}(\mathrm{FWHM}_{\text{bins}}/2) > m_{\max}$,
-i.e. when $\sigma_E/\Delta_E > 27.6$ bins at the reference (the inequality is
-strict: at the exact tie the even-valued cap does not bind under round-half-to-even)
-— above roughly 3.5 MeV on the production 2048-bin axis with the shipped
-resolution model — so the derived count is used un-clipped throughout a
-30-3000 keV window ($m = 3$
-at 30 keV, 6 at 150 keV, 13 at the 609 keV line, 17 at 1 MeV and 21 at that
-window's midpoint), and the clipping window `2m+1` then matches the peak's own
-width. With the former cap of 8 the rule saturated above roughly 260 keV while
-the peak is 18-47 bins wide between 300 keV and 1.8 MeV, so the `2m+1 = 17`-bin
-clipping window stayed *inside* the peak and the baseline sat inside it (59% of
-the 609 keV peak top on the validation dataset). SNIP remains a peak locator
-here, not a background estimate, which is why the protection width is fixed in
-bins (§7.2) rather than tied to the residual's shape.
+$E_{\text{mid}}$ 取**报出窗口的中点**（D-157/D-188）：unfold 层把中心最接近 $(e_{\text{lo}} + e_{\text{hi}})/2$ 的道作为 `iteration_reference_index` 传入，$\Delta_E$ 为该处的局部分道宽度，故 $\mathrm{FWHM}_{\text{bins}}$ 是以道数表示的探测器峰宽。把 $m$ 与探测器宽度绑定，正是“先扣除探测器峰、再估计连续本底”这一预期行为的实现。允许显式覆盖，并会记录在案。上限 $m_{\max} = 32$（D-191；D-162 下为 8）仅在 $\mathrm{round}(\mathrm{FWHM}_{\text{bins}}/2) > m_{\max}$ 时生效，即参考点处 $\sigma_E/\Delta_E > 27.6$ 道时（不等式严格成立：在恰好相等的情形下，偶数上限在“四舍六入五成双”规则下不生效）——在参考测量活动的分辨率模型与生产用 2048 道轴上，这约相当于 3.5 MeV 以上——因此在 30—3000 keV 窗口内，导出的迭代次数始终未被上限截断（30 keV 处 $m = 3$，150 keV 处 6，609 keV 谱线处 13，1 MeV 处 17，窗口中点处 21），此时削峰窗口 $2m+1$ 与峰自身宽度相匹配。若沿用此前的上限 8，该规则在约 260 keV 以上即饱和，而 300 keV 至 1.8 MeV 之间的峰宽为 18—47 道，于是 $2m+1 = 17$ 道的削峰窗口仍*位于*峰内部，基线也随之落在峰内（在验证数据集上达到 609 keV 峰顶的 59%）。SNIP 在此始终是峰定位工具而非本底估计器，这也正是保护宽度以道数固定（§7.2）而不与残差形状挂钩的原因。
 
-### 7.2 Resolution-matched significance and the peak mask (F-SOLVE-5)
+### 7.2 与分辨率匹配的显著性判据与峰掩模（F-SOLVE-5）
 
-The residual is $r_i = y_i^{+} - b_i$. Since the detector width is known,
-significance is computed with a **matched filter** rather than a per-bin
-threshold: with $s_i = \sigma_E(E_i)/\Delta_i$ and a normalized Gaussian kernel
-$g$ of width $s_i$, truncated at three resolution widths
-($|k| \le \lceil 3 s_i \rceil$, renormalized over that support),
+残差为 $r_i = y_i^{+} - b_i$。由于探测器宽度已知，显著性用**匹配滤波器**而非逐道阈值计算：令 $s_i = \sigma_E(E_i)/\Delta_i$，取宽度为 $s_i$ 的归一化高斯核 $g$，在三倍分辨率宽度处截断（$|k| \le \lceil 3 s_i \rceil$，并在该支撑上重归一化），则
 
 $$
 M_i = \sum_k g_k\ r_{i+k}, \qquad
@@ -777,137 +455,77 @@ V_i = \sum_k g_k^2\ \sigma_{y,i+k}^2, \qquad
 z_i = \frac{M_i}{\sqrt{V_i}}.
 $$
 
-The matched filter suppresses single-bin noise spikes — the dominant
-spurious-peak seed — which a per-bin threshold would misclassify. A bin is a
-candidate when $z_i \ge k$ (default $k = 5$, D-156) **and** $z_i$ is a local
-maximum, tested against its two immediate neighbors. All bins within
-$n_{\text{protect}}$ **primary bins** (default $3$) of a candidate are marked, and
+匹配滤波器能抑制单道噪声尖峰——虚假峰的主要来源——而逐道阈值会把这类尖峰误判为峰。当 $z_i \ge k$（默认 $k = 5$，D-156）**且** $z_i$ 相对其左右两个相邻道为局部极大时，该道成为候选道。候选道两侧 $n_{\text{protect}}$ 个**初级道**（默认 $3$）以内的所有道均被标记，且
 
 $$
 w_i = \begin{cases}
-w_{\text{floor}} \ (\text{default } 0.01) & \text{on marked bins},\\
-1 & \text{elsewhere}.
+w_{\text{floor}} \ (\text{默认 } 0.01) & \text{被标记的道},\\
+1 & \text{其他道}.
 \end{cases}
 $$
 
-Bins that no candidate marks keep $w_i = 1$, i.e. they are smoothed normally.
+未被任何候选道标记的道保持 $w_i = 1$，即按常规平滑。
 
-### 7.3 Masked operator, still symmetric and banded (F-SOLVE-6)
+### 7.3 加掩模后的算子仍对称且带状（F-SOLVE-6）
 
-The masked difference operator scales each **row** by the square root of the
-**minimum** of the mask weights over its stencil (D-188):
+加掩模后的差分算子对每**行**作缩放，缩放因子为该行模板内掩模权重**最小值**的平方根（D-188）：
 
 $$
 D' = \mathrm{diag}(\rho^{1/2})\ D, \qquad
 \rho_r = \min_{j=0}^{\text{order}} w_{r+j}.
 $$
 
-A protected peak bin therefore relaxes every difference row that touches it, and
-each touched row carries exactly the configured floor — which is what
-`--snip-floor` says. The former *product* rule reached
-$\rho = w_{\text{floor}}^{\ \text{order}+1} = 10^{-3}$ for rows inside a peak,
-i.e. a relaxation 100x stronger than its own help text. That made the masked
-normal matrix locally singular and the active set returned an arbitrary vertex
-of a nearly degenerate solution set: on the Ra-226 validation dataset the
-609 keV line became a four-spike comb (589/606/618/641 keV) with 2.3x the
-mask-off single-bin height in the reported-window fit space (4.8x in the padded
-space of the pre-D-187 pipeline: 1.32e6 against 2.76e5), the 186 and 242 keV lines split in two, and the
-number of non-zero bins halved at constant total strength. With the minimum rule
-and a three-bin protection the protected set is 6.2% of the axis, no line
-splits, and the peak-height inflation is 1.2x. Crucially,
+因此，受保护的峰道会放松所有触及它的差分行，且每一被触及的行恰好取所配置的下限权重——这正是 `--snip-floor` 所声明的含义。此前的*乘积*规则使峰内各行的权重达到 $\rho = w_{\text{floor}}^{\ \text{order}+1} = 10^{-3}$，即比其自身帮助文本所述的放松强度强 100 倍。这使加掩模后的法矩阵局部奇异，活动集法返回近乎简并解集中的一个任意顶点：在 Ra-226 验证数据集上，609 keV 谱线变成四尖峰梳状结构（589/606/618/641 keV），在报出窗口拟合空间中其单道高度为无掩模情形的 2.3 倍（在 D-187 之前的填充空间中为 4.8 倍：1.32e6 对 2.76e5），186 与 242 keV 谱线各分裂为双峰，总强度不变而非零道数减半。采用最小值规则与三道保护后，受保护集合仅占轴的 6.2%，无谱线分裂，峰高膨胀为 1.2 倍。关键在于，
 
 $$
 D'^{\mathsf{T}} D' = D^{\mathsf{T}} \mathrm{diag}(\rho)\ D
 $$
 
-stays symmetric positive semidefinite and banded with the same half-bandwidth
-as $D$. (The rectangular $W^{1/2} D W^{1/2}$ form does not even typecheck for
-$n_{\text{rows}} = n - \text{order}$; the row form is the correct symmetric
-weighting.) The penalty operator is then
-$\tilde{D}' = D'\mathrm{diag}\big(\sqrt{\mathrm{diag}(A)}\big)$ —
-the same diagonal scaling as F-SOLVE-1, so $\alpha$ keeps the same meaning —
-and
+仍保持对称半正定，且半带宽与 $D$ 相同。（矩形形式 $W^{1/2} D W^{1/2}$ 在 $n_{\text{rows}} = n - \text{order}$ 时甚至无法通过类型检查；行缩放形式才是正确的对称加权。）惩罚算子相应为 $\tilde{D}' = D'\mathrm{diag}\big(\sqrt{\mathrm{diag}(A)}\big)$——与 F-SOLVE-1 相同的对角缩放，故 $\alpha$ 的含义不变——且
 
 $$
 H = A + \alpha\ \tilde{D}'^{\mathsf{T}}\tilde{D}', \qquad
 b = R^{\mathsf{T}} W_{\text{data}}\ y.
 $$
 
-**Strict-mode certificate.** `verify_snip_mask` recomputes the mask from the
-recorded spectrum and settings — including the `iteration_reference_index` the
-caller used (D-157/D-188) — and requires the stored weights to match it
-exactly; the $w_i \in [0, 1]$ bound is always-on. The baseline and mask sha256,
-the candidate count and the protected-bin count are written into the product
-`meta`, so a re-tuned default never invalidates an existing product and the
-realized mask coverage is auditable. Of the further checks
-sketched in F-SOLVE-6, the symmetry and half-bandwidth of $\tilde{D}'^T\tilde{D}'$
-hold *by construction* (they are proved, not re-tested at runtime), while a
-hash comparison on read-back is **not applicable**: the mask itself is not
-stored in the product, so the recorded sha256 is a provenance record only.
+**严格模式校验。** `verify_snip_mask` 由所记录的谱与设置（包括调用方使用的 `iteration_reference_index`，D-157/D-188）重新计算掩模，并要求存储的权重与其完全一致；$w_i \in [0, 1]$ 的界限则始终校验。基线与掩模的 sha256、候选道数与受保护道数均写入数据产品 `meta`，因此重新调整默认值不会使已有数据产品失效，掩模的实际覆盖率也可审计。在 F-SOLVE-6 中提及的其他检查里，$\tilde{D}'^T\tilde{D}'$ 的对称性与半带宽*由构造保证*（已证明，不在运行时重复检验）；而读回时的哈希比对**并不适用**：掩模本身并未存入数据产品，故所记录的 sha256 仅是溯源记录。
 
-**Scope of the claim.** The mask is a *structural prior*, not a background
-measurement. Thresholding many bins inflates the family-wise false-positive
-rate; the $5\sigma$ threshold plus the resolution-width matched filter keeps it
-small but not zero. A wrongly protected noise spike is *less* smoothed than
-before — the known failure mode. The synthetic acceptance metrics of F-SOLVE-6
-(spurious-peak suppression, true-peak area bias, pull coverage mask-on vs
-mask-off, robustness to the threshold and iteration perturbations) are
-**registered but not yet committed as tests** (D-161/D-162 keep the study as the
-acceptance gate); the numbers quoted in this section come from the ad-hoc
-validation recorded in `docs/derivations.md`.
-The reported covariance is conditional on the realized mask; mask-selection
-uncertainty is not propagated (D-159).
+**结论的适用范围。** 掩模是一种*结构先验*，而非本底测量。对大量道作阈值判断会抬高族系假阳性率（family-wise false-positive rate）；$5\sigma$ 阈值加上分辨率宽度的匹配滤波器可将其保持在较低水平，但不为零。被错误保护的噪声尖峰将比此前*更少*被平滑——这是已知的失效模式。F-SOLVE-6 中的合成数据验收指标（虚假峰抑制、真峰面积偏差、掩模开/关下的 pull 覆盖率、对阈值与迭代扰动的不敏感性）**已登记，但尚未作为测试提交**（D-161/D-162 将该研究作为验收判据）；本节引用的数字来自记录在 [docs/derivations.md](docs/derivations.md) 中的专题验证。所报出的协方差以实际掩模为条件；掩模选择本身的不确定度未作传递（D-159）。
 
 ---
 
-## 8. Uncertainty propagation with a strict stat/syst split
+## 8. 不确定度传递：统计与系统分量的严格拆分
 
-### 8.1 Statistical band on the free set (F-UNC-1)
+### 8.1 自由变量集上的统计不确定度带（F-UNC-1）
 
-At a fixed active set, the free variables satisfy $H_{FF}\mu_F = b_F$ and the
-active ones stay at zero, so
-$\mathrm{d}\mu_F = H_{FF}^{-1}(R^{\mathsf{T}}W)_F\ \mathrm{d}y$ and
-$\mathrm{d}\mu_A = 0$:
+在活动集固定时，自由变量满足 $H_{FF}\mu_F = b_F$，活动变量保持为零，故 $\mathrm{d}\mu_F = H_{FF}^{-1}(R^{\mathsf{T}}W)_F\ \mathrm{d}y$、$\mathrm{d}\mu_A = 0$，于是
 
 $$
 \mathrm{Cov}(\mu) = H_{FF}^{-1}\ (R^{\mathsf{T}}W)_F\ \Sigma_{\text{stat}}\ (WR)_F\ H_{FF}^{-1},
-\quad\text{extended by zeros},
+\quad\text{其余分量补零},
 \qquad
 \Sigma_{\text{stat}} = \mathrm{diag}\big(\max(\text{stat}, 1)\big).
 $$
 
-Using the full $H^{-1}$ instead would **overstate every free direction whenever
-a constraint is active**, so the implementation always solves the reduced
-system on the free set. $H$ is the same half-Hessian that solved the problem,
-so values and errors cannot drift apart.
+若改用完整的 $H^{-1}$，则**在任一约束起作用时都会高估每个自由方向**，因此实现始终在自由集上求解约化方程组。$H$ 与求解问题时所用的是同一个半 Hessian 矩阵，故数值与误差不会彼此漂移。
 
-### 8.2 Systematic contributions (F-UNC-2)
+### 8.2 系统不确定度的各项贡献（F-UNC-2）
 
-Three contributions, all first-order at fixed active set.
+共三项贡献，均在固定活动集下作一阶处理。
 
-**Data-side `syst_frac`** (default 0.05, D-169) is the same linearization as
-F-UNC-1 with
-$\Sigma = \mathrm{diag}\big((\texttt{syst\_frac}\cdot y)^2\big)$.
+**数据侧 `syst_frac`**（默认 0.05，D-169）与 F-UNC-1 采用相同的线性化，其中 $\Sigma = \mathrm{diag}\big((\mathrm{systFrac}\cdot y)^2\big)$，$\mathrm{systFrac}$ 即 F-CAL-1 的 `syst_frac` 输入。
 
-**Calibration.** With $Q_k = \partial R/\partial q_k$ from F-RESP-4, the
-half-gradient derivative is the **full** expression
+**刻度。** 取 F-RESP-4 给出的 $Q_k = \partial R/\partial q_k$，半梯度的导数为**完整** 表达式
 
 $$g_k = Q_k^{\mathsf{T}} W r + R^{\mathsf{T}} W Q_k \mu,$$
 
-with sensitivity columns $V_k = -H_{FF}^{-1}(g_k)_F$ (zero on the active set)
-and $\mathrm{Cov}_{\text{calib}} = V\Sigma_q V^{\mathsf{T}}$. Both terms
-are kept: the first is the direct response perturbation at the data residual,
-the second the response perturbation acting on the current solution.
+其中灵敏度列为 $V_k = -H_{FF}^{-1}(g_k)_F$（在活动集上为零），$\mathrm{Cov}_{\text{calib}} = V\Sigma_q V^{\mathsf{T}}$。两项都保留：第一项是响应扰动在数据残差处的直接作用，第二项是响应扰动作用于当前解。
 
-**Simulation MC.** $N_j$ is fixed by the sampling design (F-SIM-1), so the
-deposition counts are multinomial with
-$\mathrm{Cov}(G_s) = N_s\big(\mathrm{diag}(p_s) - p_s p_s^{\mathsf{T}}\big)$.
-Differentiating the half-gradient gives the full vector
+**模拟 MC。** $N_j$ 由抽样设计固定（F-SIM-1），故沉积计数服从多项分布，其协方差为 $\mathrm{Cov}(G_s) = N_s\big(\mathrm{diag}(p_s) - p_s p_s^{\mathsf{T}}\big)$。对半梯度求导得完整向量
 
 $$\frac{\partial g_a}{\partial G_{js}} = \frac{\delta_{a,s}\ \big(C_j^{\mathsf{T}} W r\big) + \big(R^{\mathsf{T}} W C_j\big)_a \mu_s}{N_s},$$
 
-and with $U = H_{FF}^{-1}$ and
-$v_{js} = \big(C_j^{\mathsf{T}} W r\big)e_s + \big(R^{\mathsf{T}} W C_j\big)\mu_s$,
+并记 $U = H_{FF}^{-1}$、$v_{js} = \big(C_j^{\mathsf{T}} W r\big)e_s + \big(R^{\mathsf{T}} W C_j\big)\mu_s$，则
 
 $$
 \mathrm{Cov}(\mu) = \sum_s \frac{1}{N_s}\ U A_s U^{\mathsf{T}},
@@ -915,17 +533,11 @@ $$
 A_s = \sum_j p_{js} v_{js} v_{js}^{\mathsf{T}} - \Big(\sum_j p_{js} v_{js}\Big)\Big(\sum_k p_{ks} v_{ks}\Big)^{\mathsf{T}}.
 $$
 
-A rank-one $d_{js} e_s^{\mathsf{T}}$ form drops the second term, which finite
-differences show contributes at the same order as the first (50\%), so it must
-be kept (D-119). The unrecorded zero-deposition category has $v = 0$ and cancels
-from the *centered* form $A_s$, which is why the sums run over recorded
-deposition bins only.
+若采用秩一形式 $d_{js} e_s^{\mathsf{T}}$ 则会丢掉第二项；有限差分表明该项与第一项同量级（50%），因此必须保留（D-119）。未记录的零沉积类别对应 $v = 0$，在*中心化*形式 $A_s$ 中自动消去，这正是求和仅遍历已记录的沉积道的原因。
 
-### 8.3 Streaming evaluation, no $n \times n$ inverse (D-173)
+### 8.3 流式计算，不构造 $n \times n$ 逆矩阵（D-173）
 
-Expanding $X_{js,i} = a_j U[i,s] + \mu_s m_{i,j}$ with
-$a_j = C_j^{\mathsf{T}} W r$ and $m = U(R^{\mathsf{T}} W C)$ gives the three-term
-form actually evaluated,
+展开 $X_{js,i} = a_j U[i,s] + \mu_s m_{i,j}$（其中 $a_j = C_j^{\mathsf{T}} W r$、$m = U(R^{\mathsf{T}} W C)$），得到实际计算的三项形式
 
 $$
 \begin{aligned}
@@ -947,48 +559,29 @@ u_i &= U e_i, &
 \end{aligned}
 $$
 
-Only the free-set columns $u_i$ are solved, in blocks of
-`MC_BLOCK_COLUMNS = 128`, and the contractions are formed per block. Neither
-$H_{FF}^{-1}$ nor $U(R^{\mathsf{T}} W C)$ is ever materialized; the only dense
-$O(n^2)$ object is the data-side `mixed`, which carries no inverse. The result
-equals the direct linearization at $\mathrm{rtol} = 10^{-9}$, active bins
-included.
+仅求解自由集对应的列 $u_i$，分块大小为 `MC_BLOCK_COLUMNS = 128`，各缩并在块内完成。$H_{FF}^{-1}$ 与 $U(R^{\mathsf{T}} W C)$ 均不实体化；唯一的稠密 $O(n^2)$ 对象是数据侧的 `mixed`，其中不含逆矩阵。结果与直接线性化在 $\mathrm{rtol} = 10^{-9}$ 内一致，活动道亦包含在内。
 
-### 8.4 The certificate that makes the split auditable (F-UNC-3)
+### 8.4 使拆分可审计的校验（F-UNC-3）
 
 $$
 \sigma_{\text{total}} = \mathrm{hypot}\big(\sigma_{\text{stat}}, \sigma_{\text{syst}}\big),
 $$
 
-verified as
-$\sigma_{\text{total}}^2 = \sigma_{\text{stat}}^2 + \sigma_{\text{syst}}^2$ to a
-relative $10^{-9}$ in strict mode. Each `BandComponent` records its name, kind
-(`stat`/`syst`) and formula ID, so a product can be audited without
-re-deriving the split.
+严格模式下按相对 $10^{-9}$ 验证 $\sigma_{\text{total}}^2 = \sigma_{\text{stat}}^2 + \sigma_{\text{syst}}^2$。每个 `BandComponent` 记录其名称、类别（`stat`/`syst`）与公式编号，因而无需重新推导拆分即可审计数据产品。
 
 ---
 
-## 9. Simulation: sampling, exact variances and seeding
+## 9. 模拟：抽样、精确方差与随机数种子
 
-### 9.1 Fixed per-column sampling and event accounting (F-SIM-1)
+### 9.1 固定逐列抽样与事件计数（F-SIM-1）
 
-The matrix primary axis has $n_{\text{active}}$ active columns.
-$n_{\text{events}}$ is split as
-$\text{base},\ \text{rem} = \mathrm{divmod}(n_{\text{events}}, n_{\text{active}})$;
-the active columns receive $\text{base} + 1$ for the first `rem` and `base`
-otherwise — exactly the round-robin assignment
-$\text{active}[(\text{offset} + \text{event}) \bmod n_{\text{active}}]$ written
-as a count vector. Within column $j$, each primary energy is drawn uniformly in
-its bin,
+矩阵初级轴有 $n_{\text{active}}$ 个活动列。$n_{\text{events}}$ 按 $\text{base},\ \text{rem} = \mathrm{divmod}(n_{\text{events}}, n_{\text{active}})$ 拆分：前 `rem` 个活动列各得 $\text{base} + 1$，其余各得 `base`——这正是把轮转分配 $\text{active}[(\text{offset} + \text{event}) \bmod n_{\text{active}}]$ 写成计数向量的结果。在第 $j$ 列内，每个初级能量在其所属道内均匀抽取：
 
 $$
 E = \mathrm{lo}_j + u\ (\mathrm{hi}_j - \mathrm{lo}_j), \qquad u \sim U[0, 1).
 $$
 
-Every event is scored into exactly one cell: either an in-range positive
-deposit fills one $(\text{deposition}, \text{primary})$ cell of $G$, or the
-event is counted in $\mathrm{zero}_j$. Hence the accounting identity holds
-exactly by construction:
+每个事件都被计入且仅计入一个单元：或者一次落在范围内的正沉积填充 $G$ 的一个（沉积，初级）单元，或者该事件被计入 $\mathrm{zero}_j$。因此计数恒等式由构造精确成立：
 
 $$
 \sum_d G[d,j] + \mathrm{zero}_j = N_j
@@ -996,278 +589,165 @@ $$
 \sum_j N_j = n_{\text{events}}.
 $$
 
-The scoring rule is $0 < \mathrm{totalKev} < \mathrm{high}$ **and**
-$\mathrm{totalKev} \ge \mathrm{low}$ for the in-range branch (exactly as
-implemented), so an event whose total deposit falls outside the deposition axis
-is *routed to* $\mathrm{zero}_j$ rather than lost. The identity therefore
-cannot detect an out-of-range deposit — it holds by construction, and
-$\mathrm{zero}_j$ is "no in-range deposit", not "nothing deposited" (§4.1).
-What the identity does guarantee is that no event is dropped, double-counted or
-invented.
+范围内的判据为 $0 < \mathrm{totalKev} < \mathrm{high}$ **且** $\mathrm{totalKev} \ge \mathrm{low}$（与实现完全一致），因此总沉积能量落在沉积轴之外的事件被*归入* $\mathrm{zero}_j$ 而不是丢失。故该恒等式无法检测越界沉积——它由构造成立，而 $\mathrm{zero}_j$ 的含义是“无落在轴内的沉积”，不是“未产生任何沉积”（§4.1）。该恒等式真正保证的是：没有任何事件被丢弃、重复计数或凭空产生。
 
-### 9.2 Exact fixed-total variance (F-SIM-2)
+### 9.2 固定总数下的精确方差（F-SIM-2）
 
-Conditional on the fixed column total $N_j$, the deposition-bin counts are
-multinomial with probabilities $p = G[d,j]/N_j$, so the binomial marginal
+在列总数 $N_j$ 固定的条件下，沉积道计数服从概率为 $p = G[d,j]/N_j$ 的多项分布，故二项边缘方差
 
 $$
 \mathrm{Var}\big(G[d,j]\big) = N_j\ p\ (1 - p)
 $$
 
-is stored in `fSumw2`. Within a column the bins are **negatively correlated**
-and those correlations are reconstructed downstream from counts and $N_j$. A
-Poisson `counts` variance would overstate the high-probability bins; this is
-why the exact fixed-total form is used. The source mode fills one entry per
-merged pulse, so the pulse total $P$ is itself random; conditional on the
-recorded $P = \sum \text{counts}$, the plug-in marginal is
-$\mathrm{Var}(c) = c\ (1 - c/P)$ (documented approximation to the full
-pulse-count distribution).
+存入 `fSumw2`。同一列内各道**负相关**，这些相关性在下游由计数与 $N_j$ 重建。若采用泊松计数方差，则会高估高概率道；这正是使用固定总数精确形式的原因。源模式对每个合并后的脉冲填充一个条目，故脉冲总数 $P$ 本身是随机的；在已记录的 $P = \sum \text{counts}$ 条件下，代入式边缘方差为 $\mathrm{Var}(c) = c\ (1 - c/P)$（对完整脉冲计数分布的已记录近似）。
 
-### 9.3 Lambertian surface sampling (F-SIM-4)
+### 9.3 朗伯面源抽样（F-SIM-4）
 
-**Plane.** Position uniform on the crystal-face-sized square,
+**平面源。** 位置在晶体端面大小的正方形上均匀分布，
 
 $$
 x = (2u_x - 1)h_x, \qquad y = (2u_y - 1)h_y, \qquad z = z_{\text{plane}}.
 $$
 
-Direction Lambertian about the inward normal $-z$:
-$\cos\theta = \sqrt{u_{\cos}}$ (the correct cosine-weighted law, not
-$\cos\theta = u$), $\varphi = 2\pi u_\varphi$, giving the unit vector
-$(-\sin\theta\cos\varphi,\ -\sin\theta\sin\varphi,\ -\cos\theta)$.
+方向相对内法向 $-z$ 为朗伯分布：$\cos\theta = \sqrt{u_{\cos}}$（正确的余弦加权抽样律，而非 $\cos\theta = u$）、$\varphi = 2\pi u_\varphi$，给出单位向量 $(-\sin\theta\cos\varphi,\ -\sin\theta\sin\varphi,\ -\cos\theta)$。
 
-**Sphere.** A uniform point uses $\cos\theta_0 = 2u_1 - 1$,
-$\varphi_0 = 2\pi u_2$; a local orthonormal frame
-$e_1 = n \times \hat{z}$ (falling back to $(1,0,0)$ at the poles) and
-$e_2 = n \times e_1$ carries the same Lambertian direction. The result is a unit
-vector with positive projection on the inward normal.
+**球面源。** 均匀取点用 $\cos\theta_0 = 2u_1 - 1$、$\varphi_0 = 2\pi u_2$；局部正交标架 $e_1 = n \times \hat{z}$（在两极退化为 $(1,0,0)$）、$e_2 = n \times e_1$ 承载同样的朗伯方向。结果是一个在内法向上投影为正的单位向量。
 
-### 9.4 Pulse merging and deterministic seeds (F-SIM-5/F-SIM-7)
+### 9.4 脉冲合并与确定性随机数种子（F-SIM-5/F-SIM-7）
 
-Crystal deposits carry their Geant4 global time; sorting by time, a pulse is the
-group accumulated while $t \le t_0 + 10\ \mu\mathrm{s}$, i.e. the **closed**
-window $[t_0,\ t_0 + 10\ \mu\mathrm{s}]$ (the boundary deposit at exactly
-$t_0 + 10\ \mu\mathrm{s}$ is included). Its energy is the sum of the group's
-deposits. Only the source mode merges — the matrix mode scores one gamma per
-event.
+晶体中的沉积带有 Geant4 全局时间；按时间排序后，一个脉冲是满足 $t \le t_0 + 10\ \mu\mathrm{s}$ 的累积组，即**闭**窗口 $[t_0,\ t_0 + 10\ \mu\mathrm{s}]$（恰在 $t_0 + 10\ \mu\mathrm{s}$ 处的边界沉积包含在内）。其能量为该组沉积能量之和。仅源模式作合并——矩阵模式对每个事件只记录一个伽马。
 
-Each matrix primary column gets an independent stream from a SplitMix64 mixer
-of $(\text{seed} + \text{tag})$ and the column index, reduced to $[0, 2^{63})$;
-source-mode event blocks use the same construction with a different tag. For a
-fixed seed and a fixed worker partition, merging the summed histograms
-reproduces the invocation result **bit-for-bit** (counts are integer-valued).
-Bit-for-bit equivalence across *different* worker counts is explicitly **not** a
-contract: Geant4's engine state makes a mid-run reseed process-dependent
-(D-123).
+矩阵模式的每个初级列从 $(\text{seed} + \text{tag})$ 与列索引经 SplitMix64 混合器得到一个独立随机数流，归约到 $[0, 2^{63})$；源模式的事件块采用相同构造但不同的 tag。在随机数种子与 worker 划分均固定时，把分别求和的直方图合并后可**逐位**复现该次调用的结果（计数为整数值）。跨*不同* worker 数的逐位一致性明确**不**属于契约：Geant4 的引擎状态使运行中途重新播种依赖于进程（D-123）。
 
-### 9.5 Physical boundary certificate (F-SIM-6)
+### 9.5 物理边界校验（F-SIM-6）
 
-A gamma cannot deposit more energy than it carries, so on the binned axes a
-necessary condition for every **scored** cell is $G[d,j] = 0$ whenever
-$\mathrm{depositionEdges}[d] > \mathrm{primaryEdges}[j+1]$ (the deposition bin
-starts above the primary column's top edge). The check is one vectorized mask
-and runs in strict mode.
+伽马不可能沉积超过其自身所携带的能量，因此在分道轴上，每个**已记录**单元的必要条件是：当 $\mathrm{depositionEdges}[d] > \mathrm{primaryEdges}[j+1]$（即沉积道的下边界高于该初级列的上边界）时 $G[d,j] = 0$。该校验是一个向量化掩模运算，在严格模式下执行。
 
-Its scope is bounded by the routing rule of §9.1: an out-of-range total never
-reaches a $G$ cell at all, so this certificate proves that the cells that *were*
-scored respect energy conservation — it is **not** a detector of escaped
-deposits. Those are absorbed into $\mathrm{zero}_j$ by construction, which is
-why the $\eta_j$ of F-SIM-3 must be read as the in-range containment fraction.
+其适用范围受 §9.1 的归类规则限制：越界的总沉积根本不会进入 $G$ 的任何单元，因此该校验证明的是*已记录*的单元遵守能量守恒——它**不是**逃逸沉积的探测器。逃逸沉积由构造被吸收进 $\mathrm{zero}_j$，这也是 F-SIM-3 中的 $\eta_j$ 必须理解为轴内包容比的原因。
 
 ---
 
-## 10. Why the formulas cannot drift
+## 10. 公式为何不会漂移
 
-The mathematical claims above are only credible if the code cannot quietly
-diverge from them. Four mechanisms enforce that:
+只有当代码无法悄悄偏离上述数学论断时，这些论断才可信。以下四种机制保证了这一点：
 
-1. **Symbolic generation (D-77).** `tools/generate_kernels.py` renders the
-   energy model, resolution model, kernel and all their derivatives from
-   `sympy.diff` into `kc761tool/core/_gen/`, with a header recording the sympy
-   version, the formula IDs and the exact command line. **Value and derivative
-   always come from the same symbolic expression**; a hand-written derivative
-   of a registered formula is a contract violation. The generator writes no
-   timestamps, so repeated runs are byte-identical, and `_gen` verifies a
-   manifest at import time.
-2. **Mechanical single-source gate.** `tools/check_single_source.py` fails the
-   build when a registered expression body appears outside its `_gen` module or
-   its owning implementation.
-3. **Runtime certificates (D-61).** Section 11 lists the suites. They fail fast
-   with the offending formula ID and the offending value.
-4. **No silent failures (AGENTS.md hard rule 12, plan §5.5).** No bare
-   `except`, no silent clamping, no NaN substitution. A numerically necessary
-   clamp must be explicit, warned about, and recorded in the product `meta` —
-   as the F-MODEL-5 resolution clamp is.
+1. **符号化生成（D-77）。** `tools/generate_kernels.py` 用 `sympy.diff` 把能量模型、分辨率模型、核函数及其全部导数渲染到 `kc761tool/core/_gen/`，文件头记录 sympy 版本、公式编号与确切的命令行。**数值与导数始终来自同一符号表达式**；为已登记公式手写导数属于契约违规。生成器不写入时间戳，因此重复运行的结果逐字节相同；`_gen` 在导入时校验清单（manifest）。
+2. **机械化的单一来源校验门。** 当某个已登记表达式的函数体出现在其 `_gen` 模块或归属实现之外时，`tools/check_single_source.py` 使构建失败。
+3. **运行时校验（D-61）。** §11 列出全部校验套件。它们快速失败，并给出违规的公式编号与违规数值。
+4. **无静默失效（AGENTS.md 硬性规则 12，plan §5.5）。** 不使用裸 `except`，不静默钳制，不替换为 NaN。数值上必要的钳制必须显式、有告警并记入数据产品 `meta`——F-MODEL-5 的分辨率钳制即是如此。
 
-**Tests are auxiliary.** Correctness is defined by the derivations and the
-certificates, never by stored reference outputs, golden files or regression
-baselines (D-65). pytest/hypothesis encode invariants; they do not define them.
+**测试是辅助性的。** 正确性由推导与校验定义，绝不通过存储的参考输出、黄金文件或回归基线来定义（D-65）。pytest/hypothesis 只是把不变量编码下来，而不是定义它们。
 
 ---
 
-## 11. Runtime certificates
+## 11. 运行时校验
 
-Strict mode (`--strict` or `KC761TOOL_STRICT=1`) runs every suite below and aborts
-on violation. Always-on schema, shape, unit and finiteness validation runs in
-both modes and cannot be disabled (D-62).
+严格模式（`--strict` 或 `KC761TOOL_STRICT=1`）运行下列全部套件，并在违规时中止。始终开启的模式、形状、单位与有限性校验在两种模式下都执行，且不可关闭（D-62）。
 
-| Certificate | Formula ID | Check |
-|-------------|------------|-------|
-| Energy monotonicity | F-MODEL-3 | $\mathrm{d}E/\mathrm{d}\mathrm{ch} > 0$ exactly at endpoints or the quadratic vertex |
-| Resolution positivity | F-MODEL-5 | $\sigma^2 \ge -10^{-9}$ on the export grid |
-| Kernel column sums | F-KERN-2 | every non-empty column sums to $1$ within $10^{-10}$ |
-| Response columns | F-RESP-1 | every $C$ column sums to $1$ or is exactly $0$ |
-| Composition identity | F-RESP-2 | $R$ column sums equal detected mass $/N_j$ (the $\eta \in [0,1]$ bound is always-on) |
-| Slice integrity | F-RESP-3 | sliced row sums never exceed full column sums |
-| KKT | F-SOLVE-3 | scaled reduced gradient and complementarity $\le 10^{-6}$ |
-| Mask reproducibility | F-SOLVE-6 | stored mask equals the mask recomputed from the recorded spectrum and settings |
-| Covariance PSD | F-COV-1/2 | symmetric, smallest eigenvalue $\ge -\mathrm{tol}$ |
-| Band decomposition | F-UNC-3 | $\sigma_{\text{total}}^2 = \sigma_{\text{stat}}^2 + \sigma_{\text{syst}}^2$ within $10^{-9}$ relative |
-| Event accounting | F-SIM-1 | $\sum \text{counts} + \mathrm{zero} = N_j$; $\sum_j N_j = n_{\text{events}}$ |
-| Simulation variance | F-SIM-2 | `fSumw2` $= N_j\ p\ (1-p)$ (matrix) or $c\ (1-c/P)$ (source) |
-| Efficiency bounds | F-SIM-3 | derived $\eta_j = \text{column sum}_j / N_j$ lies in $[0,1]$ |
-| Physical boundary | F-SIM-6 | impossible deposition cells are exactly $0$ (strict only) |
-| Finiteness | all | no NaN/Inf; shape and unit checks in every mode |
+| 校验项 | 公式编号 | 检查内容 |
+|--------|----------|----------|
+| 能量单调性 | F-MODEL-3 | 在端点或二次顶点处精确满足 $\mathrm{d}E/\mathrm{d}\mathrm{ch} > 0$ |
+| 分辨率正性 | F-MODEL-5 | 在导出网格上 $\sigma^2 \ge -10^{-9}$ |
+| 核函数列和 | F-KERN-2 | 每个非空列之和在 $10^{-10}$ 内等于 $1$ |
+| 响应列 | F-RESP-1 | $C$ 的每一列之和为 $1$ 或严格为 $0$ |
+| 合成恒等式 | F-RESP-2 | $R$ 的列和等于探测到的份额 $/N_j$（$\eta \in [0,1]$ 的界限始终校验） |
+| 切片完整性 | F-RESP-3 | 切片后的行和不超过完整列和 |
+| KKT | F-SOLVE-3 | 缩放后的约化梯度与互补松弛量 $\le 10^{-6}$ |
+| 掩模可复现性 | F-SOLVE-6 | 存储的掩模等于由所记录谱与设置重算的掩模 |
+| 协方差正定性 | F-COV-1/2 | 对称，最小特征值 $\ge -\mathrm{tol}$ |
+| 不确定度带分解 | F-UNC-3 | $\sigma_{\text{total}}^2 = \sigma_{\text{stat}}^2 + \sigma_{\text{syst}}^2$ 的相对偏差在 $10^{-9}$ 内 |
+| 事件计数 | F-SIM-1 | $\sum \text{counts} + \mathrm{zero} = N_j$；$\sum_j N_j = n_{\text{events}}$ |
+| 模拟方差 | F-SIM-2 | `fSumw2` $= N_j\ p\ (1-p)$（矩阵）或 $c\ (1-c/P)$（源） |
+| 效率界限 | F-SIM-3 | 导出的 $\eta_j = \text{列和}_j / N_j$ 落在 $[0,1]$ 内 |
+| 物理边界 | F-SIM-6 | 不可能沉积的单元严格为 $0$（仅严格模式） |
+| 有限性 | 全部 | 无 NaN/Inf；形状与单位检查在两种模式下均执行 |
 
 ---
 
-## 12. Running
+## 12. 运行方式
 
 ```bash
 python kc761tool.py --help
 python -m kc761tool --help
 ```
 
-| Subcommand | Mathematical role |
-|------------|-------------------|
-| `csv2root` | parse a raw spectrometer CSV into a `spectrum` product |
-| `specadd` | add two spectra (values and DAQ times add) |
-| `specsub` | scale by DAQ time and subtract a background spectrum |
-| `sim` | Geant4 source mode (`mc_spectrum`) or matrix mode (`G`) |
-| `calib` | joint fit of $(c_0 \dots c_3, b_0 \dots b_2)$ and the per-dataset Bezier scales |
-| `compose` | compose $R = C\ G\mathrm{diag}(1/N)$ for inspection |
-| `unfold` | solve the non-negative Tikhonov problem (full, or `--calib-only`) |
+| 子命令 | 数学职责 |
+|--------|----------|
+| `csv2root` | 把谱仪原始 CSV 解析为 `spectrum` 数据产品 |
+| `specadd` | 两谱相加（数值与 DAQ 时间相加） |
+| `specsub` | 按 DAQ 时间缩放并扣除本底谱 |
+| `sim` | Geant4 源模式（`mc_spectrum`）或矩阵模式（`G`） |
+| `calib` | 联合拟合 $(c_0 \dots c_3, b_0 \dots b_2)$ 与逐数据集 Bezier 归一化因子 |
+| `compose` | 合成 $R = C\ G\mathrm{diag}(1/N)$ 以供检查 |
+| `unfold` | 求解非负 Tikhonov 问题（完整模式，或 `--calib-only`） |
 
-The chain is `csv2root -> specsub -> sim` (source) `-> calib -> sim` (matrix)
-`-> compose -> unfold`: the calibration consumes measured and source-mode
-simulated spectra, and the matrix simulation and unfolding consume the
-calibration product that supplies their energy axes.
+链条为 `csv2root -> specsub -> sim`（源模式）`-> calib -> sim`（矩阵模式）`-> compose -> unfold`：刻度使用实测谱与源模式模拟谱，而矩阵模拟与解谱使用为其提供能量轴的刻度数据产品。
 
-The `calib` step and the source-mode `sim` runs that feed it are the one-time
-detector calibration. Once `calib` has run, the remainder (`sim` matrix mode,
-`compose`, `unfold`) is applied to any number of measured spectra with that
-calibration held fixed, so the unfolded spectra need not be the calibration
-sources.
+`calib` 环节以及为它提供输入的源模式 `sim` 运行构成一次性的探测器刻度。一旦 `calib` 完成，其余环节（`sim` 矩阵模式、`compose`、`unfold`）就可以在刻度固定不变的前提下应用于任意数量的实测谱，因此待解谱的能谱不必是刻度源。
 
-`specadd` and `specsub` take their two operands positionally and share the
-F-SPEC-1/F-SPEC-2 formulas ([docs/formats.md](docs/formats.md) §7.4/§7.5):
+`specadd` 与 `specsub` 以位置参数接受两个操作数，并共用 F-SPEC-1/F-SPEC-2 公式（[docs/formats.md](docs/formats.md) §7.4/§7.5）：
 
 ```bash
 python kc761tool.py specadd run1.root run2.root      # -> run1-add-run2.root
 python kc761tool.py specsub am241.root bkg.root      # -> am241-sub-bkg.root
 ```
 
-The second operand of `specsub` is the background, scaled by `r = t_A / t_B`;
-`specadd` adds the DAQ times, so two runs become one longer acquisition. Both
-require identical channel axes, floor every input bin error at one count and
-write the product next to their first operand unless `-o/--output` is given.
+`specsub` 的第二个操作数为本底，按 $r = t_A / t_B$ 缩放；`specadd` 把 DAQ 时间相加，因此两次运行合并为一次更长的采集。两者都要求道轴完全相同，把每个输入道误差的下限取为 1 个计数，并把数据产品写在第一个操作数旁，除非另行给出 `-o/--output`。
 
-A full unfold defaults to `alpha = 1` (D-191) and writes
-`work/unfold/unfold-<data-stem>-<sim-stem>.root` (D-192); `--alpha` overrides
-the strength and `-o/--output` the target. The SNIP peak mask is on by default
-with `snip_floor = 0.01` and `snip_max_iterations = 32` (D-191); it can be
-disabled with `--no-snip` or tuned with the `--snip-*` flags (§7). The unfold
-figure carries the linear spectrum and the relative residuals; `--log-plot`
-adds the logarithmic-y panel (D-193). Calibration prints a pre-fit summary and a
-progress line about once per second (`--no-progress` silences them,
-`--progress-every SECONDS` retunes). Every product-writing command validates
-its output and figure targets before starting work, so an existing file is
-refused up front rather than after a long run (D-171).
+完整解谱默认 $\alpha = 1$（D-191），并写入 `work/unfold/unfold-<data-stem>-<sim-stem>.root`（D-192）；`--alpha` 覆盖正则化强度，`-o/--output` 覆盖目标路径。SNIP 峰掩模默认开启，取 `snip_floor = 0.01` 与 `snip_max_iterations = 32`（D-191）；可用 `--no-snip` 关闭，或用 `--snip-*` 系列选项调整（§7）。解谱图包含线性纵轴能谱面板与相对残差面板；`--log-plot` 追加对数纵轴面板（D-193）。`calib` 会打印拟合前摘要，并约每秒打印一行进度（`--no-progress` 关闭，`--progress-every SECONDS` 调整间隔）。所有写数据产品的命令都在开始工作前校验其输出与图件目标，因此已存在的文件会在启动时即被拒绝，而不是在长时间运行之后（D-171）。
 
 ```bash
-python kc761tool.py unfold --strict ...        # every certificate
-KC761TOOL_STRICT=1 python kc761tool.py unfold ...  # same, via the environment
+python kc761tool.py unfold --strict ...        # 全部校验
+KC761TOOL_STRICT=1 python kc761tool.py unfold ...  # 同上，通过环境变量
 ```
 
 ---
 
-## 13. Configuration files
+## 13. 配置文件
 
-`sim`, `calib`, `compose` and `unfold` accept `-c/--config FILE`, a TOML file
-read with the standard library (`config_version = 1`). One file may hold the
-`[sim]`, `[calib]`, `[compose]` and `[unfold]` tables; each subcommand reads
-only its own table. `[sim]` is a serial batch of `[[sim.runs]]`, each executed
-in a fresh child process because a `G4RunManager` can be initialized only once
-per process. Relative paths resolve against the current working directory
-(D-164).
+`sim`、`calib`、`compose` 与 `unfold` 接受 `-c/--config FILE`，即以标准库读取的 TOML 文件（`config_version = 1`）。同一文件可包含 `[sim]`、`[calib]`、`[compose]` 与 `[unfold]` 四张表；每个子命令只读取自己的表。`[sim]` 是 `[[sim.runs]]` 的串行批处理，每一项都在全新的子进程中执行，因为 `G4RunManager` 在每个进程中只能初始化一次。相对路径相对当前工作目录解析（D-164）。
 
-Config mode is mutually exclusive with the run-selection options: an option is
-either on the command line or in the file, never both. That rule is exact
-because every option is declared once (D-190) — the declaration states the
-flags, the TOML key, the default and whether the option may accompany
-`--config`, and both surfaces are resolved and validated by the same code, so
-`--dry-run` can never accept an invocation that a real run rejects. The
-`--config` help lists the options that may accompany it, rendered from that
-declaration.
+配置模式与运行选择类选项互斥：一个选项要么出现在命令行，要么出现在文件中，绝不两者兼有。该规则之所以精确，是因为每个选项只声明一次（D-190）——声明中给出标志拼写、TOML 键、默认值以及该选项是否可与 `--config` 同时出现；两种入口由同一份代码解析与校验，因此 `--dry-run` 绝不会接受真实运行会拒绝的调用。`--config` 的帮助文本由该声明渲染，列出可与其同时出现的选项。
 
-See [examples/](examples/) for a commented file per subcommand, and
-[docs/plan.md](docs/plan.md) section 1.12 for the full rules.
+每个子命令的带注释示例文件见 [examples/](examples/)，完整规则见 [docs/plan.md](docs/plan.md) 第 1.12 节。
 
 ---
 
-## 14. Requirements
+## 14. 运行环境与依赖
 
-* Python >= 3.12.
-* Runtime: `numpy`, `scipy`, `numba`, `uproot`, `sympy`, `matplotlib`.
-  `numba` JIT-compiles the generated response kernel and the fused Jacobian
-  pass (D-174); the number of parallel threads follows numba's standard
-  `NUMBA_NUM_THREADS`. Kernel fills write disjoint slices per column, so
-  results are thread-count independent.
-* Simulation: `geant4-pybind`.
-* Development: `ruff`, `pytest`, `hypothesis`.
+* Python >= 3.12。
+* 运行时依赖：`numpy`、`scipy`、`numba`、`uproot`、`sympy`、`matplotlib`。`numba` 对生成的响应核与融合后的雅可比计算作即时编译（D-174）；并行线程数遵循 numba 的标准环境变量 `NUMBA_NUM_THREADS`。核填充按列写入互不重叠的切片，因此结果与线程数无关。
+* 模拟：`geant4-pybind`。
+* 开发：`ruff`、`pytest`、`hypothesis`。
 
-Packaging is intentionally not provided (D-7); install the dependencies in a
-virtual environment and run from the repository root.
+有意不提供打包安装（D-7）；请在虚拟环境中安装依赖，并从仓库根目录运行。
 
 ---
 
-## 15. Data and outputs
+## 15. 数据与输出
 
-* Raw measurements live in `work/data/<campaign>/` (for example
-  `work/data/2609a/`); `work/` is not committed.
-* Default products are written under `work/<subcommand>/`; `csv2root` defaults
-  next to its CSV, `specadd`/`specsub` next to their first operand as
-  `<a-stem>-add-<b-stem>.root` / `<a-stem>-sub-<b-stem>.root` (D-165/D-185) and
-  `compose` next to its `--sim` input (D-166).
-* Writes are atomic and self-validating (F-IO-1): the product goes to
-  `<target>.part`, is closed, reopened and validated against the product
-  contract, and only then moved onto `<target>` with `os.replace`. An existing
-  target is refused unless `--force` is passed, and any failure removes the
-  part and leaves an existing target untouched.
-* Every product records full provenance: git revision and dirty flag, Python
-  and dependency versions, the sha256 of every input file, the ordered CLI
-  arguments and a UTC timestamp.
+* 原始测量数据位于 `work/data/<campaign>/`（例如 `work/data/2609a/`）；`work/` 不纳入版本控制。
+* 默认数据产品写入 `work/<subcommand>/`；`csv2root` 默认写在其 CSV 旁，`specadd`/`specsub` 写在其第一个操作数旁，命名为 `<a-stem>-add-<b-stem>.root` / `<a-stem>-sub-<b-stem>.root`（D-165/D-185），`compose` 写在其 `--sim` 输入旁（D-166）。
+* 写入是原子的且自校验（F-IO-1）：数据产品先写入 `<target>.part`，关闭后重新打开，按数据产品契约校验，只有通过后才用 `os.replace` 移到 `<target>`。已存在的目标文件会被拒绝，除非传入 `--force`；任何失败都会删除 `.part` 文件，并保持已有目标文件不变。
+* 每个数据产品都记录完整溯源信息：git 修订号与脏标志、Python 与各依赖版本、每个输入文件的 sha256、按顺序记录的 CLI 参数，以及 UTC 时间戳。
 
 ---
 
-## 16. Development checks
+## 16. 开发检查
 
 ```bash
 ruff check .
-pytest -q -m "not g4 and not root"        # 445 passed, 9 framework cases deselected
-pytest -q tests/test_sim_g4.py            # needs geant4-pybind
-python tools/check_single_source.py       # the single-source gate
-python tools/generate_kernels.py          # regenerate kc761tool/core/_gen (committed)
-python tools/benchmarks.py --scenario all # wall-clock, never a gate
-python kc761tool.py sim --dry-run ...         # print the resolved run, no side effects
+pytest -q -m "not g4 and not root"        # 445 项通过，9 项框架相关用例被取消选择
+pytest -q tests/test_sim_g4.py            # 需要 geant4-pybind
+python tools/check_single_source.py       # 单一来源校验门
+python tools/generate_kernels.py          # 重新生成 kc761tool/core/_gen（已提交）
+python tools/benchmarks.py --scenario all # 墙钟计时，从不作为校验门
+python kc761tool.py sim --dry-run ...         # 打印解析后的运行配置，无副作用
 ```
 
-`g4`- and `root`-marked tests are skipped when the corresponding framework is
-unavailable, and `bench`-marked cases only run with `KC761TOOL_RUN_BENCH=1`. The
-performance crossovers and their measured before/after numbers are registered
-in [docs/plan.md](docs/plan.md) section 1.16.
+当相应框架不可用时，标记为 `g4` 与 `root` 的测试会被跳过；标记为 `bench` 的用例仅在 `KC761TOOL_RUN_BENCH=1` 时运行。性能转折点及其实测的前后对比数据登记在 [docs/plan.md](docs/plan.md) 第 1.16 节。
 
-For reference, the verification commands CI runs are:
+供参考，CI 执行的验证命令为：
 
 ```bash
 ruff check .
@@ -1280,42 +760,40 @@ for c in calib compose sim unfold; do python kc761tool.py "$c" -c "examples/$c.t
 
 ---
 
-## 17. Repository layout
+## 17. 仓库结构
 
-| Path | Content |
-|------|---------|
-| `kc761tool.py`, `kc761tool/__main__.py` | entry points |
-| `kc761tool/core/model.py` | energy calibration (dual basis), resolution, certificates (F-MODEL-1..5) |
-| `kc761tool/core/binning.py` | channel/energy grids, fixed MC axis (F-BIN-1/F-BIN-2/F-BIN-4; the F-BIN-3 pad is retired, D-187) |
-| `kc761tool/core/kernel.py` | exact Gaussian bin integrals, taper, sparse assembly (F-KERN-1..4) |
-| `kc761tool/core/response.py` | `C`, `R`, window slicing, response Jacobian (F-RESP-1..4) |
-| `kc761tool/core/solver.py` | Tikhonov objective, SNIP mask, active-set QP, KKT (F-SOLVE-1..6) |
-| `kc761tool/core/covariance.py` | Fisher information, `s^2` scaling, profile diagnostic (F-COV-1..3) |
-| `kc761tool/core/uncertainty.py` | stat/syst propagation, streaming MC term, bands (F-UNC-1..3) |
-| `kc761tool/core/projection.py` | overlap projections and variance propagation (F-PROJ-1..2) |
-| `kc761tool/core/_linalg.py` | shared SPD factorization policy (dense/banded/sparse crossovers) |
-| `kc761tool/core/_gen/` | committed sympy-generated kernels, manifest and freshness check |
-| `kc761tool/schema/` | product contracts, axes, uproot IO and certificates (F-IO-1) |
-| `kc761tool/calib/` | calibration fit, Bezier scale, covariance, product export (F-CAL-1..5) |
-| `kc761tool/unfold/` | selection, compose, solve, orchestration (F-UNF-1..6) |
-| `kc761tool/spectra/` | spectrum addition and DAQ-time scaled subtraction (F-SPEC-1..2) |
-| `kc761tool/sim/` | Geant4 detector, sources, sampling, certificates (F-SIM-1..7) |
-| `kc761tool/*/plot.py` | self-contained figures (D-153) |
-| `kc761tool/cli/` | CLI, config-file mode and per-command wiring |
-| `tools/` | kernel generation, the single-source gate and the timing tool |
-| `examples/` | shipped TOML configuration examples |
-| `tests/` | auxiliary tests and deterministic fixtures |
-| `docs/` | plan, architecture, formats, derivations |
-| `AGENTS.md` | hard rules, file ownership, contract-change process |
+| 路径 | 内容 |
+|------|------|
+| `kc761tool.py`、`kc761tool/__main__.py` | 入口点 |
+| `kc761tool/core/model.py` | 能量刻度（双基底）、分辨率与校验（F-MODEL-1..5） |
+| `kc761tool/core/binning.py` | 道址/能量网格、固定 MC 轴（F-BIN-1/F-BIN-2/F-BIN-4；F-BIN-3 填充已废止，D-187） |
+| `kc761tool/core/kernel.py` | 高斯分道精确积分、渐变截断与稀疏装配（F-KERN-1..4） |
+| `kc761tool/core/response.py` | `C`、`R`、窗口切片与响应雅可比（F-RESP-1..4） |
+| `kc761tool/core/solver.py` | Tikhonov 目标函数、SNIP 掩模、活动集二次规划与 KKT（F-SOLVE-1..6） |
+| `kc761tool/core/covariance.py` | Fisher 信息量、$s^2$ 缩放与轮廓诊断（F-COV-1..3） |
+| `kc761tool/core/uncertainty.py` | 统计/系统传递、流式 MC 项与不确定度带（F-UNC-1..3） |
+| `kc761tool/core/projection.py` | 重叠投影与方差传递（F-PROJ-1..2） |
+| `kc761tool/core/_linalg.py` | 共享的对称正定分解策略（稠密/带状/稀疏切换阈值） |
+| `kc761tool/core/_gen/` | 已提交的 sympy 生成核、清单与新鲜度检查 |
+| `kc761tool/schema/` | 数据产品契约、轴、uproot 读写与校验（F-IO-1） |
+| `kc761tool/calib/` | 刻度拟合、Bezier 归一化因子、协方差与数据产品导出（F-CAL-1..5） |
+| `kc761tool/unfold/` | 窗口选择、合成、求解与流程编排（F-UNF-1..6） |
+| `kc761tool/spectra/` | 谱相加与按 DAQ 时间缩放的谱相减（F-SPEC-1..2） |
+| `kc761tool/sim/` | Geant4 探测器、源、抽样与校验（F-SIM-1..7） |
+| `kc761tool/*/plot.py` | 自包含的图件（D-153） |
+| `kc761tool/cli/` | CLI、配置文件模式与逐命令装配 |
+| `tools/` | 核生成、单一来源校验门与计时工具 |
+| `examples/` | 随仓库提供的 TOML 配置示例 |
+| `tests/` | 辅助测试与确定性测试夹具 |
+| `docs/` | 计划、架构、格式与推导 |
+| `AGENTS.md` | 硬性规则、文件归属与契约变更流程 |
 
 ---
 
-## 18. Documentation
+## 18. 文档
 
-* [docs/derivations.md](docs/derivations.md) - **the mathematics**: formula
-  registry, full derivations, stated limitations, certificates.
-* [docs/plan.md](docs/plan.md) - final plan, decision register (D-nnn) and
-  contract points; section 4 summarizes the mathematics and statistics.
-* [docs/architecture.md](docs/architecture.md) - layering and module map.
-* [docs/formats.md](docs/formats.md) - product schemas and units.
-* [AGENTS.md](AGENTS.md) - hard rules, file ownership, contract-change process.
+* [docs/derivations.md](docs/derivations.md)——**数学部分**：公式登记表、完整推导、已声明的局限与校验。
+* [docs/plan.md](docs/plan.md)——最终计划、决策登记表（D-nnn）与契约要点；第 4 节概述数学与统计内容。
+* [docs/architecture.md](docs/architecture.md)——分层与模块图。
+* [docs/formats.md](docs/formats.md)——数据产品模式与单位。
+* [AGENTS.md](AGENTS.md)——硬性规则、文件归属与契约变更流程。

@@ -10,9 +10,13 @@ wins and this file must be fixed in the same change.
    comments, CLI help, error messages, identifiers - are written in American
    English (`center`, `color`, `behavior`, `normalize`/`normalization`,
    `labeled`, `modeled`, `defense`, `neighbor`, `realized`, `toward`), per
-   D-182. Literals that belong to another project's interface stay verbatim;
-   the only ones here are the Geant4 UI commands `/gps/pos/centre` and
-   `/vis/geometry/set/colour`, each marked as external where it appears.
+   D-182. The one exception is the default front page `README.md`, which D-194
+   keeps in Chinese, together with the Chinese glossary quoted in D-194 itself;
+   its English mirror `README.en.md` and every other file stay English, and the
+   English text is the technical baseline. Literals that belong to
+   another project's interface stay verbatim; the only ones here are the Geant4
+   UI commands `/gps/pos/centre` and `/vis/geometry/set/colour`, each marked as
+   external where it appears.
 2. **No packaging.** No `pyproject.toml`, `setup.py`, `setup.cfg` or
    installable distribution. Tool configuration lives in `ruff.toml` and
    `pytest.ini`. Supported entry points: `python kc761tool.py ...` and
@@ -65,7 +69,8 @@ wins and this file must be fixed in the same change.
 | `kc761tool/errors.py`, `kc761tool/runtime.py` | infrastructure | change requires a plan update |
 | `tests/`, `tests/fixtures/synthetic.py` | shared | fixture changes must stay deterministic |
 | `tools/` | shared | kernel generation and the single-source gate; keep `docs/derivations.md` in sync |
-| `examples/` | shared | shipped TOML examples; keep in sync with `README.md` and `docs/formats.md` |
+| `examples/` | shared | shipped TOML examples; keep in sync with `README.md`, `README.en.md` and `docs/formats.md` |
+| `README.md`, `README.en.md` | cli | the two mirrors of D-194; Chinese is the default front page, English the technical baseline |
 | `docs/plan.md` | authoritative | edit only to record a new decision |
 | `docs/architecture.md`, `docs/formats.md`, `docs/derivations.md` | owning layer | update in the same change as the code |
 | `work/` | user | untracked data and products; tooling must never delete or overwrite without `--force` |

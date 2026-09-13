@@ -784,7 +784,7 @@ relied on: the symmetry and half-bandwidth of `D_tilde'^T D_tilde'` (both hold
 by construction, so the check would be tautological) and a read-back comparison
 of the recorded baseline/mask sha256 against the product meta (the hashes are
 written for provenance; the mask itself is not stored in the product, so there
-is nothing to compare against on read). README section 6.3 states the same
+is nothing to compare against on read). README section 7.3 states the same
 scope.
 
 **Determinism.** Given `y`, calibration and parameters, the baseline, the mask
