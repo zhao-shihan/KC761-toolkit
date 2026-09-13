@@ -2,7 +2,7 @@
 
 ``run_unfold`` is the entry for ``kc761tool unfold``. It loads the data, calib
 and simulation products, checks the axis contract (D-114), composes the
-full-primary response, solves the padded window (F-UNF-3), propagates the
+full-primary response, solves the reported window (F-UNF-3/D-187), propagates the
 strict stat/syst bands (F-UNC-1..3) and writes the unfold product. A stale
 recorded calibration digest warns outside strict mode and raises under
 ``strict`` (D-184).
@@ -20,7 +20,7 @@ from kc761tool.core.binning import ChannelGrid
 from kc761tool.core.solver import (
     DEFAULT_SNIP_FLOOR,
     DEFAULT_SNIP_MAX_ITERATIONS,
-    DEFAULT_SNIP_PROTECT_SIGMA,
+    DEFAULT_SNIP_PROTECT_BINS,
     DEFAULT_SNIP_THRESHOLD_SIGMA,
 )
 from kc761tool.core.uncertainty import DEFAULT_SYST_FRAC
@@ -42,8 +42,8 @@ from kc761tool.schema.products import (
     META_DOF,
     META_ENERGY_HIGH_KEV,
     META_ENERGY_LOW_KEV,
-    META_PAD_NSIGMA,
     META_SNIP_BASELINE_SHA256,
+    META_SNIP_CANDIDATES,
     META_SNIP_CLIPPED_BINS,
     META_SNIP_CLIPPED_INDEX_RANGE,
     META_SNIP_ENABLED,
@@ -51,7 +51,8 @@ from kc761tool.schema.products import (
     META_SNIP_ITERATIONS,
     META_SNIP_MASK_SHA256,
     META_SNIP_MAX_ITERATIONS,
-    META_SNIP_PROTECT_SIGMA,
+    META_SNIP_PROTECT_BINS,
+    META_SNIP_PROTECTED_BINS,
     META_SNIP_THRESHOLD_SIGMA,
     META_SYST_FRAC,
     SCHEMA_VERSION,
@@ -99,7 +100,7 @@ def _settings_tuple(
     chi2: float,
     dof: int,
 ) -> tuple[tuple[str, str], ...]:
-    """Build the frozen unfold settings fields (docs/formats.md, D-160)."""
+    """Build the frozen unfold settings fields (docs/formats.md, D-160/D-187/D-188)."""
     assert settings.alpha is not None
     return (
         (META_ALPHA, repr(float(settings.alpha))),
@@ -108,11 +109,10 @@ def _settings_tuple(
         (META_ENERGY_HIGH_KEV, repr(float(settings.energy_high_kev))),
         (META_CHANNEL_LOW, str(int(channel_low))),
         (META_CHANNEL_HIGH, str(int(channel_high))),
-        (META_PAD_NSIGMA, repr(float(settings.pad_nsigma))),
         (META_SYST_FRAC, repr(float(settings.syst_frac))),
         (META_SNIP_ENABLED, "1" if settings.snip_enabled else "0"),
         (META_SNIP_THRESHOLD_SIGMA, repr(float(settings.snip_threshold_sigma))),
-        (META_SNIP_PROTECT_SIGMA, repr(float(settings.snip_protect_sigma))),
+        (META_SNIP_PROTECT_BINS, str(int(settings.snip_protect_bins))),
         (META_SNIP_FLOOR, repr(float(settings.snip_floor))),
         (META_SNIP_ITERATIONS, str(int(outcome.snip_iterations))),
         (META_SNIP_MAX_ITERATIONS, str(int(settings.snip_max_iterations))),
@@ -121,6 +121,8 @@ def _settings_tuple(
             META_SNIP_CLIPPED_INDEX_RANGE,
             f"{int(outcome.snip_clipped_first)}:{int(outcome.snip_clipped_last)}",
         ),
+        (META_SNIP_CANDIDATES, str(int(outcome.snip_n_candidates))),
+        (META_SNIP_PROTECTED_BINS, str(int(outcome.snip_n_protected))),
         (META_SNIP_BASELINE_SHA256, outcome.snip_baseline_sha256),
         (META_SNIP_MASK_SHA256, outcome.snip_mask_sha256),
         (META_CHI2, repr(float(chi2))),
@@ -240,11 +242,10 @@ def run_unfold(
     energy_high_kev: float,
     alpha: float | None = None,
     difference_order: int = 2,
-    pad_nsigma: float = 5.0,
     syst_frac: float = DEFAULT_SYST_FRAC,
     snip_enabled: bool = True,
     snip_threshold_sigma: float = DEFAULT_SNIP_THRESHOLD_SIGMA,
-    snip_protect_sigma: float = DEFAULT_SNIP_PROTECT_SIGMA,
+    snip_protect_bins: int = DEFAULT_SNIP_PROTECT_BINS,
     snip_floor: float = DEFAULT_SNIP_FLOOR,
     snip_iterations: int | None = None,
     snip_max_iterations: int = DEFAULT_SNIP_MAX_ITERATIONS,
@@ -304,11 +305,10 @@ def run_unfold(
         energy_low_kev=energy_low_kev,
         energy_high_kev=energy_high_kev,
         difference_order=difference_order,
-        pad_nsigma=pad_nsigma,
         syst_frac=syst_frac,
         snip_enabled=snip_enabled,
         snip_threshold_sigma=snip_threshold_sigma,
-        snip_protect_sigma=snip_protect_sigma,
+        snip_protect_bins=snip_protect_bins,
         snip_floor=snip_floor,
         snip_iterations=snip_iterations,
         snip_max_iterations=snip_max_iterations,
@@ -323,14 +323,11 @@ def run_unfold(
     primary_edges = primary_edges_kev(sim_product)
     selection = select_window(
         calibration=calibration,
-        resol_params=resol_params,
         channel_max=calib_product.channel_max,
         n_channels=channel_grid.n_channels,
         primary_edges_kev=primary_edges,
         energy_low_kev=energy_low_kev,
         energy_high_kev=energy_high_kev,
-        pad_nsigma=pad_nsigma,
-        strict=strict,
     )
 
     response, composed, _efficiency = compose_from_products(

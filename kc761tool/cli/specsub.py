@@ -14,14 +14,32 @@ from __future__ import annotations
 import argparse
 
 from kc761tool.cli._common import (
-    add_output_options,
-    add_runtime_options,
     add_spectrum_operands,
     argv_arguments,
     resolve_combination_paths,
 )
+from kc761tool.cli._registry import (
+    RunPolicy,
+    add_run_options,
+    merge_options,
+    output_options,
+    resolve_run_options,
+    runtime_options,
+)
 from kc761tool.runtime import configure_logging
 from kc761tool.spectra import SUB, run_specsub
+
+#: Declared option surface (D-190); the two operands stay argparse-native.
+SPECSUB_POLICY = RunPolicy(
+    command="specsub",
+    spec=merge_options(
+        output_options(
+            with_plot=False,
+            default_hint="next to the first spectrum product (SPECTRUM_A)",
+        ),
+        runtime_options(),
+    ),
+)
 
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -39,23 +57,19 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         first_help="spectrum product the background is subtracted from",
         second_help="background spectrum product, scaled by t_first / t_second",
     )
-    add_output_options(
-        parser,
-        with_plot=False,
-        default_hint="next to the first spectrum product (SPECTRUM_A)",
-    )
-    add_runtime_options(parser)
+    add_run_options(parser, SPECSUB_POLICY)
     parser.set_defaults(handler=_run)
 
 
 def _run(args: argparse.Namespace, *, strict: bool) -> int:
-    logger = configure_logging("specsub", args.log_level)
-    first, second, output = resolve_combination_paths(args, token=SUB)
+    values = resolve_run_options(SPECSUB_POLICY, args)
+    logger = configure_logging("specsub", str(values["log_level"]))
+    first, second, output = resolve_combination_paths(args, token=SUB, output=values["output"])
     result = run_specsub(
         first,
         second,
         output=output,
-        force=args.force,
+        force=bool(values["force"]),
         strict=strict,
         arguments=argv_arguments(args.argv),
     )

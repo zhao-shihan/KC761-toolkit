@@ -11,17 +11,22 @@ Formula IDs (docs/derivations.md): F-SOLVE-1 .. F-SOLVE-6.
 * F-SOLVE-3: the KKT certificate is measured in units of the data-gradient
   scale (relative tolerance ``KKT_TOL``), so it does not depend on the count
   normalization of the problem.
-* F-SOLVE-4/5/6 (D-154..D-161): an optional, default-on SNIP peak mask. The
-  baseline (F-SOLVE-4) and the resolution-matched significance (F-SOLVE-5)
-  build a fixed diagonal weight ``W``; the penalty operator becomes
-  ``D_tilde' = W**0.5 D W**0.5 . diag(sqrt(diag(A)))`` (F-SOLVE-6). The mask is
-  a function of the measured spectrum only, so the problem stays convex and the
+* F-SOLVE-4/5/6 (D-154..D-161, revised by D-188): an optional, default-on SNIP
+  peak mask. The baseline (F-SOLVE-4) and the resolution-matched significance
+  (F-SOLVE-5) build a fixed diagonal weight ``w``; the penalty operator becomes
+  ``D_tilde' = diag(rho**0.5) D diag(sqrt(diag(A)))`` with
+  ``rho_r = min_{j in stencil(r)} w_{r+j}`` (F-SOLVE-6). A row that touches a
+  protected bin therefore carries exactly the configured floor weight, and the
+  protected set is localized to a fixed number of primary bins per candidate
+  (``protect_bins``), independent of the detector resolution. The mask is a
+  function of the measured spectrum only, so the problem stays convex and the
   F-SOLVE-3 certificate is unchanged.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from numbers import Integral
 
 import numpy as np
 from numpy.typing import NDArray
@@ -77,8 +82,20 @@ def difference_operator(n_bins: int, order: int) -> sparse.csr_matrix:
     return sparse.csr_matrix((values, (rows, cols)), shape=(n_rows, n_bins))
 
 
+def _positive_int(name: str, value: object) -> int:
+    """Integral value >= 1, rejecting booleans and implicit conversions.
+
+    ``bool`` is an ``int`` subclass and numpy integers are not builtin ``int``,
+    so a bare ``isinstance(value, int)`` both accepts ``True`` (silently meaning
+    1) and rejects ``np.int64(3)``. Neither silent outcome is acceptable here.
+    """
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
+        raise ValidationError(f"{name} must be a positive integer, got {value!r}")
+    return int(value)
+
+
 DEFAULT_SNIP_THRESHOLD_SIGMA = 5.0
-DEFAULT_SNIP_PROTECT_SIGMA = 2.0
+DEFAULT_SNIP_PROTECT_BINS = 3
 DEFAULT_SNIP_FLOOR = 0.1
 DEFAULT_SNIP_MAX_ITERATIONS = 8
 SNIP_FILTER_SIGMA = 3.0
@@ -87,16 +104,19 @@ SNIP_FILTER_SIGMA = 3.0
 
 @dataclass(frozen=True)
 class SnipSettings:
-    """SNIP peak-mask configuration (F-SOLVE-4/5, D-156/D-157).
+    """SNIP peak-mask configuration (F-SOLVE-4/5, D-156/D-157/D-188).
 
-    The defaults are provisional and are refined by the synthetic parameter
-    study recorded under F-SOLVE-6 in docs/derivations.md; the realized values are
-    always written into the product meta (D-160).
+    ``protect_bins`` is the protective half-width around a candidate peak
+    measured in **primary bins**, not in resolution widths: the protected set
+    must stay a local property of the peak core, while the detector resolution
+    belongs to the detection step (the matched filter of F-SOLVE-5). The default
+    is the order-2 stencil width. The defaults are provisional and recorded per
+    product (D-160).
     """
 
     enabled: bool = True
     threshold_sigma: float = DEFAULT_SNIP_THRESHOLD_SIGMA
-    protect_sigma: float = DEFAULT_SNIP_PROTECT_SIGMA
+    protect_bins: int = DEFAULT_SNIP_PROTECT_BINS
     floor: float = DEFAULT_SNIP_FLOOR
     iterations: int | None = None
     max_iterations: int = DEFAULT_SNIP_MAX_ITERATIONS
@@ -106,22 +126,12 @@ class SnipSettings:
             raise ValidationError(
                 f"snip threshold_sigma must be positive and finite, got {self.threshold_sigma!r}"
             )
-        if not np.isfinite(self.protect_sigma) or self.protect_sigma < 0.0:
-            raise ValidationError(
-                f"snip protect_sigma must be non-negative and finite, got {self.protect_sigma!r}"
-            )
+        _positive_int("snip protect_bins", self.protect_bins)
         if not np.isfinite(self.floor) or not 0.0 <= self.floor <= 1.0:
             raise ValidationError(f"snip floor must lie in [0, 1], got {self.floor!r}")
-        if self.iterations is not None and (
-            not isinstance(self.iterations, int) or self.iterations < 1
-        ):
-            raise ValidationError(
-                f"snip iterations must be a positive integer or None, got {self.iterations!r}"
-            )
-        if not isinstance(self.max_iterations, int) or self.max_iterations < 1:
-            raise ValidationError(
-                f"snip max_iterations must be a positive integer, got {self.max_iterations!r}"
-            )
+        if self.iterations is not None:
+            _positive_int("snip iterations", self.iterations)
+        _positive_int("snip max_iterations", self.max_iterations)
 
     def resolved_iterations(self, fwhm_bins: float) -> int:
         """F-SOLVE-4 iteration count: resolution-derived unless overridden."""
@@ -148,7 +158,12 @@ class SnipMask:
 
 
 def snip_baseline(values: NDArray[np.float64], iterations: int) -> NDArray[np.float64]:
-    """SNIP LLS baseline of a non-negative spectrum (F-SOLVE-4)."""
+    """SNIP LLS baseline of a non-negative spectrum (F-SOLVE-4).
+
+    The clipping average is applied to interior bins only: a bin whose ``i - p``
+    or ``i + p`` neighbor does not exist keeps its value, so the baseline is not
+    pulled down at the ends of the axis (the documented edge-preserving rule).
+    """
     y = as_float_array("snip values", values, ndim=1)
     if np.any(y < 0.0):
         raise ValidationError("SNIP baseline requires non-negative values")
@@ -156,12 +171,19 @@ def snip_baseline(values: NDArray[np.float64], iterations: int) -> NDArray[np.fl
     if count < 1:
         raise ValidationError(f"SNIP iterations must be >= 1, got {iterations!r}")
     transformed = np.log(np.log(np.sqrt(y + 1.0) + 1.0) + 1.0)
+    size = transformed.size
     for offset in range(1, count + 1):
-        left = transformed.copy()
-        left[offset:] = transformed[:-offset]
-        right = transformed.copy()
-        right[:-offset] = transformed[offset:]
-        transformed = np.minimum(transformed, 0.5 * (left + right))
+        if size <= 2 * offset:
+            # The interior is empty for every larger offset too, so the
+            # remaining passes are exact no-ops. Breaking (rather than running
+            # them) bounds the work at ~size/2 passes for any requested count;
+            # the baseline is identical, so no clamp is applied.
+            break
+        interior = slice(offset, size - offset)
+        transformed[interior] = np.minimum(
+            transformed[interior],
+            0.5 * (transformed[: size - 2 * offset] + transformed[2 * offset :]),
+        )
     baseline = (np.exp(np.exp(transformed) - 1.0) - 1.0) ** 2 - 1.0
     return np.maximum(baseline, 0.0)
 
@@ -172,14 +194,21 @@ def snip_peak_mask(
     resolution_sigma_kev: NDArray[np.float64],
     bin_width_kev: NDArray[np.float64],
     settings: SnipSettings,
+    *,
+    iteration_reference_index: int | None = None,
 ) -> SnipMask:
-    """Resolution-matched peak mask on the measured spectrum (F-SOLVE-5).
+    """Capped, resolution-matched peak mask on the measured spectrum (F-SOLVE-5).
 
     ``values`` is the (channel-domain) measured spectrum, ``sigma`` its
     per-bin uncertainty, ``resolution_sigma_kev`` the detector width and
     ``bin_width_kev`` the per-bin energy width. All arrays share the length of
     the mapped primary axis (D-121 makes the mapping 1:1; the unfold layer
     enforces that before calling this function).
+
+    ``iteration_reference_index`` selects the bin whose local resolution sets the
+    SNIP iteration count (D-157/D-188(c); the unfold layer passes the primary bin
+    nearest the requested-window midpoint). ``None`` uses the middle bin of
+    ``values``, which is what the unit tests exercise.
     """
     y_raw = as_float_array("snip spectrum", values, ndim=1)
     errors = as_float_array("snip sigma", sigma, ndim=1)
@@ -190,6 +219,23 @@ def snip_peak_mask(
     require_same_length("snip spectrum/bin widths", y_raw, widths)
     if np.any(errors <= 0.0) or np.any(widths <= 0.0) or np.any(resol <= 0.0):
         raise ValidationError("SNIP inputs require positive sigma, widths and resolution")
+    if y_raw.size == 0:
+        raise ValidationError("SNIP inputs require at least one bin")
+    if iteration_reference_index is None:
+        reference = y_raw.size // 2
+    else:
+        if isinstance(iteration_reference_index, bool) or not isinstance(
+            iteration_reference_index, Integral
+        ):
+            raise ValidationError(
+                "snip iteration reference index must be an integer, got "
+                f"{iteration_reference_index!r}"
+            )
+        reference = int(iteration_reference_index)
+    if not 0 <= reference < y_raw.size:
+        raise ValidationError(
+            f"snip iteration reference index {reference} outside [0, {y_raw.size - 1}]"
+        )
 
     negative = y_raw < 0.0
     clipped = np.maximum(y_raw, 0.0)
@@ -203,8 +249,7 @@ def snip_peak_mask(
         clipped_last = -1
 
     width_in_bins = resol / widths
-    middle = y_raw.size // 2
-    fwhm_bins = 2.0 * np.sqrt(2.0 * np.log(2.0)) * float(width_in_bins[middle])
+    fwhm_bins = 2.0 * np.sqrt(2.0 * np.log(2.0)) * float(width_in_bins[reference])
     iterations = settings.resolved_iterations(fwhm_bins)
     baseline = snip_baseline(clipped, iterations)
     residual = clipped - baseline
@@ -237,10 +282,13 @@ def snip_peak_mask(
             & (significance[1:-1] >= significance[:-2])
             & (significance[1:-1] >= significance[2:])
         )
+    # The protected set is the union of fixed-width intervals around the
+    # candidate centers; overlapping intervals merge into one cluster, so the
+    # protected fraction stays bounded by (2 * protect_bins + 1) * candidates.
     protected = np.zeros(size, dtype=bool)
+    half = int(settings.protect_bins)
     centers = np.flatnonzero(local)
     for index in centers:
-        half = int(np.ceil(settings.protect_sigma * float(width_in_bins[index])))
         protected[max(0, index - half) : min(size, index + half + 1)] = True
     weights = np.where(protected, settings.floor, 1.0).astype(np.float64)
     return SnipMask(
@@ -263,9 +311,17 @@ def verify_snip_mask(
     sigma: NDArray[np.float64],
     resolution_sigma_kev: NDArray[np.float64],
     bin_width_kev: NDArray[np.float64],
+    iteration_reference_index: int | None = None,
 ) -> SnipMask:
     """F-SOLVE-6 certificate: the mask equals the recomputed construction."""
-    expected = snip_peak_mask(values, sigma, resolution_sigma_kev, bin_width_kev, settings)
+    expected = snip_peak_mask(
+        values,
+        sigma,
+        resolution_sigma_kev,
+        bin_width_kev,
+        settings,
+        iteration_reference_index=iteration_reference_index,
+    )
     provided = as_float_array("snip mask", mask, ndim=1)
     if provided.shape != expected.weights.shape or not np.array_equal(provided, expected.weights):
         raise CertificateError(
@@ -292,11 +348,12 @@ def _masked_difference(
 ) -> sparse.csr_matrix:
     """``D' = diag(rho**0.5) D`` with per-row stencil weights (F-SOLVE-6).
 
-    ``rho_r`` is the product of the mask weights over the finite-difference
-    stencil of row ``r`` (``order + 1`` columns), so a protected peak bin
-    relaxes every difference row that touches it. ``D'^T D'`` stays symmetric
-    positive semidefinite and banded, and no rectangular ``W D W`` product is
-    needed.
+    ``rho_r`` is the **minimum** of the mask weights over the finite-difference
+    stencil of row ``r`` (``order + 1`` columns), so any difference row that
+    touches a protected bin carries exactly the configured floor weight
+    (D-188; the former weight *product* reached ``floor**(order + 1)`` and made
+    the realized relaxation 100x stronger than the configured floor). ``D'^T D'``
+    stays symmetric positive semidefinite and banded.
     """
     weights = _check_mask(mask, difference.shape[1])
     n_rows = difference.shape[0]
@@ -305,7 +362,7 @@ def _masked_difference(
     order = difference.shape[1] - n_rows
     row_weight = np.ones(n_rows, dtype=np.float64)
     for offset in range(order + 1):
-        row_weight = row_weight * weights[offset : offset + n_rows]
+        row_weight = np.minimum(row_weight, weights[offset : offset + n_rows])
     row_weight = np.maximum(row_weight, 0.0)
     return (sparse.diags(np.sqrt(row_weight)) @ difference).tocsr()
 
@@ -353,7 +410,7 @@ def normal_equations(
     ``chi2 = ||(R mu - y) / sigma||**2``; its half gradient is ``Hc mu - b``.
     Returns ``(Hc, b, penalty_scale)`` where ``penalty_scale = sqrt(diag(A))``
     and ``A = R^T W R``. With ``mask`` the penalty operator is
-    ``D_tilde' = W**0.5 D W**0.5 . diag(penalty_scale)`` (F-SOLVE-6).
+    ``D_tilde' = diag(rho**0.5) D diag(penalty_scale)`` (F-SOLVE-6).
     """
     matrix = check_response_matrix(response)
     y = as_float_array("spectrum", spectrum, ndim=1)

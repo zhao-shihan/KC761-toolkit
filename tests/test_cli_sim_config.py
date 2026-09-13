@@ -135,9 +135,7 @@ def test_matrix_run_uses_mode_flag_and_calib(tmp_path: Path, monkeypatch: Any) -
     assert "--plane-front-gamma" not in command
 
 
-def test_batch_failure_continues_and_returns_one(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
+def test_batch_failure_continues_and_returns_one(tmp_path: Path, monkeypatch: Any) -> None:
     recorder = Recorder([1, 0])
     monkeypatch.setattr("kc761tool.cli.sim.subprocess.run", recorder)
     config = _config(
@@ -161,9 +159,7 @@ def test_config_matrix_default_filename_token(
     calib = tmp_path / "calib.root"
     config = _config(
         tmp_path,
-        "[[sim.runs]]\n"
-        'mode = "plane-front-gamma"\n'
-        f'calib = "{calib}"\nevents = 5\n',
+        f'[[sim.runs]]\nmode = "plane-front-gamma"\ncalib = "{calib}"\nevents = 5\n',
     )
     assert main(["sim", "-c", str(config), "--dry-run"]) == 0
     assert recorder.calls == []
@@ -171,18 +167,14 @@ def test_config_matrix_default_filename_token(
     assert "calib-plane-front-gamma-n5-s908136382.root" in out
 
 
-def test_resume_skips_a_valid_existing_target(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
+def test_resume_skips_a_valid_existing_target(tmp_path: Path, monkeypatch: Any) -> None:
     recorder = Recorder()
     monkeypatch.setattr("kc761tool.cli.sim.subprocess.run", recorder)
     target = tmp_path / "existing.root"
     _valid_product(target)
     config = _config(
         tmp_path,
-        "[[sim.runs]]\n"
-        'source = "am241"\nevents = 5\n'
-        f'output = "{target}"\n',
+        f'[[sim.runs]]\nsource = "am241"\nevents = 5\noutput = "{target}"\n',
     )
     assert main(["sim", "-c", str(config)]) == 0
     assert recorder.calls == []
@@ -197,9 +189,7 @@ def test_resume_invalid_existing_target_fails_without_spawning(
     target.write_bytes(b"not a root file")
     config = _config(
         tmp_path,
-        "[[sim.runs]]\n"
-        'source = "am241"\nevents = 5\n'
-        f'output = "{target}"\n',
+        f'[[sim.runs]]\nsource = "am241"\nevents = 5\noutput = "{target}"\n',
     )
     assert main(["sim", "-c", str(config)]) == 1
     assert recorder.calls == []
@@ -224,9 +214,7 @@ def test_parent_does_not_import_geant4(tmp_path: Path, monkeypatch: Any) -> None
     monkeypatch.setattr("kc761tool.cli.sim.subprocess.run", recorder)
     config = _config(
         tmp_path,
-        "[[sim.runs]]\n"
-        'source = "am241"\nevents = 5\n'
-        f'output = "{tmp_path / "a.root"}"\n',
+        f'[[sim.runs]]\nsource = "am241"\nevents = 5\noutput = "{tmp_path / "a.root"}"\n',
     )
     assert main(["sim", "-c", str(config)]) == 0
     assert "geant4_pybind" not in sys.modules

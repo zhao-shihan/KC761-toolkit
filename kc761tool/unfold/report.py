@@ -51,11 +51,17 @@ def render_report(
     lines.append(
         f"window: [{window.energy_low_kev:.6g}, {window.energy_high_kev:.6g}] keV -> "
         f"channels [{window.channel_low}, {window.channel_high}] "
-        f"(solver [{window.solve_low}, {window.solve_high}])"
+        f"(reported primary bins [{window.report_low}, {window.report_high}]; "
+        "the solve space is this window, D-187)"
     )
     lines.append(
         f"alpha = {settings.alpha!r}  difference_order = {settings.difference_order}  "
-        f"pad_nsigma = {settings.pad_nsigma!r}  syst_frac = {settings.syst_frac!r}"
+        f"syst_frac = {settings.syst_frac!r}"
+    )
+    lines.append(
+        "note: the solve space is the reported window (D-187), so its outermost "
+        "~1-2 resolution widths are leakage-limited; widen the window and quote "
+        "the interior for quantitative edge bins"
     )
     if result.unfolded is not None:
         total = int(result.unfolded.axis.n_bins)

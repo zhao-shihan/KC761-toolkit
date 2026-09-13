@@ -38,7 +38,7 @@ Rules:
 | Module | Responsibility | Formula IDs |
 |--------|----------------|-------------|
 | `core/model.py` | energy calibration (dual basis), resolution, positivity/monotonicity certificates | F-MODEL-1..5 |
-| `core/binning.py` | channel/energy grids, working window/pad, support limit, fixed source-mode MC axis | F-BIN-1..4 |
+| `core/binning.py` | channel/energy grids, support limit, fixed source-mode MC axis (the F-BIN-3 pad is retired, D-187) | F-BIN-1/F-BIN-2/F-BIN-4 |
 | `core/kernel.py` | exact Gaussian bin integrals, smoothstep taper, kernel derivatives, sparse assembly | F-KERN-1..4 |
 | `core/response.py` | response matrix C, composed matrix R, window slicing, response Jacobian | F-RESP-1..4 |
 | `core/projection.py` | rebinning/folding projections and variance propagation | F-PROJ-1..2 |
@@ -63,7 +63,7 @@ Rules:
 | `unfold/inputs.py` | product loading, axis bitwise checks, upstream provenance checks | D-114 |
 | `unfold/compose.py` | `run_compose`: full-axis composition and compose artifact | F-RESP-2/F-RESP-3 |
 | `unfold/selection.py` | energy window to channel/primary selection and data-side fit weights | F-UNF-1/F-UNF-2 |
-| `unfold/solve.py` | SNIP mask settings plumbing, exact-zero pruning, non-negative solve, strict uncertainty bands, diagnostics | F-UNF-3/F-UNF-4 |
+| `unfold/solve.py` | SNIP mask settings plumbing, reported-window solve space (D-187), exact-zero pruning, non-negative solve, strict uncertainty bands, diagnostics | F-UNF-3/F-UNF-4 |
 | `unfold/unfold.py` | `run_unfold`: full and `calib_only` orchestration, product assembly | F-UNF-5/F-UNF-6 |
 | `unfold/types.py` | unfolding dataclasses (`UnfoldSettings`, `UnfoldResult`, selection/band containers) shared by solve/orchestration/CLI | F-UNF-1..6 |
 | `unfold/report.py`, `unfold/plot.py` | text report and figure | D-70/D-153 |
@@ -78,17 +78,24 @@ Rules:
 | `sim/actions.py` | run/event/stepping actions for both scoring paths, pulse merging | F-SIM-5 |
 | `sim/certificates.py` | physical-layer certificates: accounting, variance, efficiency, boundary | F-SIM-1/F-SIM-2/F-SIM-3/F-SIM-6 |
 | `sim/runner.py` | memory-budgeted workers, uproot merge, product output, interactive entry | F-SIM-7/D-120/D-121/D-124/D-125 |
-| `cli/` | one command with seven subcommand modules, output/provenance plumbing and the `sim` batch driver | D-66/D-67/D-68/D-134/D-185 |
-| `cli/config.py` | strict TOML parsing (stdlib `tomllib` only; no Geant4, no numerics) for `sim`/`calib`/`compose`/`unfold` | D-129..D-144 |
+| `cli/` | one command with seven subcommand modules, the declarative run-option registry, output/provenance plumbing and the `sim` batch driver | D-66/D-67/D-68/D-134/D-185/D-190 |
+| `cli/_registry.py` | the single declaration of every CLI option: flags, defaults, scope, TOML key, requirements and checks; builds the parsers and resolves/validates both surfaces | D-130/D-190 |
+| `cli/config.py` | strict TOML parsing (stdlib `tomllib` only; no Geant4, no numerics) for `sim`/`calib`/`compose`/`unfold`, driven by the registry's key/type/default declaration | D-129..D-144/D-190 |
 
 ## CLI orchestration
 
-* `kc761tool/cli/_common.py` owns the cross-command plumbing: the `work/<command>/`
-  default-name convention (D-19), the combined `<a-stem>-<token>-<b-stem>.root`
-  name of the two-operand spectrum commands (D-185), full-argv provenance pairs
-  (D-18), the config/run-option mutual-exclusion check (D-130) and the shared
-  option groups. Handlers import their entry point lazily, so `--help`
-  does not import Geant4 or the numerics stack.
+* `kc761tool/cli/_registry.py` declares every option of every subcommand once
+  (flags, type, default, scope, TOML key, requirement, checks), builds the
+  argument parsers from that declaration, and resolves/validates both the
+  command line and the TOML surface through one code path (D-190). The
+  config/run-option mutual exclusion of D-130 is the declared scope of each
+  option rather than a comparison against a mirror table of defaults.
+* `kc761tool/cli/_common.py` owns the remaining cross-command plumbing: the
+  `work/<command>/` default-name convention (D-19), the combined
+  `<a-stem>-<token>-<b-stem>.root` name of the two-operand spectrum commands
+  (D-185), full-argv provenance pairs (D-18) and the positional operands.
+  Handlers import their entry point lazily, so `--help` does not import Geant4
+  or the numerics stack.
 * The library entry points (`run_fit`, `run_compose`, `run_unfold`,
   `run_source`, `run_matrix`) take an optional `extra_inputs` sequence that is
   hashed into the product provenance. Config mode passes the configuration
@@ -99,9 +106,12 @@ Rules:
   (`verify_product`), aggregates failures (return 1 if any run failed) and
   never imports Geant4; the child receives the config path through the hidden
   `--provenance-input` option.
-* `kc761tool/cli/config.py` is a leaf: standard library only, frozen dataclasses,
-  unknown keys and missing sections are errors, relative paths resolve against
-  the current working directory (D-164).
+* `kc761tool/cli/config.py` stays free of numerics and of any `sim`/`calib`
+  import (standard library plus the command's own `RunPolicy`): frozen
+  dataclasses, unknown keys and missing sections are errors, relative paths
+  resolve against the current working directory (D-164). Its key sets, value types and defaults
+  come from the owning command's `RunPolicy`, and each table is validated by the
+  same `check_policy` the command line uses (D-190).
 * `run_fit`/`run_compose`/`run_unfold` are called in-process by `calib`,
   `compose` and `unfold`; the CLI only builds products (`DatasetSpec`,
   `SpectrumProduct`), resolves names, and prints the library report.

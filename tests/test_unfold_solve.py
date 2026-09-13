@@ -33,20 +33,25 @@ from tests.test_unfold_support import (
 
 TRUTH_INDICES = (25, 30, 35, 40, 45, 50)
 TRUTH_AMPLITUDES = (500.0, 800.0, 1200.0, 700.0, 400.0, 300.0)
-WINDOW = (220.0, 520.0)
+WINDOW = (200.0, 560.0)
+"""Reported window of the closure fixtures (D-187).
+
+The window is wide enough that the ``TRUTH_INDICES`` lines sit inside it rather
+than on its outermost row: with the D-187 fit space the last resolution width of
+the window is leakage-limited, which
+``test_window_edge_bins_are_leakage_limited`` pins down explicitly.
+"""
 ALPHA = 1e-3
 
 
 def _window(calib, sim, low: float, high: float):
     return select_window(
         calibration=internal_calibration(calib),
-        resol_params=resolution_params(calib),
         channel_max=calib.channel_max,
         n_channels=N_CHANNELS,
         primary_edges_kev=primary_edges_kev(sim),
         energy_low_kev=low,
         energy_high_kev=high,
-        pad_nsigma=5.0,
     )
 
 
@@ -102,13 +107,16 @@ def test_exactly_zero_pruning_never_uses_a_tolerance() -> None:
 
 def test_solve_window_matches_refolded_and_prunes_zeros() -> None:
     calib = make_calib_product()
-    sim = make_sim_product(calib, zero_columns=(0, 1, 88, 89))
+    sim = make_sim_product(calib, zero_columns=(22, 23, 52, 53))
     truth = truth_vector(TRUTH_INDICES, TRUTH_AMPLITUDES)
     response = response_of(calib, sim)
     signal = response @ truth
     selection, composed, outcome = _outcome(calib, sim, signal)
     assert outcome.certificate.ok
     assert np.all(outcome.mu_full >= 0.0)
+    # The zero columns inside the reported window are pruned and re-inserted as
+    # exact zeros (F-UNF-3) and reported as absolute primary-axis indices.
+    assert np.array_equal(outcome.pruned_columns, np.array([22, 23, 52, 53]))
     assert np.all(outcome.mu_full[outcome.pruned_columns] == 0.0)
     assert np.allclose(
         outcome.bands.sigma_total,
@@ -118,6 +126,104 @@ def test_solve_window_matches_refolded_and_prunes_zeros() -> None:
     window = full[selection.channel_low : selection.channel_high + 1]
     dense = response @ outcome.mu_full
     assert np.allclose(window, dense[selection.channel_low : selection.channel_high + 1])
+
+
+def test_data_outside_the_reported_window_cannot_change_the_solution() -> None:
+    """D-187: the solve space is the reported window, so no padding row is fitted.
+
+    Changing the measured counts in the rows outside ``[channel_low,
+    channel_high]`` (here: below the low edge, where a real detector model is the
+    least trustworthy) must leave the unfolded product bitwise unchanged. Under
+    the retired F-BIN-3 padding these rows were part of the chi2 and did change it.
+    """
+    calib = make_calib_product()
+    sim = make_sim_product(calib)
+    signal = response_of(calib, sim) @ truth_vector(TRUTH_INDICES, TRUTH_AMPLITUDES)
+    selection = _window(calib, sim, *WINDOW)
+    tampered = np.asarray(signal, dtype=np.float64).copy()
+    outside = np.ones(tampered.size, dtype=bool)
+    outside[selection.channel_low : selection.channel_high + 1] = False
+    tampered[outside] *= 25.0
+    assert not np.allclose(tampered, signal)
+    _, _, base = _outcome(calib, sim, signal)
+    _, _, shifted = _outcome(calib, sim, tampered)
+    assert np.array_equal(base.mu_full, shifted.mu_full)
+    assert base.chi2 == shifted.chi2
+    assert base.dof == shifted.dof
+
+
+def _reported_ratios(result, truth=TRUTH_AMPLITUDES) -> np.ndarray:
+    low = result.window.report_low
+    return np.array(
+        [
+            float(result.mu[index - low]) / amplitude
+            for index, amplitude in zip(TRUTH_INDICES, truth, strict=True)
+        ]
+    )
+
+
+@pytest.mark.parametrize("alpha", [1e-4, 1e-3, 1e-2, 3e-2])
+def test_window_edge_bins_are_leakage_limited(alpha: float) -> None:
+    """D-187 caveat: the last reported bin absorbs an edge line's amplitude.
+
+    Dropping the F-BIN-3 padded rows removes the data that constrain the
+    out-of-window part of an edge line's response, and the adjacent-column
+    collinearity is then resolved by the roughness penalty toward the window
+    edge: a truth line in the second-to-last reported primary bin (whose counts
+    land in the last fitted channel row) is not merely attenuated, its recovered
+    amplitude moves into the last reported bin. The assertion is a ratio, so it
+    does not depend on the regularization strength.
+    """
+    calib = make_calib_product()
+    sim = make_sim_product(calib)
+    narrow = (220.0, 520.0)
+    result = run_unfold(
+        make_spectrum_product(
+            response_of(calib, sim) @ truth_vector(TRUTH_INDICES, TRUTH_AMPLITUDES)
+        ),
+        calib,
+        sim,
+        snip_enabled=False,
+        energy_low_kev=narrow[0],
+        energy_high_kev=narrow[1],
+        alpha=alpha,
+        strict=True,
+        plot=False,
+    )
+    ratios = _reported_ratios(result)
+    interior = float(ratios[-2])  # six reported bins inside the window
+    edge = float(ratios[-1])
+    assert interior > 0.5
+    assert edge < 0.5 * interior
+    last = int(result.window.report_high - result.window.report_low)
+    truth_bin = float(result.mu[last - 1])
+    edge_bin = float(result.mu[last])
+    assert edge_bin > 2.0 * truth_bin
+    assert edge_bin > 0.6 * (edge_bin + truth_bin)  # the amplitude moved outward
+
+
+def test_widening_the_window_restores_the_edge_bins() -> None:
+    """D-187: the retired padding behavior is available by asking for more window."""
+    calib = make_calib_product()
+    sim = make_sim_product(calib)
+    signal = response_of(calib, sim) @ truth_vector(TRUTH_INDICES, TRUTH_AMPLITUDES)
+    ratios = {}
+    for label, window in (("narrow", (220.0, 520.0)), ("wide", (200.0, 560.0))):
+        result = run_unfold(
+            make_spectrum_product(signal),
+            calib,
+            sim,
+            snip_enabled=False,
+            energy_low_kev=window[0],
+            energy_high_kev=window[1],
+            alpha=ALPHA,
+            strict=True,
+            plot=False,
+        )
+        values = _reported_ratios(result)
+        ratios[label] = (float(values[-2]), float(values[-1]))
+    assert ratios["narrow"][1] < 0.5 * ratios["wide"][1]
+    assert ratios["wide"][1] > 0.8 * ratios["wide"][0]
 
 
 def test_closed_loop_recovers_lines_and_bands_are_finite() -> None:
@@ -130,7 +236,8 @@ def test_closed_loop_recovers_lines_and_bands_are_finite() -> None:
         data,
         calib,
         sim,
-        snip_enabled=False, energy_low_kev=WINDOW[0],
+        snip_enabled=False,
+        energy_low_kev=WINDOW[0],
         energy_high_kev=WINDOW[1],
         alpha=ALPHA,
         strict=True,
@@ -163,7 +270,8 @@ def test_pull_distribution_is_centered_and_covers() -> None:
             data,
             calib,
             sim,
-            snip_enabled=False, energy_low_kev=WINDOW[0],
+            snip_enabled=False,
+            energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             alpha=ALPHA,
             strict=True,
@@ -205,7 +313,8 @@ def test_both_difference_orders_run(order: int) -> None:
         make_spectrum_product(signal),
         calib,
         sim,
-        snip_enabled=False, energy_low_kev=WINDOW[0],
+        snip_enabled=False,
+        energy_low_kev=WINDOW[0],
         energy_high_kev=WINDOW[1],
         alpha=ALPHA,
         difference_order=order,
@@ -225,7 +334,8 @@ def test_extreme_alpha_is_finite_or_classified() -> None:
         data,
         calib,
         sim,
-        snip_enabled=False, energy_low_kev=WINDOW[0],
+        snip_enabled=False,
+        energy_low_kev=WINDOW[0],
         energy_high_kev=WINDOW[1],
         alpha=1e8,
         strict=True,
@@ -237,7 +347,8 @@ def test_extreme_alpha_is_finite_or_classified() -> None:
             data,
             calib,
             sim,
-            snip_enabled=False, energy_low_kev=WINDOW[0],
+            snip_enabled=False,
+            energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             alpha=1e-14,
             strict=True,
@@ -272,7 +383,8 @@ def test_solver_failure_leaves_no_product_or_part_file(
             data_path,
             calib_path,
             sim_path,
-            snip_enabled=False, energy_low_kev=WINDOW[0],
+            snip_enabled=False,
+            energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             alpha=ALPHA,
             output=output,

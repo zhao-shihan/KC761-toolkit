@@ -116,23 +116,33 @@ and it is guarded by a certificate rather than hidden (§2.3).
   `resol_clamp_energy_low_kev` and `resol_clamp_energy_high_kev`. The clamp is
   explicit, logged and recorded — never silent.
 
-### 2.4 Working window and padding (F-BIN-3)
+### 2.4 The solve space is the reported window (D-187)
 
-The solver models
-$`[\mathrm{ch}_{\mathrm{lo}} - \mathrm{pad},\  \mathrm{ch}_{\mathrm{hi}} + \mathrm{pad}]`$
-and reports $`[\mathrm{ch}_{\mathrm{lo}}, \mathrm{ch}_{\mathrm{hi}}]`$. The pad
-covers the smearing of events whose true channel lies outside the reported
-window:
+The fit rows are the reported channel rows
+$`[\mathrm{ch}_{\mathrm{lo}}, \mathrm{ch}_{\mathrm{hi}}]`$ and the fit primary
+columns are the reported primary bins, i.e. exactly what the product reports.
+The earlier F-BIN-3 padding
+($`[\mathrm{ch}_{\mathrm{lo}} - \mathrm{pad},\ \mathrm{ch}_{\mathrm{hi}} + \mathrm{pad}]`$
+with `pad` in local resolution widths) is **retired**: it silently fitted a
+region the requested window excludes, and on measured data the region just
+outside the window is frequently the one where the composed response is least
+trustworthy. When that happens the padded rows dominate the weighted
+$`\chi^2`$ and the fit gives up genuine lines inside the window.
 
-$$
-\mathrm{pad} = \left\lceil
-  \frac{n_{\mathrm{pad}}\ \sigma(E_{\mathrm{edge}})}{w_{\mathrm{edge}}}
-\right\rceil,
-$$
-
-with $`w_{\mathrm{edge}} = E(i + \tfrac12) - E(i - \tfrac12)`$ the local channel
-width from the calibration. $`n_{\mathrm{pad}} = 0`$ is legal and disables
-padding.
+**Consequence — the window edge.** A line inside the window whose response
+leaks outside it loses the rows that constrain the leaked part, and near the
+edge the response columns of adjacent primaries are strongly collinear, so the
+penalty resolves that near-degenerate direction toward the boundary. The
+result is a *boundary layer* — not a global bias, but not a one-bin effect
+either: in a window only a few resolution widths wide it reaches several
+reported bins. Measured on the shipped fixture (220-520 keV): a truth line in
+the second-to-last reported primary bin recovers 0.20 of its amplitude and its
+strength moves into the last reported bin, while a line six bins inside loses
+15%; widening the window to 200-560 keV restores 0.88-0.91, and the production
+30-3000 keV window (1336 fitted rows) closes with a total flux ratio of 0.9998.
+If you need quantitative bins near the edge of your region of interest, request
+a window wider than that region and quote only the interior — the standard
+unfolding convention the padding used to implement.
 
 ---
 
@@ -442,8 +452,10 @@ $$
 v_i \ \leftarrow\  \min\left(v_i,\  \frac{v_{i-p} + v_{i+p}}{2}\right),
 $$
 
-with out-of-range neighbors replaced by $`v_i`$ (edge-preserving). The iteration
-count $m$ is **resolution-derived, not a free knob** (D-157):
+applied to interior bins only: a bin whose $`i - p`$ or $`i + p`$ neighbor does not
+exist keeps its value, so the baseline is not pulled down at the ends of the
+axis. The iteration count $m$ is **resolution-derived, not a free knob**
+(D-157):
 
 $$
 \mathrm{FWHM}_{\text{bins}} = \frac{2\sqrt{2\ln 2}\ \sigma_E(E_{\text{mid}})}{\Delta_E},
@@ -451,21 +463,26 @@ $$
 m = \mathrm{clip}\left(\mathrm{round}\left(\tfrac12 \mathrm{FWHM}_{\text{bins}}\right),\  1,\  m_{\max} = 8\right).
 $$
 
-$`E_{\text{mid}}`$ is the midpoint energy of the spectrum handed to the mask (the
-full measured axis in the shipped pipeline; `solver.snip_peak_mask` uses the
-middle bin index) and $`\Delta_E`$ the local bin width at that energy, so
+$`E_{\text{mid}}`$ is the **reported-window midpoint** (D-157/D-188): the unfold
+layer passes the bin whose center is nearest $`(e_{\text{lo}} + e_{\text{hi}})/2`$
+as `iteration_reference_index`, and $`\Delta_E`$ is the local bin width there, so
 $`\mathrm{FWHM}_{\text{bins}}`$ is the detector peak width measured in bins.
 Tying $m$ to the detector width is what removes the detector peak before
 estimating the continuum — the intended behavior. An explicit override is
-allowed and recorded. The cap $`m_{\max} = 8`$ usually clips the derived value,
-so this is a coarse resolution matching rather than a precise one.
+allowed and recorded. The cap $`m_{\max} = 8`$ usually clips the derived value:
+for this detector the peak is 18–47 bins wide between 300 keV and 1.8 MeV while the
+clipping window is `2m+1 = 17` bins, so the baseline ends up *inside* the peak (59% of the
+609 keV peak top on the validation dataset). SNIP is therefore a peak locator
+here, not a background estimate, which is why the protection width is fixed in
+bins (§6.2) rather than tied to the residual's shape.
 
 ### 6.2 Resolution-matched significance and the peak mask (F-SOLVE-5)
 
 The residual is $`r_i = y_i^{+} - b_i`$. Since the detector width is known,
 significance is computed with a **matched filter** rather than a per-bin
 threshold: with $`s_i = \sigma_E(E_i)/\Delta_i`$ and a normalized Gaussian kernel
-$g$ of width $`s_i`$,
+$g$ of width $`s_i`$, truncated at three resolution widths
+($`|k| \le \lceil 3 s_i \rceil`$, renormalized over that support),
 
 $$
 M_i = \sum_k g_k\  r_{i+k}, \qquad
@@ -477,7 +494,7 @@ The matched filter suppresses single-bin noise spikes — the dominant
 spurious-peak seed — which a per-bin threshold would misclassify. A bin is a
 candidate when $`z_i \ge k`$ (default $k = 5$, D-156) **and** $`z_i`$ is a local
 maximum, tested against its two immediate neighbors. All bins within
-$`n_{\text{protect}}\ \sigma_E(E_i)`$ (default $2$) of a candidate are marked, and
+$`n_{\text{protect}}`$ **primary bins** (default $3$) of a candidate are marked, and
 
 $$
 w_i = \begin{cases}
@@ -486,22 +503,31 @@ w_{\text{floor}} \ (\text{default } 0.1) & \text{on marked bins},\\
 \end{cases}
 $$
 
-Bins without data support keep $`w_i = 1`$, i.e. they are smoothed normally.
+Bins that no candidate marks keep $`w_i = 1`$, i.e. they are smoothed normally.
 
 ### 6.3 Masked operator, still symmetric and banded (F-SOLVE-6)
 
 The masked difference operator scales each **row** by the square root of the
-product of the mask weights over its stencil:
+**minimum** of the mask weights over its stencil (D-188):
 
 $$
 D' = \mathrm{diag}(\rho^{1/2})\ D, \qquad
-\rho_r = \prod_{j=0}^{\text{order}} w_{r+j}.
+\rho_r = \min_{j=0}^{\text{order}} w_{r+j}.
 $$
 
-A protected peak bin therefore relaxes every difference row that touches it: a
-row fully inside a peak carries
-$`\rho = w_{\text{floor}}^{\ \text{order}+1}`$, a row at a peak/continuum boundary
-$`\rho = w_{\text{floor}}^{\ \text{order}}`$. Crucially,
+A protected peak bin therefore relaxes every difference row that touches it, and
+each touched row carries exactly the configured floor — which is what
+`--snip-floor` says. The former *product* rule reached
+$`\rho = w_{\text{floor}}^{\ \text{order}+1} = 10^{-3}`$ for rows inside a peak,
+i.e. a relaxation 100x stronger than its own help text. That made the masked
+normal matrix locally singular and the active set returned an arbitrary vertex
+of a nearly degenerate solution set: on the Ra-226 validation dataset the
+609 keV line became a four-spike comb (589/606/618/641 keV) with 2.3x the
+mask-off single-bin height in the reported-window fit space (4.8x in the padded
+space of the pre-D-187 pipeline: 1.32e6 against 2.76e5), the 186 and 242 keV lines split in two, and the
+number of non-zero bins halved at constant total strength. With the minimum rule
+and a three-bin protection the protected set is 6.2% of the axis, no line
+splits, and the peak-height inflation is 1.2x. Crucially,
 
 $$
 D'^{\mathsf{T}} D' = D^{\mathsf{T}} \mathrm{diag}(\rho)\  D
@@ -521,20 +547,27 @@ b = R^{\mathsf{T}} W_{\text{data}}\  y.
 $$
 
 **Strict-mode certificate.** `verify_snip_mask` recomputes the mask from the
-recorded spectrum and settings and requires the stored weights to match it
-exactly; the $`w_i \in [0, 1]`$ bound is always-on. The baseline and mask sha256
-are written into the product `meta`, so a re-tuned default never invalidates an
-existing product and the realized values remain auditable. The further checks
-sketched in F-SOLVE-6 (symmetry and half-bandwidth of $\tilde{D}'$, hash
-comparison on read-back) are **not yet implemented**; do not rely on them.
+recorded spectrum and settings — including the `iteration_reference_index` the
+caller used (D-157/D-188) — and requires the stored weights to match it
+exactly; the $`w_i \in [0, 1]`$ bound is always-on. The baseline and mask sha256,
+the candidate count and the protected-bin count are written into the product
+`meta`, so a re-tuned default never invalidates an existing product and the
+realized mask coverage is auditable. Of the further checks
+sketched in F-SOLVE-6, the symmetry and half-bandwidth of $\tilde{D}'^T\tilde{D}'$
+hold *by construction* (they are proved, not re-tested at runtime), while a
+hash comparison on read-back is **not applicable**: the mask itself is not
+stored in the product, so the recorded sha256 is a provenance record only.
 
 **Scope of the claim.** The mask is a *structural prior*, not a background
 measurement. Thresholding many bins inflates the family-wise false-positive
 rate; the $5\sigma$ threshold plus the resolution-width matched filter keeps it
 small but not zero. A wrongly protected noise spike is *less* smoothed than
-before — the known failure mode, quantified by the synthetic acceptance metrics
-of F-SOLVE-6 (spurious-peak suppression, true-peak area bias, pull coverage
-mask-on vs mask-off, robustness to the threshold and iteration perturbations).
+before — the known failure mode. The synthetic acceptance metrics of F-SOLVE-6
+(spurious-peak suppression, true-peak area bias, pull coverage mask-on vs
+mask-off, robustness to the threshold and iteration perturbations) are
+**registered but not yet committed as tests** (D-161/D-162 keep the study as the
+acceptance gate); the numbers quoted in this section come from the ad-hoc
+validation recorded in `docs/derivations.md`.
 The reported covariance is conditional on the realized mask; mask-selection
 uncertainty is not propagated (D-159).
 
@@ -1015,6 +1048,15 @@ in a fresh child process because a `G4RunManager` can be initialized only once
 per process. Relative paths resolve against the current working directory
 (D-164).
 
+Config mode is mutually exclusive with the run-selection options: an option is
+either on the command line or in the file, never both. That rule is exact
+because every option is declared once (D-190) — the declaration states the
+flags, the TOML key, the default and whether the option may accompany
+`--config`, and both surfaces are resolved and validated by the same code, so
+`--dry-run` can never accept an invocation that a real run rejects. The
+`--config` help lists the options that may accompany it, rendered from that
+declaration.
+
 See [examples/](examples/) for a commented file per subcommand, and
 [docs/plan.md](docs/plan.md) section 1.12 for the full rules.
 
@@ -1083,7 +1125,7 @@ for c in calib compose sim unfold; do python kc761tool.py "$c" -c "examples/$c.t
 |------|---------|
 | `kc761tool.py`, `kc761tool/__main__.py` | entry points |
 | `kc761tool/core/model.py` | energy calibration (dual basis), resolution, certificates (F-MODEL-1..5) |
-| `kc761tool/core/binning.py` | channel/energy grids, working window and pad, fixed MC axis (F-BIN-1..4) |
+| `kc761tool/core/binning.py` | channel/energy grids, fixed MC axis (F-BIN-1/F-BIN-2/F-BIN-4; the F-BIN-3 pad is retired, D-187) |
 | `kc761tool/core/kernel.py` | exact Gaussian bin integrals, taper, sparse assembly (F-KERN-1..4) |
 | `kc761tool/core/response.py` | `C`, `R`, window slicing, response Jacobian (F-RESP-1..4) |
 | `kc761tool/core/solver.py` | Tikhonov objective, SNIP mask, active-set QP, KKT (F-SOLVE-1..6) |

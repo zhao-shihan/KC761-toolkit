@@ -179,6 +179,53 @@ def make_spectrum_product(
     )
 
 
+def make_snip_sim_product(calib: CalibProduct, *, events: int = 4000, seed: int = 7) -> SimProduct:
+    """Matrix-mode sim whose primary axis equals the channel axis (D-121/D-188).
+
+    The default fixtures use a 90-bin primary axis against 32 channels, so the
+    F-SOLVE-4/5 SNIP mask is unreachable there (``solve_window`` enforces the 1:1
+    mapping of D-121). This fixture makes the primary axis the calibration's own
+    channel-derived deposition axis, so the mask engages end to end. The
+    response is a deterministic multinomial with a dominant diagonal plus
+    nearest-neighbor leakage, which gives the mask real peaks and a continuum.
+    """
+    edges = np.asarray(calib.deposition_to_channel.y.edges, dtype=np.float64)
+    n = edges.size - 1
+    rng = np.random.default_rng(seed)
+    counts = np.zeros((n, n), dtype=np.float64)
+    for j in range(n):
+        probs = np.full(n, 1e-4)
+        probs[j] += 0.94
+        if j > 0:
+            probs[j - 1] += 0.03
+        if j < n - 1:
+            probs[j + 1] += 0.03
+        probs /= probs.sum()
+        counts[:, j] = rng.multinomial(events, probs)
+    totals = np.full(n, float(events))
+    axis = energy_axis(edges, name="primary_energy_kev")
+    matrix = Histogram2D(
+        x=energy_axis(edges, name="deposition_energy_kev"),
+        y=axis,
+        values=counts,
+        variances=counts * (1.0 - counts / totals[None, :]),
+    )
+    return SimProduct(
+        format_version=SCHEMA_VERSION,
+        primary_to_deposition=matrix,
+        primary_column_totals=Histogram1D(axis=axis, values=totals),
+        mode=0,
+        mode_name="plane-front-gamma",
+        geometry_name="plane",
+        geometry_param_mm=13.7,
+        angular_distribution="lambertian",
+        seed=seed,
+        n_events=int(totals.sum()),
+        workers=1,
+        provenance=synthetic_provenance("snip-test-sim"),
+    )
+
+
 def write(path: Path, product) -> Path:
     """Write a product strictly and return the path."""
     return write_product(product, path, strict=True)
@@ -193,6 +240,7 @@ __all__ = [
     "calibration",
     "make_calib_product",
     "make_sim_product",
+    "make_snip_sim_product",
     "make_spectrum_product",
     "primary_axis",
     "primary_edges_kev",

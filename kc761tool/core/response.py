@@ -9,8 +9,9 @@ Formula IDs (docs/derivations.md): F-RESP-1 .. F-RESP-4.
   forms are algebraically identical because ``p_tilde . eta = G / N``). The
   implementation uses the second form, which has no intermediate 0/0.
 * F-RESP-3: composition happens over the full primary axis and only then is
-  the working window sliced (D-43/D-44). After slicing, ``column_sums`` and
-  ``efficiency`` keep their full-axis meaning; the new ``channel_low`` /
+  the reported window sliced (D-43; the F-BIN-3 pad is retired by D-187).
+  After slicing, ``column_sums`` and ``efficiency`` keep their full-axis
+  meaning; the new ``channel_low`` /
   ``channel_high`` fields describe exactly which rows the matrix holds, and
   :func:`verify_window_slice` checks that slicing only removed rows.
 * F-RESP-4: ``dC/dq`` is assembled by chaining the F-KERN-4 kernel

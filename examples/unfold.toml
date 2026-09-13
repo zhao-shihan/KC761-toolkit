@@ -1,4 +1,4 @@
-# kc761tool unfold config (D-139/D-154/D-169).
+# kc761tool unfold config (D-139/D-154/D-169/D-187/D-188).
 # Full mode: needs data, calib, sim, the energy window and alpha.
 # calib_only = true: relabel the channel axis to energy; omit sim/alpha/energy_low/energy_high.
 config_version = 1
@@ -13,10 +13,9 @@ alpha = 0.1
 syst_frac = 0.05
 # calib_only = false
 # difference_order = 2
-# pad_nsigma = 5.0
 # snip_enabled = true
 # snip_threshold = 5.0
-# snip_protect = 2.0
+# snip_protect_bins = 3    # protective half-width in primary bins (D-188)
 # snip_floor = 0.1
 # snip_iterations = 8       # default: resolution-derived, capped by snip_max_iterations
 # snip_max_iterations = 8

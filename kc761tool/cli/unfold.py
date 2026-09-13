@@ -5,52 +5,266 @@ simulation product, solves the non-negative Tikhonov problem and exports the
 unfolded spectrum with strictly split uncertainty bands. ``--calib-only``
 relabels the channel axis to energy and needs neither ``--sim``, ``--alpha``
 nor the energy window (D-139). Config mode runs one unfold (D-139).
+
+The option surface is declared once in :data:`UNFOLD_POLICY` (D-190): the
+command line and the ``[unfold]`` table share the flags, the TOML keys, the
+defaults, the requirement rules and the validation, which is delegated to
+:class:`kc761tool.unfold.types.UnfoldSettings` so the CLI and the library can
+never disagree about what a valid invocation is.
 """
 
 from __future__ import annotations
 
 import argparse
-import math
+from collections.abc import Mapping
 from pathlib import Path
 
-from kc761tool.cli._common import (
-    add_config_options,
-    add_energy_window,
-    add_output_options,
-    add_runtime_options,
-    argv_arguments,
-    default_output,
-    reject_run_options,
+from kc761tool.cli._common import argv_arguments, default_output
+from kc761tool.cli._registry import (
+    Kind,
+    Requirement,
+    RunOption,
+    RunPolicy,
+    add_run_options,
+    config_options,
+    energy_window_options,
+    merge_options,
+    output_options,
+    resolve_run_options,
+    runtime_options,
 )
-from kc761tool.cli.config import UnfoldConfig, load_unfold_config
+from kc761tool.cli.config import load_unfold_config
 from kc761tool.core.solver import (
     DEFAULT_SNIP_FLOOR,
     DEFAULT_SNIP_MAX_ITERATIONS,
-    DEFAULT_SNIP_PROTECT_SIGMA,
+    DEFAULT_SNIP_PROTECT_BINS,
     DEFAULT_SNIP_THRESHOLD_SIGMA,
 )
 from kc761tool.core.uncertainty import DEFAULT_SYST_FRAC
-from kc761tool.errors import UsageError
+from kc761tool.errors import UsageError, ValidationError
 from kc761tool.runtime import configure_logging
 from kc761tool.schema.io import validate_output_path
-
-_RUN_ARG_DEFAULTS: dict[str, object] = {
-    "data": None,
-    "calib": None,
-    "sim": None,
-    "calib_only": False,
-    "energy_low": None,
-    "energy_high": None,
-    "alpha": None,
-    "difference_order": 2,
-    "pad_nsigma": 5.0,
-    "syst_frac": DEFAULT_SYST_FRAC,
-    "output": None,
-    "no_plot": False,
-}
+from kc761tool.unfold.types import UnfoldSettings
 
 _CALIB_ONLY_BOUNDS = (0.0, 1.0)
 """Placeholder bounds for the calib-only path, which does not build a window."""
+
+_CALIB_ONLY_UNUSED = ("sim", "alpha", "energy_low", "energy_high")
+"""Options that ``--calib-only`` does not use (D-139)."""
+
+
+def _validate_unfold(
+    values: Mapping[str, object], present: frozenset[str], config_mode: bool
+) -> None:
+    """Cross-field rules, evaluated on the resolved mapping of either surface.
+
+    Validating by constructing :class:`UnfoldSettings` means the CLI and the
+    TOML table enforce exactly the bounds the library enforces (D-190).
+    """
+    calib_only = bool(values["calib_only"])
+    if calib_only:
+        banned = sorted(name for name in _CALIB_ONLY_UNUSED if name in present)
+        if banned:
+            rendered = ", ".join(
+                f"'{name}'" if config_mode else f"--{name.replace('_', '-')}" for name in banned
+            )
+            raise UsageError(f"calib_only does not use {rendered}; remove it/them")
+        energy_low, energy_high = _CALIB_ONLY_BOUNDS
+        alpha = None
+    else:
+        energy_low = float(values["energy_low"])
+        energy_high = float(values["energy_high"])
+        alpha = values["alpha"]
+    try:
+        UnfoldSettings(
+            energy_low_kev=energy_low,
+            energy_high_kev=energy_high,
+            alpha=alpha,
+            difference_order=int(values["difference_order"]),
+            syst_frac=float(values["syst_frac"]),
+            snip_enabled=bool(values["snip_enabled"]),
+            snip_threshold_sigma=float(values["snip_threshold_sigma"]),
+            snip_protect_bins=int(values["snip_protect_bins"]),
+            snip_floor=float(values["snip_floor"]),
+            snip_iterations=values["snip_iterations"],
+            snip_max_iterations=int(values["snip_max_iterations"]),
+        )
+    except ValidationError as exc:
+        raise UsageError(f"invalid setting: {exc}") from exc
+
+
+def _window_required(values: Mapping[str, object]) -> bool:
+    """``--sim``/``--alpha``/the window are required unless ``--calib-only``."""
+    return not bool(values["calib_only"])
+
+
+#: Declared surface (D-190): flags, defaults, TOML keys and the shared rules.
+UNFOLD_POLICY = RunPolicy(
+    command="unfold",
+    config=True,
+    # Retired TOML keys get the same migration pointer as the retired command
+    # line spelling (D-188/D-190).
+    retired_keys=(
+        (
+            "pad_nsigma",
+            "was removed in D-187: the unfold solve space is the reported window, "
+            "so there is no padding to configure",
+        ),
+        (
+            "snip_protect",
+            "was renamed to 'snip_protect_bins' in D-188; the half-width unit "
+            "changed from resolution sigmas to primary bins",
+        ),
+        (
+            "snip_protect_sigma",
+            "was renamed to 'snip_protect_bins' in D-188; the half-width unit "
+            "changed from resolution sigmas to primary bins",
+        ),
+    ),
+    validate=_validate_unfold,
+    spec=merge_options(
+        [
+            RunOption(
+                dest="data",
+                flags=("--data",),
+                kind=Kind.PATH,
+                metavar="FILE",
+                config_key="data",
+                requirement=Requirement.ALWAYS,
+                help="data spectrum product (kc761_spectrum)",
+            ),
+            RunOption(
+                dest="calib",
+                flags=("--calib",),
+                kind=Kind.PATH,
+                metavar="FILE",
+                config_key="calib",
+                requirement=Requirement.ALWAYS,
+                help="calibration product with the deposition-to-channel matrix",
+            ),
+            RunOption(
+                dest="sim",
+                flags=("--sim",),
+                kind=Kind.PATH,
+                metavar="FILE",
+                config_key="sim",
+                requirement=Requirement.ALWAYS,
+                required_if=_window_required,
+                help="matrix-mode simulation product; required unless --calib-only",
+            ),
+            RunOption(
+                dest="calib_only",
+                flags=("--calib-only",),
+                kind=Kind.BOOL,
+                default=False,
+                config_key="calib_only",
+                help="relabel the channel axis to energy without unfolding",
+            ),
+            *energy_window_options(requirement=Requirement.ALWAYS, required_if=_window_required),
+            RunOption(
+                dest="alpha",
+                flags=("--alpha",),
+                kind=Kind.FLOAT,
+                metavar="ALPHA",
+                config_key="alpha",
+                requirement=Requirement.ALWAYS,
+                required_if=_window_required,
+                help="dimensionless Tikhonov strength (required unless --calib-only)",
+            ),
+            RunOption(
+                dest="difference_order",
+                flags=("--difference-order", "--k"),
+                kind=Kind.INT,
+                default=2,
+                metavar="K",
+                config_key="difference_order",
+                help="difference order of the density penalty (default 2)",
+            ),
+            RunOption(
+                dest="syst_frac",
+                flags=("--syst-frac", "--syst"),
+                kind=Kind.FLOAT,
+                default=DEFAULT_SYST_FRAC,
+                metavar="FRAC",
+                config_key="syst_frac",
+                help=(
+                    f"data-side fractional systematic uncertainty (default {DEFAULT_SYST_FRAC:g})"
+                ),
+            ),
+            RunOption(
+                dest="snip_enabled",
+                flags=("--snip",),
+                negative_flags=("--no-snip",),
+                kind=Kind.BOOL_PAIR,
+                default=True,
+                config_key="snip_enabled",
+                help="enable the SNIP peak mask (default)",
+                negative_help="disable the SNIP peak mask",
+            ),
+            RunOption(
+                dest="snip_threshold_sigma",
+                flags=("--snip-threshold",),
+                kind=Kind.FLOAT,
+                default=DEFAULT_SNIP_THRESHOLD_SIGMA,
+                metavar="SIGMA",
+                config_key="snip_threshold",
+                help="peak significance threshold in sigma (default 5)",
+            ),
+            RunOption(
+                dest="snip_protect_bins",
+                flags=("--snip-protect-bins",),
+                kind=Kind.INT,
+                default=DEFAULT_SNIP_PROTECT_BINS,
+                metavar="BINS",
+                config_key="snip_protect_bins",
+                help="protective half-width around a peak candidate in primary bins (default 3)",
+            ),
+            RunOption(
+                dest="snip_floor",
+                flags=("--snip-floor",),
+                kind=Kind.FLOAT,
+                default=DEFAULT_SNIP_FLOOR,
+                metavar="W",
+                config_key="snip_floor",
+                help="penalty weight floor on protected peak bins (default 0.1)",
+            ),
+            RunOption(
+                dest="snip_iterations",
+                flags=("--snip-iterations",),
+                kind=Kind.INT,
+                metavar="M",
+                config_key="snip_iterations",
+                help="SNIP iteration count override (default: resolution-derived)",
+            ),
+            RunOption(
+                dest="snip_max_iterations",
+                flags=("--snip-max-iterations",),
+                kind=Kind.INT,
+                default=DEFAULT_SNIP_MAX_ITERATIONS,
+                metavar="M",
+                config_key="snip_max_iterations",
+                help="cap for the resolution-derived SNIP iteration count (default 8)",
+            ),
+            # The retired D-156 spelling would otherwise be accepted by argparse
+            # prefix matching and silently read as --snip-protect-bins with a
+            # different unit (resolution sigmas -> primary bins); D-188/D-190
+            # reject it with a pointer instead.
+            RunOption(
+                dest="snip_protect_retired",
+                flags=("--snip-protect",),
+                kind=Kind.FLOAT,
+                metavar="SIGMA",
+                retired=(
+                    "(resolution sigmas) was replaced by --snip-protect-bins "
+                    "(primary bins, default 3) in D-188; the half-width unit changed"
+                ),
+            ),
+        ],
+        output_options(with_plot=True),
+        config_options(),
+        runtime_options(),
+    ),
+)
 
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -65,280 +279,72 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
             "channel axis to energy without unfolding."
         ),
     )
-    parser.add_argument(
-        "--data",
-        type=str,
-        default=None,
-        metavar="FILE",
-        help="data spectrum product (kc761_spectrum)",
-    )
-    parser.add_argument(
-        "--calib",
-        type=str,
-        default=None,
-        metavar="FILE",
-        help="calibration product with the deposition-to-channel matrix",
-    )
-    parser.add_argument(
-        "--sim",
-        type=str,
-        default=None,
-        metavar="FILE",
-        help="matrix-mode simulation product; required unless --calib-only",
-    )
-    parser.add_argument(
-        "--calib-only",
-        action="store_true",
-        help="relabel the channel axis to energy without unfolding",
-    )
-    add_energy_window(parser, required=False)
-    parser.add_argument(
-        "--alpha",
-        type=float,
-        default=None,
-        metavar="ALPHA",
-        help="dimensionless Tikhonov strength (required unless --calib-only)",
-    )
-    parser.add_argument(
-        "--difference-order",
-        "--k",
-        dest="difference_order",
-        type=int,
-        choices=(1, 2),
-        default=2,
-        metavar="K",
-        help="difference order of the density penalty (default 2)",
-    )
-    parser.add_argument(
-        "--pad-nsigma",
-        type=float,
-        default=5.0,
-        metavar="N",
-        help="working-window padding in local resolution widths (default 5)",
-    )
-    parser.add_argument(
-        "--syst-frac",
-        "--syst",
-        dest="syst_frac",
-        type=float,
-        default=DEFAULT_SYST_FRAC,
-        metavar="FRAC",
-        help=f"data-side fractional systematic uncertainty (default {DEFAULT_SYST_FRAC:g})",
-    )
-    parser.set_defaults(snip_enabled=True)
-    parser.add_argument(
-        "--snip",
-        dest="snip_enabled",
-        action="store_true",
-        help="enable the SNIP peak mask (default)",
-    )
-    parser.add_argument(
-        "--no-snip",
-        dest="snip_enabled",
-        action="store_false",
-        help="disable the SNIP peak mask",
-    )
-    parser.add_argument(
-        "--snip-threshold",
-        dest="snip_threshold_sigma",
-        type=float,
-        default=DEFAULT_SNIP_THRESHOLD_SIGMA,
-        metavar="SIGMA",
-        help="peak significance threshold in sigma (default 5)",
-    )
-    parser.add_argument(
-        "--snip-protect",
-        dest="snip_protect_sigma",
-        type=float,
-        default=DEFAULT_SNIP_PROTECT_SIGMA,
-        metavar="SIGMA",
-        help="protective half-width around a peak in resolution sigmas (default 2)",
-    )
-    parser.add_argument(
-        "--snip-floor",
-        dest="snip_floor",
-        type=float,
-        default=DEFAULT_SNIP_FLOOR,
-        metavar="W",
-        help="penalty weight floor on protected peak bins (default 0.1)",
-    )
-    parser.add_argument(
-        "--snip-iterations",
-        dest="snip_iterations",
-        type=int,
-        default=None,
-        metavar="M",
-        help="SNIP iteration count override (default: resolution-derived)",
-    )
-    parser.add_argument(
-        "--snip-max-iterations",
-        dest="snip_max_iterations",
-        type=int,
-        default=DEFAULT_SNIP_MAX_ITERATIONS,
-        metavar="M",
-        help="cap for the resolution-derived SNIP iteration count (default 8)",
-    )
-    add_output_options(parser)
-    add_config_options(parser)
-    add_runtime_options(parser)
+    add_run_options(parser, UNFOLD_POLICY)
     parser.set_defaults(handler=_run)
 
 
 def _run(args: argparse.Namespace, *, strict: bool) -> int:
     logger = configure_logging("unfold", args.log_level)
-    if args.config is not None:
-        reject_run_options(args, _RUN_ARG_DEFAULTS, command="unfold")
-        config = load_unfold_config(args.config, default_syst_frac=DEFAULT_SYST_FRAC)
-        output = _output(
-            config.output, Path(config.data), config.sim, config.alpha, config.calib_only
-        )
-        if args.dry_run or config.dry_run:
-            _print_dry_run(config, output)
-            return 0
-        _validate_outputs(output, bool(args.force or config.force), plot=not config.no_plot)
-        return _execute(
-            data=config.data,
-            calib=config.calib,
-            sim=config.sim,
-            calib_only=config.calib_only,
-            energy_low=config.energy_low_kev,
-            energy_high=config.energy_high_kev,
-            alpha=config.alpha,
-            difference_order=config.difference_order,
-            pad_nsigma=config.pad_nsigma,
-            syst_frac=config.syst_frac,
-            snip_enabled=config.snip_enabled,
-            snip_threshold_sigma=config.snip_threshold_sigma,
-            snip_protect_sigma=config.snip_protect_sigma,
-            snip_floor=config.snip_floor,
-            snip_iterations=config.snip_iterations,
-            snip_max_iterations=config.snip_max_iterations,
-            output=output,
-            force=bool(args.force or config.force),
-            no_plot=config.no_plot,
-            strict=strict,
-            logger=logger,
-            arguments=argv_arguments(args.argv),
-            config_inputs=(config.config_path,),
-        )
-
-    if args.data is None or args.calib is None:
-        raise UsageError("--data and --calib are required")
-    if args.calib_only:
-        _reject_for_calib_only(args)
-        sim = None
-        energy_low, energy_high = _CALIB_ONLY_BOUNDS
-        alpha = None
-    else:
-        if args.sim is None:
-            raise UsageError("--sim is required unless --calib-only")
-        if args.alpha is None:
-            raise UsageError("--alpha is required for the full unfold")
-        _validate_alpha(args.alpha)
-        if args.energy_low is None or args.energy_high is None:
-            raise UsageError("--energy-low and --energy-high are required")
-        if not args.energy_low < args.energy_high:
-            raise UsageError(
-                f"--energy-low ({args.energy_low}) must be < --energy-high ({args.energy_high})"
-            )
-        sim = args.sim
-        energy_low, energy_high = args.energy_low, args.energy_high
-        alpha = args.alpha
-    _validate_pad(args.pad_nsigma)
-    _validate_syst(args.syst_frac)
-    output = _output(args.output, Path(args.data), sim, alpha, args.calib_only)
-    if args.dry_run:
-        _print_args_dry_run(args, output)
+    config = load_unfold_config(args.config) if args.config is not None else None
+    values = resolve_run_options(
+        UNFOLD_POLICY, args, config_values=config.values() if config is not None else None
+    )
+    data = Path(str(values["data"])).expanduser()
+    sim = None if values["sim"] is None else Path(str(values["sim"])).expanduser()
+    energy_low, energy_high = _bounds(values)
+    output = _output(values["output"], data, sim, values["alpha"], bool(values["calib_only"]))
+    if values["dry_run"]:
+        _print_dry_run(values, data, sim, output)
         return 0
-    _validate_outputs(output, args.force, plot=not args.no_plot)
+    force = bool(values["force"])
+    _validate_outputs(output, force, plot=not values["no_plot"])
     return _execute(
-        data=args.data,
-        calib=args.calib,
+        values,
+        data=data,
         sim=sim,
-        calib_only=args.calib_only,
         energy_low=energy_low,
         energy_high=energy_high,
-        alpha=alpha,
-        difference_order=args.difference_order,
-        pad_nsigma=args.pad_nsigma,
-        syst_frac=args.syst_frac,
-        snip_enabled=args.snip_enabled,
-        snip_threshold_sigma=args.snip_threshold_sigma,
-        snip_protect_sigma=args.snip_protect_sigma,
-        snip_floor=args.snip_floor,
-        snip_iterations=args.snip_iterations,
-        snip_max_iterations=args.snip_max_iterations,
         output=output,
-        force=args.force,
-        no_plot=args.no_plot,
+        force=force,
         strict=strict,
         logger=logger,
         arguments=argv_arguments(args.argv),
-        config_inputs=(),
+        config_inputs=(config.config_path,) if config is not None else (),
     )
 
 
-def _reject_for_calib_only(args: argparse.Namespace) -> None:
-    if args.sim is not None:
-        raise UsageError("--sim is not used with --calib-only")
-    if args.alpha is not None:
-        raise UsageError("--alpha is not used with --calib-only")
-    if args.energy_low is not None or args.energy_high is not None:
-        raise UsageError("--energy-low/--energy-high are not used with --calib-only")
-
-
-def _validate_alpha(alpha: float) -> None:
-    if not math.isfinite(alpha) or alpha <= 0.0:
-        raise UsageError(f"--alpha must be positive and finite, got {alpha!r}")
-
-
-def _validate_pad(pad_nsigma: float) -> None:
-    if not math.isfinite(pad_nsigma) or pad_nsigma < 0.0:
-        raise UsageError(f"--pad-nsigma must be finite and >= 0, got {pad_nsigma!r}")
-
-
-def _validate_syst(syst_frac: float) -> None:
-    if not math.isfinite(syst_frac) or syst_frac < 0.0:
-        raise UsageError(f"--syst-frac must be finite and >= 0, got {syst_frac!r}")
+def _bounds(values: Mapping[str, object]) -> tuple[float, float]:
+    if values["calib_only"]:
+        return _CALIB_ONLY_BOUNDS
+    return float(values["energy_low"]), float(values["energy_high"])
 
 
 def _output(
-    explicit: str | Path | None,
+    explicit: object,
     data: Path,
-    sim: str | Path | None,
+    sim: Path | None,
     alpha: float | None,
     calib_only: bool,
 ) -> Path:
     if explicit is not None:
-        return Path(explicit).expanduser()
+        return Path(str(explicit)).expanduser()
     if calib_only:
         return default_output("unfold", f"unfold-{data.stem}-calibonly.root")
     assert sim is not None and alpha is not None
-    return default_output("unfold", f"unfold-{data.stem}-{Path(sim).stem}-a{alpha:g}.root")
+    return default_output("unfold", f"unfold-{data.stem}-{sim.stem}-a{alpha:g}.root")
 
 
-def _print_dry_run(config: UnfoldConfig, output: Path) -> None:
+def _print_dry_run(
+    values: Mapping[str, object], data: Path, sim: Path | None, output: Path
+) -> None:
     print("kc761tool unfold (dry-run):")
-    print(f"  mode={'calib_only' if config.calib_only else 'unfold'}")
-    print(f"  data={config.data}")
-    print(f"  calib={config.calib}")
-    print(f"  sim={config.sim}")
+    print(f"  mode={'calib_only' if values['calib_only'] else 'unfold'}")
+    print(f"  data={data}")
+    print(f"  calib={values['calib']}")
+    print(f"  sim={sim}")
     print(
-        f"  alpha={config.alpha} difference_order={config.difference_order} "
-        f"pad_nsigma={config.pad_nsigma} syst_frac={config.syst_frac}"
-    )
-    print(f"  output={output}")
-
-
-def _print_args_dry_run(args: argparse.Namespace, output: Path) -> None:
-    print("kc761tool unfold (dry-run):")
-    print(f"  mode={'calib_only' if args.calib_only else 'unfold'}")
-    print(f"  data={args.data}")
-    print(f"  calib={args.calib}")
-    print(f"  sim={args.sim}")
-    print(
-        f"  alpha={args.alpha} difference_order={args.difference_order} "
-        f"pad_nsigma={args.pad_nsigma} syst_frac={args.syst_frac}"
+        f"  alpha={values['alpha']} difference_order={values['difference_order']} "
+        f"syst_frac={values['syst_frac']}"
     )
     print(f"  output={output}")
 
@@ -351,26 +357,14 @@ def _validate_outputs(output: Path, force: bool, *, plot: bool) -> None:
 
 
 def _execute(
+    values: Mapping[str, object],
     *,
-    data,
-    calib,
-    sim,
-    calib_only: bool,
+    data: Path,
+    sim: Path | None,
     energy_low: float,
     energy_high: float,
-    alpha: float | None,
-    difference_order: int,
-    pad_nsigma: float,
-    syst_frac: float,
-    snip_enabled: bool,
-    snip_threshold_sigma: float,
-    snip_protect_sigma: float,
-    snip_floor: float,
-    snip_iterations: int | None,
-    snip_max_iterations: int,
     output: Path,
     force: bool,
-    no_plot: bool,
     strict: bool,
     logger,
     arguments,
@@ -380,27 +374,26 @@ def _execute(
 
     result = run_unfold(
         data,
-        calib,
+        values["calib"],
         sim,
         energy_low_kev=energy_low,
         energy_high_kev=energy_high,
-        alpha=alpha,
-        difference_order=difference_order,
-        pad_nsigma=pad_nsigma,
-        syst_frac=syst_frac,
-        snip_enabled=snip_enabled,
-        snip_threshold_sigma=snip_threshold_sigma,
-        snip_protect_sigma=snip_protect_sigma,
-        snip_floor=snip_floor,
-        snip_iterations=snip_iterations,
-        snip_max_iterations=snip_max_iterations,
-        calib_only=calib_only,
+        alpha=values["alpha"],
+        difference_order=int(values["difference_order"]),
+        syst_frac=float(values["syst_frac"]),
+        snip_enabled=bool(values["snip_enabled"]),
+        snip_threshold_sigma=float(values["snip_threshold_sigma"]),
+        snip_protect_bins=int(values["snip_protect_bins"]),
+        snip_floor=float(values["snip_floor"]),
+        snip_iterations=values["snip_iterations"],
+        snip_max_iterations=int(values["snip_max_iterations"]),
+        calib_only=bool(values["calib_only"]),
         output=output,
         force=force,
         strict=strict,
         command="kc761tool unfold",
         arguments=arguments,
-        plot=not no_plot,
+        plot=not values["no_plot"],
         plot_force=force,
         extra_inputs=config_inputs,
     )
@@ -410,4 +403,4 @@ def _execute(
     return 0
 
 
-__all__ = ["add_parser"]
+__all__ = ["UNFOLD_POLICY", "add_parser"]

@@ -15,7 +15,7 @@ derivations may gain detail but must never contradict `docs/plan.md`.
 | F-MODEL-5 | resolution positivity certificate; strict raises, non-strict clamps to `SIGMA_FLOOR_KEV` (D-73) | `core/model.py` | implemented |
 | F-BIN-1 | channel axis `-0.5 .. n-0.5`; variable energy axis in keV | `core/binning.py` | implemented |
 | F-BIN-2 | parameter-independent evaluation geometry: full deposition axis x requested channel rows, no bin selection (D-79) | `core/binning.py` | implemented |
-| F-BIN-3 | working window and pad from the local resolution width | `core/binning.py` | implemented |
+| F-BIN-3 | working window and pad from the local resolution width | retired by D-187 | retired |
 | F-BIN-4 | fixed source-mode Monte-Carlo axis `0..4096 keV / 4096 bins` (source-mode spectrum and fit-time `C_fit` only; the matrix primary axis is `C.y`, D-121 revised) | `core/binning.py` | implemented |
 | F-KERN-1 | exact Gaussian bin integral `Phi((e_{i+1}-c_j)/s_j) - Phi((e_i-c_j)/s_j)` | `core/kernel.py` | implemented |
 | F-KERN-2 | smoothstep support taper (D-76) and exact column renormalization; empty columns are zero | `core/kernel.py` | implemented |
@@ -42,16 +42,16 @@ derivations may gain detail but must never contradict `docs/plan.md`.
 | F-SOLVE-1 | Tikhonov objective `chi2 + alpha * ||D_tilde mu||^2`, `D_tilde = D . diag(sqrt(diag(R^T W R)))`, dimensionless `alpha` (D-80); with the SNIP peak mask `D' = diag(rho**0.5) D` (F-SOLVE-6/D-154, supersedes D-74) | `core/solver.py` | implemented |
 | F-SOLVE-2 | self-implemented banded Cholesky active-set non-negative QP | `core/solver.py` | implemented |
 | F-SOLVE-3 | KKT certificate in units of the data-gradient scale (D-84) | `core/solver.py` | implemented |
-| F-SOLVE-4 | SNIP LLS baseline on the measured spectrum: transform, resolution-derived iteration count, `max(y, 0)` handling (D-155/D-157) | `core/solver.py` | implemented |
-| F-SOLVE-5 | resolution-matched peak significance and the fixed diagonal peak mask `W` (D-156) | `core/solver.py` | implemented |
-| F-SOLVE-6 | masked penalty operator `D_tilde' = diag(rho**0.5) D . diag(sqrt(diag(A)))`, its certificates and acceptance metrics (D-158/D-161) | `core/solver.py` | implemented |
+| F-SOLVE-4 | SNIP LLS baseline on the measured spectrum: transform, resolution-derived iteration count at the caller's reference bin, `max(y, 0)` handling, edge-preserving ends (D-155/D-157/D-188) | `core/solver.py` | implemented |
+| F-SOLVE-5 | resolution-matched peak significance and the fixed diagonal peak mask `W` with a `protect_bins` width (D-156/D-188) | `core/solver.py` | implemented |
+| F-SOLVE-6 | masked penalty operator `D_tilde' = diag(rho**0.5) D . diag(sqrt(diag(A)))` with `rho_r = min_j w_{r+j}`; the mask-equality certificate is implemented, the operator's symmetry/half-bandwidth hold by construction and the meta hashes are provenance only (D-158/D-161/D-188); the D-161 acceptance metrics are still pending | `core/solver.py` | implemented (acceptance metrics pending) |
 | F-COV-1 | Fisher information from the analytic Jacobian | `core/covariance.py` | implemented |
 | F-COV-2 | `s**2 = chi2/dof` scaling (PDG convention); PD required, no pseudo-inverse fallback (D-84) | `core/covariance.py` | implemented |
 | F-COV-3 | optional profile-covariance diagnostic | `core/covariance.py` | implemented |
 | F-UNC-1 | statistical covariance propagation through the reduced free-set system `H_FF**-1` (D-86) | `core/uncertainty.py` | implemented |
 | F-UNC-2 | systematic propagation (calibration covariance, simulation MC, data-side term) | `core/uncertainty.py` | implemented |
 | F-UNC-3 | strict band decomposition `total**2 = stat**2 + syst**2` | `core/uncertainty.py` | implemented |
-| F-UNF-1 | energy window -> channel/primary selection from `E(ch)` at channel centers (D-111) | `unfold/selection.py` | implemented |
+| F-UNF-1 | energy window -> channel/primary selection from `E(ch)` at channel centers; the selection is the solve space (D-111/D-187) | `unfold/selection.py` | implemented |
 | F-UNF-2 | unfold fit weights `sigma_fit**2 = max(stat, 1) + (syst_frac*data)**2`, data-side only (D-112) | `unfold/selection.py` | implemented |
 | F-UNF-3 | exact-zero primary-column pruning and reduced non-negative solve (D-110) | `unfold/solve.py` | implemented |
 | F-UNF-4 | unfold diagnostics: weighted chi2, `dof = n_fit_rows - n_active`, `covariance_scale = 1` (D-118) | `unfold/solve.py` | implemented |
@@ -201,19 +201,24 @@ The objective is therefore continuous in the parameters by construction.
 range produce exactly zero columns (F-RESP-1); this is a physical statement
 (no channel can see those depositions), not an approximation.
 
-### F-BIN-3 - working window and pad
+### F-BIN-3 - working window and pad (retired by D-187)
 
-**Derivation.** The solver models `[chlo - pad, chhi + pad]` and reports
-`[chlo, chhi]` (D-44). The pad covers the smearing of events whose true
-channel lies outside the reported window:
-`pad = ceil(pad_nsigma * sigma(E_edge) / width_edge)` where `E_edge` is the
-energy of the outermost channel edge of the window, `sigma` the local
-resolution (F-MODEL-4) and `width_edge = E(i + 1/2) - E(i - 1/2)` the local
-channel width from the calibration. The result is clipped to
-`[0, n_channels - 1]`.
+**Former definition.** The solver modeled `[chlo - pad, chhi + pad]` and
+reported `[chlo, chhi]` (D-44), where
+`pad = ceil(pad_nsigma * sigma(E_edge) / width_edge)` is the number of channels
+covering the local resolution at each window edge. `core.binning.working_window`
+and the `pad_nsigma` setting are removed.
 
-**Limits.** A non-monotone calibration fails validation; `pad_nsigma = 0`
-is allowed and disables padding.
+**Why it was retired.** The padded rows are the only data that constrain the
+primary columns just outside the reported window, so dropping them costs edge
+accuracy (see F-UNF-1). Keeping them is only sound while they lie inside the
+region where the composed response describes the measurement. On the Ra-226
+validation dataset that condition fails below ~30 keV: the padded rows (9-30
+keV) are reproduced by the model two orders of magnitude below the data, so
+they dominate the weighted chi2 and the fit gives up the genuine 242/295/352 keV
+lines. A region the analysis window excludes is therefore no longer fitted; a
+padding-like structure is available by requesting a wider window and reporting
+the interior.
 
 ### F-BIN-4 - fixed source-mode Monte-Carlo axis
 
@@ -609,7 +614,7 @@ For `r = H mu - b`, the reported metrics are
 certificate independent of the count normalization of the problem. Strict
 mode raises `CertificateError("F-SOLVE-3")` on failure.
 
-### F-SOLVE-4 - SNIP baseline estimation (D-155/D-157)
+### F-SOLVE-4 - SNIP baseline estimation (D-155/D-157/D-188)
 
 **Role.** The SNIP (Statistics-sensitive Non-linear Iterative Peak-clipping)
 baseline is used *only* to locate genuine peaks in the measured spectrum. The
@@ -630,15 +635,29 @@ The transform compresses the dynamic range so clipping acts on relative
 structure.
 
 **Iteration.** For `p = 1 .. m`:
-`v_i <- min( v_i, (v_{i-p} + v_{i+p}) / 2 )`. Out-of-range neighbors are
-replaced by `v_i` (edge-preserving), so the boundary is not pulled down. The
-baseline is `b = inverse(v)` after the last iteration.
+`v_i <- min( v_i, (v_{i-p} + v_{i+p}) / 2 )` for interior bins only. A bin whose
+`i - p` or `i + p` neighbor does not exist keeps its value (edge-preserving): an
+average against a missing neighbor would pull a boundary value down toward its
+in-range neighbor. The baseline is `b = inverse(v)` after the last iteration.
 
-**Iteration count (D-157).** `m` is resolution-derived, not a free knob. At the
-reported-window midpoint energy `E_mid`, `FWHM_bins = FWHM(E_mid) / Delta_E`
+**Iteration count (D-157/D-188).** `m` is resolution-derived, not a free knob. At
+the reported-window midpoint energy `E_mid`, `FWHM_bins = FWHM(E_mid) / Delta_E`
 with `FWHM = 2 sqrt(2 ln 2) sigma_E(E_mid)` (F-MODEL-4); then
 `m = clip(round(FWHM_bins / 2), 1, m_max)`, with `m_max` a documented safety
-cap. An explicit override (`snip_iterations`) is allowed and recorded.
+cap. The reference bin is passed in by the caller
+(`iteration_reference_index`, the bin whose center is nearest the reported
+window midpoint in the shipped pipeline); `None` keeps the middle bin of the
+array handed to the mask, which is what the unit tests use. An explicit override
+(`snip_iterations`) is allowed and recorded.
+
+**Limits of the derived `m`.** `m_max = 8` (D-162) saturates the rule whenever
+`FWHM_bins > 2 m_max`, i.e. above roughly 300 keV for this detector: SNIP then
+removes only structures narrower than `2m+1 = 17` bins while the peak itself is
+18-47 bins wide between 300 keV and 1.8 MeV, so the baseline sits *inside* the peak (measured: 59% of the
+609 keV peak top on the validation dataset). The mask is therefore a
+peak-*locator*, not a background estimate; the significance map is a broad
+pedestal rather than a sharp peak indicator, which is acceptable because the
+protection width is fixed in bins (F-SOLVE-5).
 
 **Limits.** SNIP removes structures narrower than about `2m+1` bins; tying `m`
 to the resolution width removes the detector peak before estimating the
@@ -647,7 +666,7 @@ transform is near-linear and the baseline is stable. No continuum model is
 claimed: `b` is a robust local lower envelope, and the mask derived from it is
 a *structural prior*, not a background measurement.
 
-### F-SOLVE-5 - Resolution-matched significance and peak mask (D-156)
+### F-SOLVE-5 - Resolution-matched significance and peak mask (D-156/D-188)
 
 **Residual.** `r_i = y+_i - b_i`.
 
@@ -655,18 +674,40 @@ a *structural prior*, not a background measurement.
 With bin width `Delta_i` and `s_i = sigma_E(E_i) / Delta_i`, a normalized
 Gaussian kernel `g` of width `s_i` is applied around each bin:
 `M_i = sum_k g_k r_{i+k}` and `V_i = sum_k g_k**2 sigma_{y,i+k}**2`, so
-`z_i = M_i / sqrt(V_i)`. The matched filter suppresses single-bin noise spikes
+`z_i = M_i / sqrt(V_i)`. The kernel is truncated at `SNIP_FILTER_SIGMA = 3`
+resolution widths (`|k| <= ceil(3 s_i)`, renormalized over the truncated
+support), which is the matched-filter support and the only place the truncation
+enters. The matched filter suppresses single-bin noise spikes
 (the dominant spurious-peak seed) that a per-bin threshold would misclassify.
 
 **Candidates.** Bin `i` is a peak candidate when `z_i >= k` (default
-`k = 5`, D-156) and `z_i` is a local maximum within its filter window.
+`k = 5`, D-156) and `z_i` is a local maximum against its **two immediate
+neighbors** (the filter window is not used for the local-maximum test).
 
-**Mask.** Around every candidate center, all bins within
-`protect_sigma * sigma_E(E_i)` (default `protect_sigma = 2`) are marked as
-peaks. The fixed diagonal mask is `W = diag(w)` with `w_i = floor` (default
-`0.1`) on marked bins and `w_i = 1` elsewhere. Bins without data support
-(outside the measured window, zero variance) are not marked and keep
-`w_i = 1`, i.e. they are smoothed normally.
+**Mask (revised by D-188).** Around every candidate center, all bins within
+`protect_bins` **primary bins** (default `3`, the order-2 stencil width) are
+marked as peaks; overlapping intervals merge into one cluster, so the protected
+count is bounded by `(2 protect_bins + 1) * n_candidates`. The fixed diagonal
+mask is `W = diag(w)` with `w_i = floor` (default `0.1`) on marked bins and
+`w_i = 1` elsewhere. A zero-variance or non-positive-width bin is a hard
+`ValidationError` rather than an unmarked bin, so the only bins that keep
+`w_i = 1` are those no candidate marks.
+
+**Why the width is in bins, not resolution widths.** The protection must cover
+the *unfolded* peak core, whose width is set by the primary binning, not by the
+detector: a line occupies one primary bin, and the order-2 penalty smooths over
+three. A resolution-scaled width describes the *measured* peak and grows with
+the detector width in bins (`sigma_E / Delta_E` is 5.5 bins at 150 keV and 20
+bins at 1.8 MeV on the validation dataset), so it stopped being local: the old
+rule marked 46.8% of a 2048-bin axis (80% of 130-650 keV, runs up to 96 bins),
+and the roughness penalty vanished over whole regions. The resolution still
+enters where it belongs, in the matched filter above. A capped resolution rule
+was rejected as well: on this deployment (`sigma_E / Delta_E` >= 5.5 bins) the
+cap would always bind, so `protect_sigma` would become a setting without an
+effect, while on a deployment with `sigma_E / Delta_E <= 1.5` bins the detector
+no longer resolves the peak and a bin-scale protection is the only meaningful
+one. One knob with a bin-scale meaning replaces a knob whose meaning changed
+with the detector.
 
 **Limits and multiplicity.** Thresholding many bins inflates the family-wise
 false-positive rate; the 5-sigma threshold plus the resolution-width matched
@@ -675,18 +716,33 @@ smoothed than before; that is the known failure mode and is quantified by the
 acceptance metrics (F-SOLVE-6). The mask is a function of `y` only and is
 frozen before the solve (D-155), so the masked problem stays convex.
 
-### F-SOLVE-6 - Masked operator, objective and certificates (D-154/D-158)
+**Measured effect of the redesign (D-188).** On the Ra-226 validation dataset
+(`alpha = 10`, mask on vs off, raised from the same fit space): protected bins
+126/2048 = 6.2%, single maximum per line, peak-height inflation 1.20-1.23x, and
+chi2 276.5 vs 308.8. The former rule on the same data set produced a four-spike
+comb around 609 keV (589/606/618/641 keV, single-bin heights up to 1.32e6 vs a
+2.76e5 single peak with the mask off in the same padded fit space, i.e. 4.8x;
+the same rule inflated the single-bin height to 2.3x in the reported-window fit
+space, 1.0e6 against 4.4e5), split 186/242 keV peaks, and halved the
+number of non-zero bins at constant total strength -- the degenerate-vertex
+signature of a locally vanishing penalty.
+
+### F-SOLVE-6 - Masked operator, objective and certificates (D-154/D-158/D-188)
 
 **Masked difference operator.** `D' = diag(rho**0.5) D` with `D` the order-1
 `[-1, 1]` or order-2 `[1, -2, 1]` finite-difference operator (F-SOLVE-1) and
-`rho_r = prod_{j=0}^{order} w_{r+j}` the product of the mask weights over the
-stencil of difference row `r`. A protected peak bin therefore relaxes every
-difference row that touches it: a row fully inside a peak carries
-`rho = floor**(order+1)`, a row at a peak/continuum boundary
-`rho = floor**order`. `D'^T D' = D^T diag(rho) D` stays symmetric positive
-semidefinite and banded (same half-bandwidth as `D`). (The rectangular
-`W**0.5 D W**0.5` form does not typecheck for `n_rows = n - order`; the row
-form is the correct symmetric weighting.)
+`rho_r = min_{j=0}^{order} w_{r+j}` the **minimum** of the mask weights over the
+stencil of difference row `r` (D-188). A protected peak bin therefore relaxes
+every difference row that touches it, and each such row carries exactly the
+configured floor: `rho_r = floor` for any row whose stencil contains a protected
+bin, `rho_r = 1` otherwise. The former product rule reached
+`rho = floor**(order+1) = 1e-3` for interior rows, i.e. a relaxation 100x
+stronger than the value the setting and its CLI help name, which made the masked
+normal matrix locally singular (a family of near-optimal solutions, of which the
+active set returns an arbitrary vertex). `D'^T D' = D^T diag(rho) D` stays
+symmetric positive semidefinite and banded (same half-bandwidth as `D`). (The
+rectangular `W**0.5 D W**0.5` form does not typecheck for `n_rows = n - order`;
+the row form is the correct symmetric weighting.)
 
 **Normalization (D-80 carried through).** `D_tilde' = D' .
 diag(sqrt(diag(A)))` with `A = R^T W_data R`, `W_data = diag(1/sigma**2)`;
@@ -706,23 +762,42 @@ covariance is conditional on the realized mask, and the mask-selection
 uncertainty is not propagated (D-159). That conditionality is documented and
 its coverage is validated on synthetic pulls with the mask on and off.
 
-**Certificate F-SOLVE-6.** Strict mode verifies: `w_i in [floor, 1]`; the
-marked set equals the peaks recomputed from the recorded baseline; `D_tilde'`
-is symmetric with the expected half-bandwidth; the mask and baseline sha256
-match the product meta; the `alpha` normalization uses the recomputed
-`diag(A)`. Failure raises `CertificateError("F-SOLVE-6")`.
+**Certificate F-SOLVE-6 (implemented scope).** Strict mode recomputes the mask
+from the recorded spectrum, the settings and the `iteration_reference_index`
+(which the unfold layer derives from the reported-window midpoint), requires the
+stored weights to equal it exactly, and always enforces `w_i in [0, 1]` (the
+two-point `floor`/1 set follows from the construction). Failure raises
+`CertificateError("F-SOLVE-6")`. **Not checked at runtime**, and not to be
+relied on: the symmetry and half-bandwidth of `D_tilde'^T D_tilde'` (both hold
+by construction, so the check would be tautological) and a read-back comparison
+of the recorded baseline/mask sha256 against the product meta (the hashes are
+written for provenance; the mask itself is not stored in the product, so there
+is nothing to compare against on read). README section 6.3 states the same
+scope.
 
 **Determinism.** Given `y`, calibration and parameters, the baseline, the mask
 and hence the solution are deterministic; the mask and baseline sha256 are
 recorded (D-160).
 
-**Acceptance metrics (synthetic, D-161).** (a) spurious-peak suppression: the
-fraction of injected noise peaks that survive, mask on vs off; (b) true-peak
-area bias; (c) pull coverage with the mask on/off; (d) robustness to threshold
-and iteration perturbations; (e) bitwise reproducibility. No golden or
-reference outputs are used.
+**Acceptance metrics (synthetic, D-161): the committed gate is still pending.**
+The registered metric set is (a) spurious-peak suppression (the fraction of
+injected noise peaks that survive, mask on vs off); (b) true-peak area bias;
+(c) pull coverage with the mask on/off; (d) robustness to threshold and
+iteration perturbations; (e) bitwise reproducibility; no golden or reference
+outputs. As of D-188 only (e) is covered by the suite: the mask-on end-to-end
+tests pin structural properties (validity, strict certificates, the D-157
+reference bin, the resolution-independent protection footprint) but none of the
+acceptance metrics below, and the closure/pull studies still run with the mask
+off, so (a)-(d) are documented-but-open. The numbers quoted in this document under "Measured effect
+of the redesign" and in F-UNF-1 come from the ad-hoc validation described there
+(the Ra-226 dataset and the forward-closure fixture), not from a committed
+study; D-162 keeps the study as the acceptance gate.
 
-**Default-parameter study (preliminary).** A sensitivity grid was run on
+**Default-parameter study (preliminary, pre-D-188).** The numbers below were
+measured under the former resolution-scaled protection rule
+(`protect_sigma = 2` resolution widths, floor applied as a stencil product), so
+they document how the adopted defaults were reached, not the current rule. A
+sensitivity grid was run on
 the real Th232 window (1259 bins, alpha = 0.1, strict). Mask off gave
 chi2 = 315.9, 537 active bins, max(mu) = 2.73e5. The adopted defaults
 (5 sigma / 2 sigma_E / floor 0.1, resolution-derived m) gave chi2 = 256.2,
@@ -904,12 +979,43 @@ At least one center must fall inside, otherwise the window is empty at the
 channel resolution and a `ValidationError` is raised. `elo`/`ehi` must lie
 inside `[E_min, E_max]`, the primary axis range, otherwise the requested
 window cannot be represented by the simulation and a `ValidationError` is
-raised. The solver then works on `[chlo - pad, chhi + pad]` (F-BIN-3) and the
-reported `mu` covers the primary bins whose **centers** lie in `[elo, ehi]`.
+raised. The reported `mu` covers the primary bins whose **centers** lie in
+`[elo, ehi]`, and that set is also the fit space (D-187): the same index range
+supplies the solved primary columns and the reported product axis. The former
+F-BIN-3 row padding is retired.
 
 **Limits.** Centers (not bin edges) define membership on both axes; this is a
 half-bin boundary convention, documented here so it is not re-derived. A
 window narrower than the channel pitch selects at most one channel.
+
+**Edge limitation (D-187).** The response of a primary bin just inside the
+window extends below `chlo` (or above `chhi`); those rows are measurement, but
+they are outside the requested window and are no longer fitted, so the *data*
+that would constrain the leaked part of an edge line's response is not used.
+Near the window edge the adjacent primary columns are also strongly collinear
+through the response (measured on the fixture: `cos(R[:,50], R[:,51]) = 0.994`,
+against 0.945 six bins inside), and that near-degenerate direction is resolved
+by the roughness penalty toward the edge. The consequence is therefore not a
+one-row attenuation but a boundary layer whose width follows the regularization
+smoothing scale and the local collinearity, not the detector resolution alone:
+
+* in a narrow window (fixture, 220-520 keV, 12 fitted channel rows) a truth line
+  in the second-to-last reported primary bin recovers 0.20 of its amplitude
+  (0.87 with the F-BIN-3 padded rows fitted) and its strength moves *outward*
+  into the last reported bin (78% of the recovered sum), while a line six
+  reported bins inside loses 15% (0.75 against 0.92 in the wide window);
+* widening the window so the line has a few bins of room (200-560 keV) restores
+  it to 0.88-0.91, i.e. the interior value;
+* for a window many resolution widths wide - the production 30-3000 keV Ra-226
+  case, 1336 fitted rows - a forward closure gives a total flux ratio of
+  0.9998, so the layer is negligible there.
+
+The regularization dependence is small (the edge/interior ratio stays 0.26-0.44
+over `alpha` from 1e-4 to 3e-2) but the absolute ratios are not: the test that
+pins this uses the ratio, not an absolute recovery. An analysis that needs quantitative bins at the edge of
+its region of interest must request a window wider than that region and quote
+only the interior, which is the standard unfolding convention and the reason
+the padding existed before D-187.
 
 ### F-UNF-2 - data-side unfold fit weights
 
@@ -950,7 +1056,8 @@ kept columns), which is the frozen meaning of "solve on the remaining columns".
 
 ### F-UNF-4 - unfold diagnostics
 
-**Derivation.** With the fit rows `F = [chlo - pad, chhi + pad]`, the reduced
+**Derivation.** With the fit rows `F = [chlo, chhi]` (the reported channel rows,
+D-187; formerly padded), the reduced
 response `R_FK` (kept columns `K`), the solution `mu_K`, weights
 `sigma_fit` (F-UNF-2) and data `y_F`:
 
@@ -979,7 +1086,7 @@ window `[chlo, chhi]`,
     refolded_i = sum_j R_ij mu_j,   i in [chlo, chhi].
 
 This is the model prediction of the measured channel spectrum under the
-unfolded primary spectrum; it uses the same padded composition as the solve and
+unfolded primary spectrum; it uses the same full-axis composition as the solve and
 is sliced to the reported channel window only for storage.
 
 ### F-UNF-6 - calib-only channel relabeling

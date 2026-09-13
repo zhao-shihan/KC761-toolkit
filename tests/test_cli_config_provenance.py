@@ -34,8 +34,7 @@ def test_compose_config_records_config_path_and_sha(tmp_path: Path) -> None:
     output = tmp_path / "R.root"
     config = tmp_path / "compose.toml"
     config.write_text(
-        "config_version = 1\n[compose]\n"
-        f'calib = "{calib}"\nsim = "{sim}"\noutput = "{output}"\n',
+        f'config_version = 1\n[compose]\ncalib = "{calib}"\nsim = "{sim}"\noutput = "{output}"\n',
         encoding="utf-8",
     )
     assert main(["compose", "-c", str(config)]) == 0
@@ -45,14 +44,11 @@ def test_compose_config_records_config_path_and_sha(tmp_path: Path) -> None:
     assert input_sha256(product.provenance, config) == sha256_file(config)
 
 
-def test_compose_config_dry_run_uses_default_name(
-    tmp_path: Path, capsys: Any
-) -> None:
+def test_compose_config_dry_run_uses_default_name(tmp_path: Path, capsys: Any) -> None:
     calib, sim = _products(tmp_path)
     config = tmp_path / "compose.toml"
     config.write_text(
-        "config_version = 1\n[compose]\n"
-        f'calib = "{calib}"\nsim = "{sim}"\n',
+        f'config_version = 1\n[compose]\ncalib = "{calib}"\nsim = "{sim}"\n',
         encoding="utf-8",
     )
     assert main(["compose", "-c", str(config), "--dry-run"]) == 0

@@ -632,7 +632,8 @@ def _check_meta_fields(meta: Mapping[str, Any], dispatch: str) -> None:
     if set(meta) != set(expected):
         raise SchemaError(
             f"{dispatch}: meta field mismatch; missing={sorted(set(expected) - set(meta))} "
-            f"extra={sorted(set(meta) - set(expected))}"
+            f"extra={sorted(set(meta) - set(expected))}; the product may predate a schema "
+            "revision of this product kind (see docs/plan.md)"
         )
     for field, type_ in expected.items():
         value = meta[field]

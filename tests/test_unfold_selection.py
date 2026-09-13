@@ -21,13 +21,11 @@ def _selection(energy_low: float, energy_high: float):
     calib = make_calib_product()
     return select_window(
         calibration=calibration(calib),
-        resol_params=np.asarray(calib.resol_params),
         channel_max=calib.channel_max,
         n_channels=N_CHANNELS,
         primary_edges_kev=primary_edges_kev(),
         energy_low_kev=energy_low,
         energy_high_kev=energy_high,
-        pad_nsigma=5.0,
     )
 
 
@@ -35,11 +33,13 @@ def test_window_maps_energy_to_channel_and_primary_ranges() -> None:
     selection = _selection(220.0, 520.0)
     assert selection.channel_low == 18
     assert selection.channel_high == 29
-    assert selection.solve_low < selection.channel_low
-    assert selection.solve_high > selection.channel_high
+    # D-187: the solve space is the reported window. The concrete row count
+    # pins it (the padded F-BIN-3 range would be 15 rows for this window).
+    assert selection.n_fit_rows == 12
     assert selection.report_low == 22
     assert selection.report_high == 51
     assert selection.n_report_bins == 30
+    assert selection.midpoint_kev == 370.0
 
 
 def test_window_rejects_inverted_and_out_of_range() -> None:
@@ -57,13 +57,10 @@ def test_window_rejects_empty_channel_or_primary_selection() -> None:
         _selection(220.0, 221.0)
 
 
-def test_window_at_the_acquisition_edge_is_clipped() -> None:
+def test_window_at_the_acquisition_edge_stays_inside_the_acquisition() -> None:
     selection = _selection(540.0, 585.0)
-    assert 0 <= selection.solve_low <= selection.channel_low
-    assert selection.channel_high <= selection.solve_high <= N_CHANNELS - 1
-    assert selection.solve_high == selection.channel_high or (
-        selection.solve_high == N_CHANNELS - 1
-    )
+    assert (selection.channel_low, selection.channel_high) == (30, 31)
+    assert selection.n_fit_rows == 2
 
 
 def test_window_entirely_above_channel_range_is_rejected() -> None:
@@ -73,13 +70,11 @@ def test_window_entirely_above_channel_range_is_rejected() -> None:
     with pytest.raises(ValidationError, match="outside the channel energy range"):
         select_window(
             calibration=calibration(calib),
-            resol_params=np.asarray(calib.resol_params),
             channel_max=calib.channel_max,
             n_channels=N_CHANNELS,
             primary_edges_kev=wide_primary,
             energy_low_kev=9000.0,
             energy_high_kev=9500.0,
-            pad_nsigma=5.0,
         )
 
 

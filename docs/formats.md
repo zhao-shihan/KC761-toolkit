@@ -104,20 +104,31 @@ no missing and no extra field (`SchemaError` otherwise). The complete list:
   their sha256 digests live in `inputs_json`.
 * unfold: `mode` (str, `unfold` or `calib_only`), `alpha` (float),
   `difference_order` (int), `energy_low_kev`, `energy_high_kev` (float),
-  `channel_low`, `channel_high` (int), `pad_nsigma` (float), `syst_frac`
+  `channel_low`, `channel_high` (int), `syst_frac`
   (float), then the SNIP mask settings `snip_enabled` (int 0/1, default 1,
-  D-154), `snip_threshold_sigma` (float, default 5.0), `snip_protect_sigma`
-  (float, default 2.0), `snip_floor` (float, default 0.1), `snip_iterations`
-  (int, resolution-derived per run, D-157), `snip_max_iterations` (int,
-  default 8), `snip_clipped_bins` (int), `snip_clipped_index_range` (str),
-  `snip_baseline_sha256` (str), `snip_mask_sha256` (str), and finally the
+  D-154), `snip_threshold_sigma` (float, default 5.0), `snip_protect_bins`
+  (int, default 3, D-188), `snip_floor` (float, default 0.1), `snip_iterations`
+  (int, resolution-derived per run at the reported-window midpoint, D-157),
+  `snip_max_iterations` (int, default 8), `snip_clipped_bins` (int; written as
+  `0` together with `snip_iterations = 0` when the mask is disabled),
+  `snip_clipped_index_range` (str), `snip_candidates` (int, full measured
+  axis), `snip_protected_bins` (int, full measured axis -- like the mask hash
+  below, the counters describe the mask on the whole acquisition, while the
+  penalty only sees the reported-window slice), `snip_baseline_sha256` (str),
+  `snip_mask_sha256` (str), and finally the
   diagnostics `chi2` (float), `dof` (int), `covariance_scale` (float). The
   `calib_only` variant carries only the common fields plus `mode`. Per D-118,
-  `chi2` is the weighted residual sum of squares over the solver rows,
+  `chi2` is the weighted residual sum of squares over the fit rows, which are
+  the reported channel rows (D-187),
   `dof = n_fit_rows - n_active` (the number of strictly positive solution bins)
   may be zero or negative for a heavily regularized problem, and
   `covariance_scale` is fixed to `1.0` (the analytic F-UNC-1/F-UNC-2 bands are
-  never rescaled). When the SNIP mask is enabled the reported bands are
+  never rescaled). The `pad_nsigma` field is gone and the SNIP fields changed (D-187/D-188),
+  so *full-mode* unfold products written before those decisions no longer
+  validate against this schema and are rejected on read with a meta-field
+  mismatch (a `calib_only` product carries the common fields plus `mode` and
+  still validates); the global `format_version` stays 1 because the other
+  product kinds are unchanged. When the SNIP mask is enabled the reported bands are
   conditional on the realized mask (D-159) and the baseline/mask hashes pin the
   exact solve.
 * spectrum: `daq_time_s` (float), `source_file` (str). The field is an audit

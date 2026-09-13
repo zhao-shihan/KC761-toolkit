@@ -10,8 +10,6 @@ from kc761tool.cli.config import (
     load_sim_config,
     load_unfold_config,
 )
-from kc761tool.sim import MATRIX_MODE_NAMES, SOURCE_KEYS
-from kc761tool.sim.config import DEFAULT_SEED
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
@@ -19,9 +17,6 @@ EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 def test_sim_example_parses() -> None:
     config = load_sim_config(
         EXAMPLES / "sim.toml",
-        source_keys=SOURCE_KEYS,
-        default_seed=DEFAULT_SEED,
-        matrix_modes=MATRIX_MODE_NAMES,
     )
     assert len(config.runs) == 6
     assert [run.source_key for run in config.runs] == [
@@ -47,7 +42,7 @@ def test_sim_example_parses() -> None:
 
 
 def test_calib_example_parses() -> None:
-    config = load_calib_config(EXAMPLES / "calib.toml", default_syst_frac=0.10)
+    config = load_calib_config(EXAMPLES / "calib.toml")
     assert [entry.label for entry in config.datasets] == [
         "Am241",
         "Lu176",
@@ -67,7 +62,7 @@ def test_compose_example_parses() -> None:
 
 
 def test_unfold_example_parses() -> None:
-    config = load_unfold_config(EXAMPLES / "unfold.toml", default_syst_frac=0.10)
+    config = load_unfold_config(EXAMPLES / "unfold.toml")
     assert config.alpha == 0.1
     assert config.energy_low_kev == 40.0
     assert config.energy_high_kev == 2800.0

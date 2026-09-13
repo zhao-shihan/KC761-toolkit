@@ -125,9 +125,17 @@ def solve_window(
     snip_settings: SnipSettings | None = None,
     strict: bool = False,
 ) -> SolveOutcome:
-    """Solve the padded window and propagate both bands (F-UNF-3/F-UNC-*)."""
-    sliced = slice_response(composed, selection.solve_low, selection.solve_high)
-    sliced_matrix = sliced.matrix.tocsr().astype(np.float64)
+    """Solve the reported window and propagate both bands (F-UNF-3/F-UNC-*).
+
+    The solve space is the reported window itself (D-187): the fit rows are the
+    reported channel rows and the fit primary columns are the reported primary
+    bins. Exactly-zero response columns are pruned inside that range (F-UNF-3)
+    and re-inserted as zeros on the full axis.
+    """
+    columns = slice(selection.report_low, selection.report_high + 1)
+    column_indices = np.arange(selection.report_low, selection.report_high + 1, dtype=np.int64)
+    sliced = slice_response(composed, selection.channel_low, selection.channel_high)
+    sliced_matrix = sliced.matrix.tocsr().astype(np.float64)[:, columns]
     kept, pruned = exact_zero_columns(sliced_matrix)
     if kept.size == 0:
         raise ValidationError(
@@ -135,7 +143,7 @@ def solve_window(
         )
     reduced = sliced_matrix[:, kept].tocsr()
 
-    rows = slice(selection.solve_low, selection.solve_high + 1)
+    rows = slice(selection.channel_low, selection.channel_high + 1)
     y = np.asarray(data_values, dtype=np.float64)[rows]
     stat = np.asarray(data_variances, dtype=np.float64)[rows]
     if np.any(stat < 0.0):
@@ -173,7 +181,17 @@ def solve_window(
         widths = np.diff(edges)
         resolution = resolution_sigma_kev(centers, resol_params)
         sigma_y = np.sqrt(np.maximum(variances_full, 1.0))
-        info = snip_peak_mask(values_full, sigma_y, resolution, widths, snip_settings)
+        # D-157: the SNIP iteration count is resolution-derived at the midpoint
+        # of the reported window, not at the middle of the full axis.
+        reference = int(np.argmin(np.abs(centers - selection.midpoint_kev)))
+        info = snip_peak_mask(
+            values_full,
+            sigma_y,
+            resolution,
+            widths,
+            snip_settings,
+            iteration_reference_index=reference,
+        )
         if strict:
             verify_snip_mask(
                 snip_settings,
@@ -182,8 +200,9 @@ def solve_window(
                 sigma=sigma_y,
                 resolution_sigma_kev=resolution,
                 bin_width_kev=widths,
+                iteration_reference_index=reference,
             )
-        mask = info.weights[kept]
+        mask = info.weights[columns][kept]
         baseline = info.baseline
         snip_iterations = int(info.iterations)
         snip_clipped_count = int(info.clipped_count)
@@ -235,8 +254,8 @@ def solve_window(
     )
     composed_jacobian = compose_parameter_jacobian(
         calib_jacobian_full,
-        deposition_counts,
-        column_totals,
+        np.asarray(deposition_counts, dtype=np.float64)[:, columns],
+        np.asarray(column_totals, dtype=np.float64)[columns],
         rows=rows,
         columns=kept,
     )
@@ -248,8 +267,8 @@ def solve_window(
     )
     mc_variance = simulation_mc_variance(
         windowed_response,
-        np.asarray(deposition_counts, dtype=np.float64)[:, kept],
-        np.asarray(column_totals, dtype=np.float64)[kept],
+        np.asarray(deposition_counts, dtype=np.float64)[:, columns][:, kept],
+        np.asarray(column_totals, dtype=np.float64)[columns][kept],
         y,
         mu,
         sigma_fit=sigma_fit,
@@ -275,10 +294,10 @@ def solve_window(
     stat_full = np.zeros(n_primary, dtype=np.float64)
     syst_full = np.zeros(n_primary, dtype=np.float64)
     total_full = np.zeros(n_primary, dtype=np.float64)
-    mu_full[kept] = mu
-    stat_full[kept] = bands.sigma_stat
-    syst_full[kept] = bands.sigma_syst
-    total_full[kept] = bands.sigma_total
+    mu_full[column_indices[kept]] = mu
+    stat_full[column_indices[kept]] = bands.sigma_stat
+    syst_full[column_indices[kept]] = bands.sigma_syst
+    total_full[column_indices[kept]] = bands.sigma_total
 
     return SolveOutcome(
         mu_full=mu_full,
@@ -289,8 +308,8 @@ def solve_window(
         dof=dof,
         n_active=n_active,
         n_fit_rows=int(y.size),
-        kept_columns=kept,
-        pruned_columns=pruned,
+        kept_columns=column_indices[kept],
+        pruned_columns=column_indices[pruned],
         reduced_matrix=reduced,
         sigma_fit=sigma_fit,
         solution=solution,

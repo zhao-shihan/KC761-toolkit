@@ -182,9 +182,7 @@ def test_unusable_output_path_maps_to_exit_two(tmp_path: Path) -> None:
     """
     blocker = tmp_path / "blocker"
     blocker.write_text("not a directory", encoding="utf-8")
-    assert (
-        run_cli(["csv2root", str(SMALL_CSV), "-o", str(blocker / "out.root")]) == 2
-    )
+    assert run_cli(["csv2root", str(SMALL_CSV), "-o", str(blocker / "out.root")]) == 2
 
 
 def test_unfold_snip_flags_parse(capsys: Any) -> None:
@@ -207,8 +205,8 @@ def test_unfold_snip_flags_parse(capsys: Any) -> None:
             "--no-snip",
             "--snip-threshold",
             "4.5",
-            "--snip-protect",
-            "1.5",
+            "--snip-protect-bins",
+            "4",
             "--snip-floor",
             "0.05",
             "--snip-iterations",
@@ -219,6 +217,35 @@ def test_unfold_snip_flags_parse(capsys: Any) -> None:
         ]
     )
     assert code == 0
+    assert "unfold" in capsys.readouterr().out.lower()
+
+
+def test_unfold_rejects_retired_and_invalid_snip_flags(capsys: Any) -> None:
+    """D-187/D-188: the retired surface is gone and bad values fail as usage errors.
+
+    The ``--dry-run`` path must reject what a real run would reject, so the
+    ``--snip-*`` bounds are checked before the preview is printed.
+    """
+    common = [
+        "unfold",
+        "--data",
+        "d.root",
+        "--calib",
+        "c.root",
+        "--sim",
+        "s.root",
+        "--energy-low",
+        "10",
+        "--energy-high",
+        "20",
+        "--alpha",
+        "0.1",
+    ]
+    assert run_cli([*common, "--pad-nsigma", "5", "--dry-run"]) == 2
+    assert run_cli([*common, "--snip-protect", "2", "--dry-run"]) == 2
+    assert run_cli([*common, "--snip-protect-bins", "0", "--dry-run"]) == 2
+    assert run_cli([*common, "--snip-floor", "1.5", "--dry-run"]) == 2
+    assert run_cli([*common, "--snip-protect-bins", "3", "--dry-run"]) == 0
     assert "unfold" in capsys.readouterr().out.lower()
 
 
@@ -288,9 +315,7 @@ def test_compose_validates_output_before_reading_inputs(tmp_path: Path) -> None:
 
 def test_sim_validates_output_before_starting(tmp_path: Path) -> None:
     target = _existing(tmp_path, "s.root")
-    assert (
-        run_cli(["sim", "--am241", "-n", "10", "-o", str(target)]) == 2
-    )
+    assert run_cli(["sim", "--am241", "-n", "10", "-o", str(target)]) == 2
 
 
 def test_csv2root_validates_output_before_reading(tmp_path: Path) -> None:
@@ -300,16 +325,12 @@ def test_csv2root_validates_output_before_reading(tmp_path: Path) -> None:
 
 def test_specsub_validates_output_before_reading(tmp_path: Path) -> None:
     target = _existing(tmp_path, "n.root")
-    assert (
-        run_cli(["specsub", "missing-a.root", "missing-b.root", "-o", str(target)]) == 2
-    )
+    assert run_cli(["specsub", "missing-a.root", "missing-b.root", "-o", str(target)]) == 2
 
 
 def test_specadd_validates_output_before_reading(tmp_path: Path) -> None:
     target = _existing(tmp_path, "s.root")
-    assert (
-        run_cli(["specadd", "missing-a.root", "missing-b.root", "-o", str(target)]) == 2
-    )
+    assert run_cli(["specadd", "missing-a.root", "missing-b.root", "-o", str(target)]) == 2
 
 
 def test_specsub_requires_two_positional_operands() -> None:

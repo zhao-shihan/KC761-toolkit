@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -54,7 +55,8 @@ def test_full_product_roundtrip_settings_and_provenance(tmp_path: Path) -> None:
         data_path,
         calib_path,
         sim_path,
-        snip_enabled=False, energy_low_kev=WINDOW[0],
+        snip_enabled=False,
+        energy_low_kev=WINDOW[0],
         energy_high_kev=WINDOW[1],
         alpha=ALPHA,
         output=output,
@@ -68,9 +70,7 @@ def test_full_product_roundtrip_settings_and_provenance(tmp_path: Path) -> None:
     assert len(product.settings) == len(UNFOLD_SETTING_TYPES)
     assert product.sigma_statistical is not None
     assert product.sigma_total is not None
-    assert np.allclose(
-        product.sigma_total.variances, product.sigma_total.values**2
-    )
+    assert np.allclose(product.sigma_total.variances, product.sigma_total.values**2)
     for path in (data_path, calib_path, sim_path):
         assert input_sha256(product.provenance, path) == sha256_file(path)
 
@@ -83,7 +83,8 @@ def test_calib_only_relabels_axis_without_touching_counts(tmp_path: Path) -> Non
     result = run_unfold(
         data_path,
         calib_path,
-        snip_enabled=False, energy_low_kev=WINDOW[0],
+        snip_enabled=False,
+        energy_low_kev=WINDOW[0],
         energy_high_kev=WINDOW[1],
         calib_only=True,
         output=output,
@@ -96,13 +97,9 @@ def test_calib_only_relabels_axis_without_touching_counts(tmp_path: Path) -> Non
     assert product.settings == ()
     assert product.sigma_total is None
     assert product.spectrum.axis.unit == "kev"
-    assert np.array_equal(
-        product.spectrum.axis.edges, calib.deposition_to_channel.y.edges
-    )
+    assert np.array_equal(product.spectrum.axis.edges, calib.deposition_to_channel.y.edges)
     assert np.array_equal(product.spectrum.values, np.asarray(data.spectrum.values))
-    assert np.array_equal(
-        product.spectrum.variances, np.asarray(data.spectrum.variances)
-    )
+    assert np.array_equal(product.spectrum.variances, np.asarray(data.spectrum.variances))
 
 
 def test_calib_only_rejects_mismatched_channel_axis(tmp_path: Path) -> None:
@@ -124,7 +121,8 @@ def test_calib_only_rejects_mismatched_channel_axis(tmp_path: Path) -> None:
         run_unfold(
             wrong_path,
             calib_path,
-            snip_enabled=False, energy_low_kev=WINDOW[0],
+            snip_enabled=False,
+            energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             calib_only=True,
             plot=False,
@@ -141,7 +139,8 @@ def test_full_unfold_requires_alpha_and_sim(tmp_path: Path) -> None:
             data_path,
             calib_path,
             sim_path,
-            snip_enabled=False, energy_low_kev=WINDOW[0],
+            snip_enabled=False,
+            energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             plot=False,
         )
@@ -149,7 +148,8 @@ def test_full_unfold_requires_alpha_and_sim(tmp_path: Path) -> None:
         run_unfold(
             data_path,
             calib_path,
-            snip_enabled=False, energy_low_kev=WINDOW[0],
+            snip_enabled=False,
+            energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             alpha=ALPHA,
             plot=False,
@@ -166,7 +166,8 @@ def test_window_outside_primary_axis_is_rejected(tmp_path: Path) -> None:
             data_path,
             calib_path,
             sim_path,
-            snip_enabled=False, energy_low_kev=-10.0,
+            snip_enabled=False,
+            energy_low_kev=-10.0,
             energy_high_kev=200.0,
             alpha=ALPHA,
             plot=False,
@@ -182,7 +183,8 @@ def test_wrong_data_product_kind_is_rejected(tmp_path: Path) -> None:
             sim_path,
             calib_path,
             sim_path,
-            snip_enabled=False, energy_low_kev=WINDOW[0],
+            snip_enabled=False,
+            energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             alpha=ALPHA,
             plot=False,
@@ -199,7 +201,8 @@ def test_report_and_plot_are_written_and_plot_refuses_overwrite(tmp_path: Path) 
         data_path,
         calib_path,
         sim_path,
-        snip_enabled=False, energy_low_kev=WINDOW[0],
+        snip_enabled=False,
+        energy_low_kev=WINDOW[0],
         energy_high_kev=WINDOW[1],
         alpha=ALPHA,
         output=output,
@@ -214,7 +217,8 @@ def test_report_and_plot_are_written_and_plot_refuses_overwrite(tmp_path: Path) 
             data_path,
             calib_path,
             sim_path,
-            snip_enabled=False, energy_low_kev=WINDOW[0],
+            snip_enabled=False,
+            energy_low_kev=WINDOW[0],
             energy_high_kev=WINDOW[1],
             alpha=ALPHA,
             output=output,
@@ -255,3 +259,39 @@ def test_unfold_validates_figure_target_before_inputs(tmp_path: Path) -> None:
             output=product,
             plot=True,
         )
+
+
+def test_unfold_figure_x_axis_is_linear(tmp_path: Any) -> None:
+    """D-189: the energy x-axis is linear; only the middle panel's y is log."""
+
+    import kc761tool.unfold.plot as plot_module
+
+    calib = make_calib_product()
+    sim = make_sim_product(calib)
+    signal = response_of(calib, sim) @ truth_vector(TRUTH_INDICES, TRUTH_AMPLITUDES)
+    result = run_unfold(
+        make_spectrum_product(signal),
+        calib,
+        sim,
+        snip_enabled=False,
+        energy_low_kev=WINDOW[0],
+        energy_high_kev=WINDOW[1],
+        alpha=ALPHA,
+        strict=True,
+        plot=False,
+    )
+    recorded: list[tuple[str, str]] = []
+    original = plot_module._save_fig
+
+    def spy(fig, out_plot, force):
+        recorded.extend((ax.get_xscale(), ax.get_yscale()) for ax in fig.axes)
+        return original(fig, out_plot, force)
+
+    plot_module._save_fig = spy
+    try:
+        plot_module.plot_unfold(result, path=tmp_path / "u.pdf", force=True)
+    finally:
+        plot_module._save_fig = original
+    assert len(recorded) == 3  # linear-y spectrum, log-y spectrum, residuals
+    assert all(x == "linear" for x, _ in recorded)
+    assert [y for _, y in recorded] == ["linear", "log", "linear"]

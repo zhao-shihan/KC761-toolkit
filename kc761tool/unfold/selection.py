@@ -2,8 +2,9 @@
 
 * F-UNF-1: the requested energy window is mapped to channel rows through
   ``E(ch)`` at the channel centers and to reported primary bins through the
-  primary-bin centers; the solver range is padded with the local resolution
-  (F-BIN-3).
+  primary-bin centers. The solve space **is** the reported window: the fit rows
+  are the reported channel rows and the fit primary columns are the reported
+  primary bins (D-187; the former F-BIN-3 row padding is retired).
 * F-UNF-2: the unfold fit weights are `sigma_fit**2 = max(stat, 1) +
   (syst_frac * data)**2`; the simulation-MC term is excluded (D-112).
 """
@@ -14,7 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from kc761tool.core._checks import as_float_array, require_same_length
-from kc761tool.core.binning import EnergyGrid, working_window
+from kc761tool.core.binning import EnergyGrid
 from kc761tool.core.model import InternalCalibration, energy_kev
 from kc761tool.errors import ValidationError
 from kc761tool.unfold.types import WindowSelection
@@ -39,19 +40,17 @@ def fit_sigma(
 def select_window(
     *,
     calibration: InternalCalibration,
-    resol_params: NDArray[np.float64],
     channel_max: float,
     n_channels: int,
     primary_edges_kev: NDArray[np.float64],
     energy_low_kev: float,
     energy_high_kev: float,
-    pad_nsigma: float,
-    strict: bool = False,
 ) -> WindowSelection:
     """Resolve an energy window to channel rows and reported primary bins.
 
     The primary axis is the simulation ``G.y`` axis; the channel map uses
     ``E(ch)`` at the channel centers. See F-UNF-1 for the exact conventions.
+    The solve space is the returned window itself (D-187).
     """
     primary = EnergyGrid(edges_kev=np.asarray(primary_edges_kev, dtype=np.float64))
     primary_edges = primary.edges_kev
@@ -88,17 +87,6 @@ def select_window(
     channel_low = low
     channel_high = high
 
-    solve_low, solve_high = working_window(
-        channel_low,
-        channel_high,
-        pad_nsigma=pad_nsigma,
-        calibration=calibration,
-        resol_params=np.asarray(resol_params, dtype=np.float64),
-        channel_max=channel_max,
-        n_channels=int(n_channels),
-        strict=strict,
-    )
-
     primary_centers = 0.5 * (primary_edges[:-1] + primary_edges[1:])
     inside = (primary_centers >= energy_low_kev) & (primary_centers <= energy_high_kev)
     indices = np.flatnonzero(inside)
@@ -112,8 +100,6 @@ def select_window(
         energy_high_kev=float(energy_high_kev),
         channel_low=channel_low,
         channel_high=channel_high,
-        solve_low=solve_low,
-        solve_high=solve_high,
         report_low=int(indices[0]),
         report_high=int(indices[-1]),
     )

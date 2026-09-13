@@ -5,40 +5,228 @@ measured spectrum is a ``spectrum`` product and ``--mc`` reads an
 ``mc_spectrum`` product (D-120/D-144); the library consumes only the histogram,
 so the CLI owns product loading and axis checks. Config mode runs a single fit
 from ``[[calib.datasets]]`` (D-139).
+
+The option surface is declared once in :data:`CALIB_POLICY` (D-190). The
+repeatable command-line options (one value per dataset) and the scalar
+per-dataset TOML keys are separate declarations of the same concept, because
+the two surfaces genuinely differ in shape; the batch twins use the ``dataset_``
+dest prefix.
 """
 
 from __future__ import annotations
 
 import argparse
 import math
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
-from kc761tool.cli._common import (
-    add_channel_window,
-    add_config_options,
-    add_output_options,
-    add_runtime_options,
-    argv_arguments,
-    default_output,
-    reject_run_options,
+from kc761tool.cli._common import argv_arguments, default_output
+from kc761tool.cli._registry import (
+    Kind,
+    Requirement,
+    RunOption,
+    RunPolicy,
+    Scope,
+    add_run_options,
+    channel_window_options,
+    config_options,
+    merge_options,
+    output_options,
+    resolve_run_options,
+    runtime_options,
 )
-from kc761tool.cli.config import load_calib_config
+from kc761tool.cli.config import CalibConfig, load_calib_config
+from kc761tool.core.uncertainty import DEFAULT_SYST_FRAC
 from kc761tool.errors import SchemaError, UsageError
 from kc761tool.runtime import configure_logging
 from kc761tool.schema.io import validate_output_path
 
-_RUN_ARG_DEFAULTS: dict[str, object] = {
-    "data": None,
-    "mc": None,
-    "label": None,
-    "syst_frac": None,
-    "channel_low": None,
-    "channel_high": None,
-    "max_iter": None,
-    "tolerance": None,
-    "output": None,
-    "no_plot": False,
-}
+
+def _require_int_pair(
+    values: Mapping[str, object],
+    *,
+    low_key: str,
+    high_key: str,
+    label: str,
+) -> None:
+    """Bounds for a channel window pair, shared by the CLI and the batch table."""
+    low, high = values.get(low_key), values.get(high_key)
+    if low is not None and low < 0:
+        raise UsageError(f"{label}_low must be >= 0, got {low!r}")
+    if low is not None and high is not None and high < low:
+        raise UsageError(f"{label}_high ({high}) must be >= {label}_low ({low})")
+
+
+def _validate_calib(
+    values: Mapping[str, object], present: frozenset[str], config_mode: bool
+) -> None:
+    """Calibration cross-field rules, shared by the CLI and the batch table."""
+    del present  # calib has no per-source rule beyond the requirements
+    _require_int_pair(values, low_key="channel_low", high_key="channel_high", label="channel")
+    iterations = values.get("max_iter")
+    if iterations is not None and iterations < 1:
+        raise UsageError(f"--max-iter must be >= 1, got {iterations!r}")
+    tolerance = values.get("tolerance")
+    if tolerance is not None and (not math.isfinite(tolerance) or tolerance <= 0.0):
+        raise UsageError(f"--tolerance must be positive and finite, got {tolerance!r}")
+    progress = values.get("progress_every")
+    if progress is not None and (not math.isfinite(progress) or progress < 0.0):
+        raise UsageError(f"--progress-every must be finite and >= 0, got {progress!r}")
+    data, mc, label = values.get("data"), values.get("mc"), values.get("label")
+    if data is None or mc is None or label is None:
+        return
+    count = len(data)
+    if len(mc) != count or len(label) != count:
+        raise UsageError(
+            "--data, --mc and --label must be repeated the same number of times; got "
+            f"{count} data, {len(mc)} mc, {len(label)} label"
+        )
+
+
+def _validate_dataset(
+    values: Mapping[str, object], present: frozenset[str], config_mode: bool
+) -> None:
+    """The same window rules inside one ``[[calib.datasets]]`` entry."""
+    del config_mode
+    if ("channel_low" in present) != ("channel_high" in present):
+        raise UsageError("channel_low and channel_high must be given together")
+    _require_int_pair(values, low_key="channel_low", high_key="channel_high", label="channel")
+
+
+def _non_negative_values(values: Mapping[str, object], key: str) -> str | None:
+    """Finite non-negative check for one value or a repeatable list of them.
+
+    The command line carries one value per dataset (``--syst-frac`` repeated) and
+    a ``[[calib.datasets]]`` entry carries a scalar, so both spellings share this
+    bound (D-190); a bound that only guards one surface is exactly the drift the
+    declaration is meant to remove.
+    """
+    value = values.get(key)
+    if value is None:
+        return None
+    seen = value if isinstance(value, (list, tuple)) else [value]
+    for item in seen:
+        if not isinstance(item, (int, float)) or not math.isfinite(item) or item < 0.0:
+            return f"must be finite and >= 0, got {item!r}"
+    return None
+
+
+def _syst_frac_check(values: Mapping[str, object]) -> str | None:
+    return _non_negative_values(values, "syst_frac")
+
+
+def _dataset_syst_frac_check(values: Mapping[str, object]) -> str | None:
+    return _non_negative_values(values, "dataset_syst_frac")
+
+
+#: Declared surface (D-190): flags, defaults, TOML keys and the shared rules.
+CALIB_POLICY = RunPolicy(
+    command="calib",
+    config=True,
+    validate=_validate_calib,
+    validate_nested=_validate_dataset,
+    spec=merge_options(
+        [
+            RunOption(
+                dest="data",
+                flags=("--data",),
+                kind=Kind.PATH_LIST,
+                metavar="FILE",
+                requirement=Requirement.ARGS,
+                help="data spectrum product (kc761_spectrum); repeat once per dataset",
+            ),
+            RunOption(
+                dest="mc",
+                flags=("--mc",),
+                kind=Kind.PATH_LIST,
+                metavar="FILE",
+                requirement=Requirement.ARGS,
+                help="source-mode simulation product (kc761_mc_spectrum); repeat per dataset",
+            ),
+            RunOption(
+                dest="label",
+                flags=("--label",),
+                kind=Kind.STRING_LIST,
+                metavar="NAME",
+                requirement=Requirement.ARGS,
+                help="dataset label (plot titles, scale parameter names); repeat per dataset",
+            ),
+            *channel_window_options(requirement=Requirement.ARGS),
+            RunOption(
+                dest="syst_frac",
+                flags=("--syst-frac", "--syst"),
+                kind=Kind.FLOAT_LIST,
+                metavar="FRAC",
+                check=_syst_frac_check,
+                help=(
+                    "per-bin fractional systematic uncertainty (0.05 = 5%%); single "
+                    "value or one per dataset (default 0.05 = 5%%, formula F-CAL-1)"
+                ),
+            ),
+            RunOption(
+                dest="max_iter",
+                flags=("--max-iter",),
+                kind=Kind.INT,
+                metavar="N",
+                help="maximum optimizer function evaluations (default: FitSettings, D-107)",
+            ),
+            RunOption(
+                dest="tolerance",
+                flags=("--tolerance",),
+                kind=Kind.FLOAT,
+                metavar="TOL",
+                help="positive convergence tolerance for ftol/xtol/gtol (default: FitSettings)",
+            ),
+            RunOption(
+                dest="progress_every",
+                flags=("--progress-every",),
+                kind=Kind.FLOAT,
+                default=1.0,
+                scope=Scope.GLOBAL,
+                metavar="SECONDS",
+                help="fit progress line interval in seconds (default 1; 0 = every evaluation)",
+            ),
+            RunOption(
+                dest="progress_enabled",
+                flags=("--no-progress",),
+                kind=Kind.BOOL,
+                default=True,
+                scope=Scope.GLOBAL,
+                help="disable the fit summary and progress lines",
+            ),
+            # Batch twins: one scalar per [[calib.datasets]] entry (D-139/D-190).
+            RunOption(
+                dest="dataset_data",
+                kind=Kind.PATH,
+                nested_key="data",
+                nested_requirement=Requirement.ALWAYS,
+            ),
+            RunOption(
+                dest="dataset_mc",
+                kind=Kind.PATH,
+                nested_key="mc",
+                nested_requirement=Requirement.ALWAYS,
+            ),
+            RunOption(
+                dest="dataset_label",
+                kind=Kind.STRING,
+                nested_key="label",
+                nested_requirement=Requirement.ALWAYS,
+            ),
+            RunOption(
+                dest="dataset_syst_frac",
+                kind=Kind.FLOAT,
+                default=DEFAULT_SYST_FRAC,
+                nested_key="syst_frac",
+                check=_dataset_syst_frac_check,
+            ),
+        ],
+        output_options(with_plot=True),
+        config_options(),
+        runtime_options(),
+    ),
+)
 
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -52,150 +240,77 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
             "-c/--config one fit is described by [[calib.datasets]]."
         ),
     )
-    parser.add_argument(
-        "--data",
-        dest="data",
-        action="append",
-        default=None,
-        metavar="FILE",
-        help="data spectrum product (kc761_spectrum); repeat once per dataset",
-    )
-    parser.add_argument(
-        "--mc",
-        dest="mc",
-        action="append",
-        default=None,
-        metavar="FILE",
-        help="source-mode simulation product (kc761_mc_spectrum); repeat per dataset",
-    )
-    parser.add_argument(
-        "--label",
-        action="append",
-        default=None,
-        metavar="NAME",
-        help="dataset label (plot titles, scale parameter names); repeat per dataset",
-    )
-    add_channel_window(parser, required=False)
-    parser.add_argument(
-        "--syst-frac",
-        "--syst",
-        dest="syst_frac",
-        action="append",
-        type=float,
-        default=None,
-        metavar="FRAC",
-        help=(
-            "per-bin fractional systematic uncertainty (0.05 = 5%%); single "
-            "value or one per dataset (default 0.05 = 5%%, formula F-CAL-1)"
-        ),
-    )
-    parser.add_argument(
-        "--max-iter",
-        type=int,
-        default=None,
-        metavar="N",
-        help="maximum optimizer function evaluations (default: FitSettings, D-107)",
-    )
-    parser.add_argument(
-        "--tolerance",
-        type=float,
-        default=None,
-        metavar="TOL",
-        help="positive convergence tolerance for ftol/xtol/gtol (default: FitSettings)",
-    )
-    parser.set_defaults(progress_enabled=True)
-    parser.add_argument(
-        "--progress-every",
-        dest="progress_every",
-        type=float,
-        default=1.0,
-        metavar="SECONDS",
-        help="fit progress line interval in seconds (default 1; 0 = every evaluation)",
-    )
-    parser.add_argument(
-        "--no-progress",
-        dest="progress_enabled",
-        action="store_false",
-        help="disable the fit summary and progress lines",
-    )
-    add_output_options(parser)
-    add_config_options(parser)
-    add_runtime_options(parser)
+    add_run_options(parser, CALIB_POLICY)
     parser.set_defaults(handler=_run)
 
 
-def _run(args: argparse.Namespace, *, strict: bool) -> int:
-    if args.config is not None:
-        reject_run_options(args, _RUN_ARG_DEFAULTS, command="calib")
-        return _run_config(args, strict=strict)
+@dataclass(frozen=True)
+class _Dataset:
+    """One resolved dataset, from the command line or a ``[[calib.datasets]]``."""
 
-    if args.data is None or args.mc is None or args.label is None:
-        raise UsageError("--data, --mc and --label are required (repeat per dataset)")
-    count = len(args.data)
-    if len(args.mc) != count or len(args.label) != count:
-        raise UsageError(
-            "--data, --mc and --label must be repeated the same number of times; got "
-            f"{count} data, {len(args.mc)} mc, {len(args.label)} label"
+    data: str | Path
+    mc: str | Path
+    label: str
+    channel_low: int | None
+    channel_high: int | None
+    syst_frac: float
+
+
+def _datasets(values: Mapping[str, object], config: CalibConfig | None) -> tuple[_Dataset, ...]:
+    """Assemble the dataset list of either surface into one shape (D-190)."""
+    if config is not None:
+        return tuple(
+            _Dataset(
+                data=entry.data,
+                mc=entry.mc,
+                label=entry.label,
+                channel_low=entry.channel_low,
+                channel_high=entry.channel_high,
+                syst_frac=entry.syst_frac,
+            )
+            for entry in config.datasets
         )
-    if args.channel_low is None or args.channel_high is None:
-        raise UsageError("--channel-low and --channel-high are required")
-    syst = _resolve_syst(args.syst_frac, count)
-    settings = _settings(args.max_iter, args.tolerance)
-    output = _output(args.output, list(args.label))
-    if args.dry_run:
-        _print_dry_run(args.data, args.mc, args.label, output)
-        return 0
-    validate_output_path(output, force=args.force)
-    if not args.no_plot:
-        validate_output_path(Path(output).with_suffix(".pdf"), force=args.force)
-    hints = [(label, args.channel_low, args.channel_high) for label in args.label]
-    progress = _progress_printer(hints, settings) if args.progress_enabled else None
-    specs = tuple(
-        _build_spec(
-            data_path=args.data[index],
-            mc_path=args.mc[index],
-            label=args.label[index],
-            channel_low=args.channel_low,
-            channel_high=args.channel_high,
+    syst = _resolve_syst(values["syst_frac"], len(values["data"]))
+    return tuple(
+        _Dataset(
+            data=data,
+            mc=mc,
+            label=label,
+            channel_low=values["channel_low"],
+            channel_high=values["channel_high"],
             syst_frac=syst[index],
-            strict=strict,
         )
-        for index in range(count)
-    )
-    return _execute(
-        specs,
-        output=output,
-        force=args.force,
-        no_plot=args.no_plot,
-        settings=settings,
-        progress=progress,
-        progress_every_s=args.progress_every,
-        strict=strict,
-        logger=configure_logging("calib", args.log_level),
-        arguments=argv_arguments(args.argv),
-        config_inputs=(),
+        for index, (data, mc, label) in enumerate(
+            zip(values["data"], values["mc"], values["label"], strict=True)
+        )
     )
 
 
-def _run_config(args: argparse.Namespace, *, strict: bool) -> int:
-    from kc761tool.calib.types import DEFAULT_SYST_FRAC
-
-    config = load_calib_config(args.config, default_syst_frac=DEFAULT_SYST_FRAC)
-    output = _output(config.output, [entry.label for entry in config.datasets])
-    if args.dry_run or config.dry_run:
+def _run(args: argparse.Namespace, *, strict: bool) -> int:
+    logger = configure_logging("calib", args.log_level)
+    config = load_calib_config(args.config) if args.config is not None else None
+    values = resolve_run_options(
+        CALIB_POLICY, args, config_values=config.values() if config is not None else None
+    )
+    datasets = _datasets(values, config)
+    hints = [(entry.label, entry.channel_low, entry.channel_high) for entry in datasets]
+    output = _output(values["output"], [entry.label for entry in datasets])
+    if values["dry_run"]:
         _print_dry_run(
-            [str(entry.data) for entry in config.datasets],
-            [str(entry.mc) for entry in config.datasets],
-            [entry.label for entry in config.datasets],
+            [str(entry.data) for entry in datasets],
+            [str(entry.mc) for entry in datasets],
+            [entry.label for entry in datasets],
             output,
         )
         return 0
-    force = bool(args.force or config.force)
+    force = bool(values["force"])
     validate_output_path(output, force=force)
-    if not config.no_plot:
+    if not values["no_plot"]:
         validate_output_path(Path(output).with_suffix(".pdf"), force=force)
-    hints = [(entry.label, entry.channel_low, entry.channel_high) for entry in config.datasets]
-    progress = _progress_printer(hints, None) if args.progress_enabled else None
+    # The optimizer overrides are command-line-only (the batch table uses
+    # FitSettings defaults); the progress controls are global (D-130).
+    settings = None if config is not None else _settings(values["max_iter"], values["tolerance"])
+    progress = _progress_printer(hints, settings) if values["progress_enabled"] else None
     specs = tuple(
         _build_spec(
             data_path=entry.data,
@@ -206,20 +321,20 @@ def _run_config(args: argparse.Namespace, *, strict: bool) -> int:
             syst_frac=entry.syst_frac,
             strict=strict,
         )
-        for entry in config.datasets
+        for entry in datasets
     )
     return _execute(
         specs,
         output=output,
         force=force,
-        no_plot=config.no_plot,
-        settings=None,
+        no_plot=bool(values["no_plot"]),
+        settings=settings,
         progress=progress,
-        progress_every_s=args.progress_every,
+        progress_every_s=float(values["progress_every"]),
         strict=strict,
-        logger=configure_logging("calib", args.log_level),
+        logger=logger,
         arguments=argv_arguments(args.argv),
-        config_inputs=(config.config_path,),
+        config_inputs=(config.config_path,) if config is not None else (),
     )
 
 

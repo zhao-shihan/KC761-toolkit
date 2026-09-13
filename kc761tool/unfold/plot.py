@@ -1,12 +1,12 @@
-"""Unfold figure (D-153).
+"""Unfold figure (D-153/D-189).
 
 This module reproduces the unfolding figure: three stacked
 panels with height ratio 2:2:1 (linear-y spectrum, log-y spectrum, relative
 residuals), or the two spectrum panels alone in ``calib_only`` mode. The energy
-x-axis is logarithmic with rotated ticks; bins at or below zero energy are
-truncated at the first bin ending above zero. Spectrum layers are histograms
-(stairs) with two nested uncertainty bands (outer total, inner systematic).
-Plotting is per-package on purpose (D-153).
+x-axis is linear; only the y-axis of the middle panel is logarithmic. Bins at or
+below zero energy are truncated at the first bin ending above zero. Spectrum
+layers are histograms (stairs) with two nested uncertainty bands (outer total,
+inner systematic). Plotting is per-package on purpose (D-153).
 """
 
 from __future__ import annotations
@@ -37,7 +37,6 @@ _COLOR_RESIDUAL_LEVEL = "red"  # residual +/- level guides
 _BAND_ALPHA_TOTAL = 0.15  # outer band: the total uncertainty
 _BAND_ALPHA_SYST = 0.30  # inner band: the systematic part
 _RESIDUAL_MAX = 0.6
-_LOG_X_LABELROTATION = 45.0
 
 
 def _save_fig(fig, out_plot: str | Path, force: bool) -> Path:
@@ -54,11 +53,6 @@ def _save_fig(fig, out_plot: str | Path, force: bool) -> Path:
     fig.savefig(out, bbox_inches="tight", pad_inches=0.3)
     plt.close(fig)
     return out
-
-
-def _log_x_axis(ax) -> None:
-    ax.set_xscale("log")
-    ax.tick_params(axis="x", which="both", labelrotation=_LOG_X_LABELROTATION, labelsize=9)
 
 
 def _positive_start(edges: np.ndarray) -> int:
@@ -171,7 +165,6 @@ def _spectrum_panel(ax, result: UnfoldResult, title: str, *, log: bool) -> None:
         )
     if log:
         ax.set_yscale("log")
-    _log_x_axis(ax)
     ax.set_xlim(edges[0], edges[-1])
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Counts")
@@ -213,7 +206,6 @@ def _residual_panel(ax, result: UnfoldResult, title: str) -> None:
         ax.axhline(level, color=_COLOR_RESIDUAL_LEVEL, lw=0.6, ls=":")
     ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Residual")
-    _log_x_axis(ax)
     ax.set_xlim(edges[lo], edges[-1])
     ax.set_ylim(-_RESIDUAL_MAX, _RESIDUAL_MAX)
     ax.set_title(title, fontsize=10)

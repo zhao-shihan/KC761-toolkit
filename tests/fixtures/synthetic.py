@@ -205,16 +205,17 @@ def _unfold_settings() -> tuple[tuple[str, str], ...]:
         ("energy_high_kev", "2400.0"),
         ("channel_low", "0"),
         ("channel_high", "23"),
-        ("pad_nsigma", "5.0"),
         ("syst_frac", "0.1"),
         ("snip_enabled", "0"),
         ("snip_threshold_sigma", "5.0"),
-        ("snip_protect_sigma", "2.0"),
+        ("snip_protect_bins", "3"),
         ("snip_floor", "0.1"),
         ("snip_iterations", "0"),
         ("snip_max_iterations", "8"),
         ("snip_clipped_bins", "0"),
         ("snip_clipped_index_range", "-1:-1"),
+        ("snip_candidates", "0"),
+        ("snip_protected_bins", "0"),
         ("snip_baseline_sha256", ""),
         ("snip_mask_sha256", ""),
         ("chi2", "12.5"),
@@ -240,9 +241,7 @@ def make_unfold_product() -> UnfoldProduct:
         sigma_systematic=Histogram1D(
             axis=spectrum.axis, values=sigma_syst, variances=sigma_syst**2
         ),
-        sigma_total=Histogram1D(
-            axis=spectrum.axis, values=sigma_total, variances=sigma_total**2
-        ),
+        sigma_total=Histogram1D(axis=spectrum.axis, values=sigma_total, variances=sigma_total**2),
         refolded=Histogram1D(
             axis=refolded.axis, values=refolded.values, variances=refolded.variances
         ),

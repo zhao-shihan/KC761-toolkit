@@ -17,10 +17,16 @@ import numpy as np
 from numpy.typing import NDArray
 
 from kc761tool.cli._common import (
-    add_output_options,
-    add_runtime_options,
     argv_arguments,
     default_output_beside,
+)
+from kc761tool.cli._registry import (
+    RunPolicy,
+    add_run_options,
+    merge_options,
+    output_options,
+    resolve_run_options,
+    runtime_options,
 )
 from kc761tool.errors import Kc761toolError
 from kc761tool.runtime import configure_logging
@@ -30,6 +36,16 @@ _DURATION_RE = re.compile(
     r"^(?P<days>\d+)d(?P<hours>\d+)h(?P<minutes>\d+)m(?P<seconds>\d+(?:\.\d+)?)s$"
 )
 _INTEGER_RE = re.compile(r"^\d+$")
+
+
+#: Declared option surface (D-190); the positional CSV stays argparse-native.
+CSV2ROOT_POLICY = RunPolicy(
+    command="csv2root",
+    spec=merge_options(
+        output_options(with_plot=False, default_hint="next to the input CSV file"),
+        runtime_options(),
+    ),
+)
 
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -49,8 +65,7 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
         metavar="CSV",
         help="input CSV file (for example work/data/2609a/am241.csv)",
     )
-    add_output_options(parser, with_plot=False, default_hint="next to the input CSV file")
-    add_runtime_options(parser)
+    add_run_options(parser, CSV2ROOT_POLICY)
     parser.set_defaults(handler=_run)
 
 
@@ -126,11 +141,12 @@ def parse_kc761_csv(text: str, *, source: str = "<input>") -> tuple[NDArray[np.f
 
 
 def _run(args: argparse.Namespace, *, strict: bool) -> int:
-    logger = configure_logging("csv2root", args.log_level)
+    values = resolve_run_options(CSV2ROOT_POLICY, args)
+    logger = configure_logging("csv2root", str(values["log_level"]))
     input_path = Path(args.input).expanduser()
     output = (
-        Path(args.output).expanduser()
-        if args.output is not None
+        Path(str(values["output"])).expanduser()
+        if values["output"] is not None
         else default_output_beside(input_path, input_path.stem + ".root")
     )
     from kc761tool.schema.io import validate_output_path

@@ -5,7 +5,8 @@ Public entries for the CLI:
 * :func:`kc761tool.unfold.compose.run_compose` - compose ``R = C . p_tilde .
   diag(eta)`` over the full primary axis and optionally write the inspection
   artifact (F-RESP-2/F-RESP-3).
-* :func:`kc761tool.unfold.unfold.run_unfold` - full unfold (window/pad, exact-zero
+* :func:`kc761tool.unfold.unfold.run_unfold` - full unfold (reported-window
+  solve space, exact-zero
   pruning, non-negative Tikhonov solve, strict stat/syst bands) or the
   ``calib_only`` channel-to-energy relabeling (F-SOLVE/F-UNC/F-UNF).
 

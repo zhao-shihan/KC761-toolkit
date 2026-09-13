@@ -21,7 +21,7 @@ from kc761tool.core.solver import (
     DEFAULT_DIFFERENCE_ORDER,
     DEFAULT_SNIP_FLOOR,
     DEFAULT_SNIP_MAX_ITERATIONS,
-    DEFAULT_SNIP_PROTECT_SIGMA,
+    DEFAULT_SNIP_PROTECT_BINS,
     DEFAULT_SNIP_THRESHOLD_SIGMA,
     KktCertificate,
     RegularizationSpec,
@@ -50,11 +50,10 @@ class UnfoldSettings:
     energy_high_kev: float
     alpha: float | None
     difference_order: int = DEFAULT_DIFFERENCE_ORDER
-    pad_nsigma: float = 5.0
     syst_frac: float = DEFAULT_SYST_FRAC
     snip_enabled: bool = True
     snip_threshold_sigma: float = DEFAULT_SNIP_THRESHOLD_SIGMA
-    snip_protect_sigma: float = DEFAULT_SNIP_PROTECT_SIGMA
+    snip_protect_bins: int = DEFAULT_SNIP_PROTECT_BINS
     snip_floor: float = DEFAULT_SNIP_FLOOR
     snip_iterations: int | None = None
     snip_max_iterations: int = DEFAULT_SNIP_MAX_ITERATIONS
@@ -67,8 +66,6 @@ class UnfoldSettings:
                 f"energy_low_kev must be < energy_high_kev, got "
                 f"{self.energy_low_kev!r} and {self.energy_high_kev!r}"
             )
-        if not np.isfinite(self.pad_nsigma) or self.pad_nsigma < 0.0:
-            raise ValidationError(f"pad_nsigma must be finite and >= 0, got {self.pad_nsigma!r}")
         if not np.isfinite(self.syst_frac) or self.syst_frac < 0.0:
             raise ValidationError(f"syst_frac must be finite and >= 0, got {self.syst_frac!r}")
         if self.alpha is not None and (not np.isfinite(self.alpha) or self.alpha <= 0.0):
@@ -78,11 +75,11 @@ class UnfoldSettings:
         self.snip_settings()
 
     def snip_settings(self) -> SnipSettings:
-        """Validated F-SOLVE-4/5 SNIP configuration (D-156/D-157)."""
+        """Validated F-SOLVE-4/5 SNIP configuration (D-156/D-157/D-188)."""
         return SnipSettings(
             enabled=bool(self.snip_enabled),
             threshold_sigma=float(self.snip_threshold_sigma),
-            protect_sigma=float(self.snip_protect_sigma),
+            protect_bins=self.snip_protect_bins,
             floor=float(self.snip_floor),
             iterations=self.snip_iterations,
             max_iterations=int(self.snip_max_iterations),
@@ -99,24 +96,32 @@ class UnfoldSettings:
 class WindowSelection:
     """Energy window resolved to channel rows and primary bins (F-UNF-1).
 
-    ``channel_low``/``channel_high`` are the reported data rows; ``solve_low``/
-    ``solve_high`` are the padded solver rows (F-BIN-3). ``report_low``/
-    ``report_high`` index the **full** primary axis (inclusive) and select the
-    bins whose centers lie in the requested energy window.
+    ``channel_low``/``channel_high`` are the reported data rows **and** the fit
+    rows; ``report_low``/``report_high`` index the full primary axis (inclusive)
+    and select the bins whose centers lie in the requested energy window; those
+    bins are also the fit columns (D-187).
     """
 
     energy_low_kev: float
     energy_high_kev: float
     channel_low: int
     channel_high: int
-    solve_low: int
-    solve_high: int
     report_low: int
     report_high: int
 
     @property
+    def midpoint_kev(self) -> float:
+        """Midpoint of the requested window bounds (the F-SOLVE-4 reference).
+
+        This is the continuous ``(elo + ehi) / 2``; the caller maps it to the
+        nearest primary-bin center, which is what D-157/D-188(c) use as
+        ``iteration_reference_index``.
+        """
+        return 0.5 * (self.energy_low_kev + self.energy_high_kev)
+
+    @property
     def n_fit_rows(self) -> int:
-        return self.solve_high - self.solve_low + 1
+        return self.channel_high - self.channel_low + 1
 
     @property
     def n_report_bins(self) -> int:

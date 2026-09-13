@@ -166,21 +166,22 @@ META_ENERGY_LOW_KEV: Final = "energy_low_kev"
 META_ENERGY_HIGH_KEV: Final = "energy_high_kev"
 META_CHANNEL_LOW: Final = "channel_low"
 META_CHANNEL_HIGH: Final = "channel_high"
-META_PAD_NSIGMA: Final = "pad_nsigma"
 META_SYST_FRAC: Final = "syst_frac"
 META_CHI2: Final = "chi2"
 META_DOF: Final = "dof"
 META_COVARIANCE_SCALE: Final = "covariance_scale"
 
-# SNIP peak-mask settings (D-154..D-161); enabled is recorded as int (0/1).
+# SNIP peak-mask settings (D-154..D-161, D-188); enabled is recorded as int (0/1).
 META_SNIP_ENABLED: Final = "snip_enabled"
 META_SNIP_ITERATIONS: Final = "snip_iterations"
 META_SNIP_MAX_ITERATIONS: Final = "snip_max_iterations"
 META_SNIP_THRESHOLD_SIGMA: Final = "snip_threshold_sigma"
-META_SNIP_PROTECT_SIGMA: Final = "snip_protect_sigma"
+META_SNIP_PROTECT_BINS: Final = "snip_protect_bins"
 META_SNIP_FLOOR: Final = "snip_floor"
 META_SNIP_CLIPPED_BINS: Final = "snip_clipped_bins"
 META_SNIP_CLIPPED_INDEX_RANGE: Final = "snip_clipped_index_range"
+META_SNIP_CANDIDATES: Final = "snip_candidates"
+META_SNIP_PROTECTED_BINS: Final = "snip_protected_bins"
 META_SNIP_BASELINE_SHA256: Final = "snip_baseline_sha256"
 META_SNIP_MASK_SHA256: Final = "snip_mask_sha256"
 
@@ -208,16 +209,17 @@ UNFOLD_SETTING_TYPES: Final[dict[str, type]] = {
     META_ENERGY_HIGH_KEV: float,
     META_CHANNEL_LOW: int,
     META_CHANNEL_HIGH: int,
-    META_PAD_NSIGMA: float,
     META_SYST_FRAC: float,
     META_SNIP_ENABLED: int,
     META_SNIP_THRESHOLD_SIGMA: float,
-    META_SNIP_PROTECT_SIGMA: float,
+    META_SNIP_PROTECT_BINS: int,
     META_SNIP_FLOOR: float,
     META_SNIP_ITERATIONS: int,
     META_SNIP_MAX_ITERATIONS: int,
     META_SNIP_CLIPPED_BINS: int,
     META_SNIP_CLIPPED_INDEX_RANGE: str,
+    META_SNIP_CANDIDATES: int,
+    META_SNIP_PROTECTED_BINS: int,
     META_SNIP_BASELINE_SHA256: str,
     META_SNIP_MASK_SHA256: str,
     META_CHI2: float,
