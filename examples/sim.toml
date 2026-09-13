@@ -34,6 +34,6 @@ events = 1_000_000_000
 # Matrix mode: `mode` is "plane-front-gamma" or "sphere-gamma"; `calib` supplies both axes.
 [[sim.runs]]
 mode = "plane-front-gamma"
-calib = "work/calib/calib-2609a.root"
+calib = "work/calib/calib.root"
 events = 100_000_000
 threads = 8
