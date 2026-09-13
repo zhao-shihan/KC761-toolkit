@@ -6,7 +6,7 @@
 config_version = 1
 
 [unfold]
-data = "work/data/th232-260908-subbkg.root"
+data = "work/data/th232-sub-bkg.root"
 calib = "work/calib/calib.root"
 sim = "work/sim/calib-plane-front-gamma-n1000000000-s908136382.root"
 energy_low = 30.0

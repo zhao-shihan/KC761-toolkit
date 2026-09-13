@@ -46,35 +46,37 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 WORK = REPO_ROOT / "work"
-CALIB_PRODUCT = WORK / "calib" / "calib-2609a.root"
-SIM_PRODUCT = WORK / "sim" / "calib-2609a-plane-front-gamma-n100000000-s908136382.root"
-DATA_PRODUCT = WORK / "data" / "2609a" / "th232-260908-sub-bkg-260909.root"
+# The same stable, version-agnostic spellings the shipped examples use
+# (D-185): one path convention for examples/ and this tool.
+CALIB_PRODUCT = WORK / "calib" / "calib.root"
+SIM_PRODUCT = WORK / "sim" / "calib-plane-front-gamma-n100000000-s908136382.root"
+DATA_PRODUCT = WORK / "data" / "th232-sub-bkg.root"
 
 CALIB_DATASETS: tuple[tuple[str, str, str, int, int], ...] = (
     (
         "Am241",
-        "work/data/2609a/am241-260910-sub-bkg-260909.root",
+        "work/data/am241-sub-bkg.root",
         "work/sim/am241-n3000000-s908136382.root",
         140,
         165,
     ),
     (
         "Lu176",
-        "work/data/2609a/lu176-260910-sub-bkg-260909.root",
+        "work/data/lu176-sub-bkg.root",
         "work/sim/lu176-n20000000-s908136382.root",
         140,
         450,
     ),
     (
         "Th232",
-        "work/data/2609a/th232-260908-sub-bkg-260909.root",
+        "work/data/th232-sub-bkg.root",
         "work/sim/th232-n200000000-s908136382.root",
         140,
         1400,
     ),
     (
         "Ra226",
-        "work/data/2609a/ra226-260908-sub-bkg-260909.root",
+        "work/data/ra226-sub-bkg.root",
         "work/sim/ra226-n100000000-s908136382.root",
         140,
         1400,
@@ -149,7 +151,7 @@ def _time_call(function: Callable[[], Any], repeat: int) -> tuple[list[float], A
 def bench_kernel(repeat: int) -> dict[str, Any]:
     """Response assembly + Jacobian on the calibration product."""
     if not _have(CALIB_PRODUCT):
-        return {"scenario": "kernel", "skipped": "work/calib/calib-2609a.root missing"}
+        return {"scenario": "kernel", "skipped": "work/calib/calib.root missing"}
 
     from kc761tool.core.binning import ChannelGrid, source_mode_deposition_edges_kev
     from kc761tool.core.kernel import response_triples
